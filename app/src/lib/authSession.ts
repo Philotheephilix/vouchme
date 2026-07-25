@@ -1,31 +1,23 @@
 /**
  * app/src/lib/authSession.ts
  *
- * docs/96-ux-audit.md U-24: outside World App, "Sign in with World" fell back to asking the
- * injected wallet for an address and nothing else — no signature was ever requested or checked,
- * so the plain, client-writable `aval_addr` cookie *was* the identity. Setting that cookie to
- * another member's address (curl, devtools, whatever) was enough to render their dashboard;
- * confirmed live in this fix's testing that the leak happens in the raw server-rendered HTML,
- * before any client JS even runs.
+ * Server-side sign-in: a real EIP-191 `personal_sign` over a server-issued, single-use, expiring
+ * nonce, verified server-side with viem's `verifyMessage`, and only then a session — bound to the
+ * verified address by an HMAC signature the client cannot forge or edit. `aval_session` (httpOnly)
+ * is that session, and the only cookie any server page trusts for authorization.
  *
- * Fix: a real EIP-191 `personal_sign` over a server-issued, single-use, expiring nonce, verified
- * server-side with viem's `verifyMessage`, and only then a session — bound to the verified address
- * by an HMAC signature the client cannot forge or edit. `aval_session` (httpOnly) is that session
- * and the only cookie any server page in this fix's scope trusts for authorization.
- *
- * `aval_addr` still exists and is still written (mirrored) alongside it, because src/lib/session.tsx
- * reads it client-side to restore UI state without a round trip on load, and because other server
- * routes outside this fix's scope (src/app/agents/page.tsx — explicitly out of scope for this fix)
- * still read it directly. It is display/back-compat only now: nothing that grants access to
- * another member's data in Home, Reports or Profile trusts it any more.
+ * `aval_addr` is written (mirrored) alongside it, plain and client-writable, because
+ * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load, and
+ * because src/app/agents/page.tsx still reads it directly. It is display/back-compat only: nothing
+ * that grants access to another member's data in Home, Reports or Profile trusts it.
  *
  * Nonce pattern deliberately mirrors src/app/api/enroll/rp-context/route.ts: a nonce + issuedAt +
  * expiresAt signed server-side with the same secret this deployment already provisions
- * (ATTESTOR_PRIVATE_KEY — the only server secret this deployment has; rp-context already reuses it
- * for the same reason, see that file's doc comment) so the token is self-verifying and tamper-
- * evident. A small in-memory consumed-set enforces single-use on top of that (this deployment is
- * one long-running process — see docs/96-ux-audit.md U-4/U-5 — so that's sufficient; it resets on
- * restart, which only means old nonces stop being redeemable, never the reverse).
+ * (ATTESTOR_PRIVATE_KEY — the only server secret this deployment has; rp-context reuses it for the
+ * same reason, see that file's doc comment) so the token is self-verifying and tamper-evident. A
+ * small in-memory consumed-set enforces single-use on top of that: this deployment is one
+ * long-running process, so that is sufficient, and it resets on restart, which only means old
+ * nonces stop being redeemable, never the reverse.
  */
 
 import "server-only";
@@ -65,7 +57,7 @@ export class AuthConfigError extends Error {}
 export const SESSION_COOKIE = "aval_session";
 export const LEGACY_ADDR_COOKIE = "aval_addr";
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — matches the previous aval_addr lifetime.
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — the aval_addr mirror in session.tsx must match.
 const NONCE_TTL_SECONDS = 5 * 60; // short-lived, same order as ATTESTATION_TTL_SECONDS.
 
 function getSecret(): string {
@@ -154,15 +146,13 @@ export function buildSignInMessage(address: Address, nonce: NonceToken): string 
  *
  * Two verification schemes, because there are two kinds of signer and World App is the second:
  *
- *  1. **EOA** — `ecrecover` over the EIP-191 digest. viem's pure `verifyMessage` does this, and it
- *     is all this function used to do.
+ *  1. **EOA** — `ecrecover` over the EIP-191 digest, which viem's pure `verifyMessage` does.
  *  2. **Smart contract account (ERC-1271)** — the signature is validated by *calling the account
  *     contract*, which has its own rules. Nothing can be recovered from it; `ecrecover` returns
  *     some unrelated address and verification fails.
  *
- * World App wallets are smart contract accounts, so `walletAuth` signatures are ERC-1271. Under the
- * EOA-only check they were rejected with "Could not verify this signature was produced by that
- * address" — the signature was perfectly valid and the verifier was asking the wrong question.
+ * World App wallets are smart contract accounts, so `walletAuth` signatures are ERC-1271 and an
+ * EOA-only check rejects them even though they are perfectly valid.
  *
  * The public-client `verifyMessage` action handles both: it tries EOA recovery, then falls back to
  * an on-chain ERC-1271 `isValidSignature` call (and ERC-6492 for accounts not yet deployed, which
@@ -224,8 +214,8 @@ export interface CookieReader {
   get(name: string): { value: string } | undefined;
 }
 
-/** The one function every server page/route in this fix's scope calls to find out who's signed
- *  in. Cryptographically verifies `aval_session`; never reads `aval_addr` for this purpose. Returns
+/** The one function every server page/route calls to find out who's signed in.
+ *  Cryptographically verifies `aval_session`; never reads `aval_addr` for this purpose. Returns
  *  null for missing, forged, tampered, expired or malformed sessions — callers then behave exactly
  *  as if signed out. */
 export function readVerifiedAddress(cookieStore: CookieReader): Address | null {

@@ -22,8 +22,7 @@ interface VerifyRequestBody {
    * the injected-wallet path, the message can't be silently reconstructed server-side and must be
    * supplied. Still bound to a server-issued, single-use nonce (checked below) and still run
    * through the same signature check, so this isn't a second trust path — MiniKit already performs
-   * a real on-device signature via World App; this is what turns that into a verified session
-   * instead of the raw, unchecked address hand-off it was before this fix.
+   * a real on-device signature via World App, and this is what turns that into a verified session.
    */
   message?: string;
 }
@@ -35,10 +34,10 @@ function isSecureRequest(req: Request): boolean {
 }
 
 /**
- * Step 2 — and the only place a session is ever minted (docs/96-ux-audit.md U-24). Verifies a real
- * EIP-191 `personal_sign` signature over the exact message this server would have built for the
- * claimed address + a nonce this server issued, single-use and unexpired. Only on success does it
- * set `aval_session` — every other path returns 401 and touches no cookie at all.
+ * Step 2 — and the only place a session is ever minted. Verifies a real EIP-191 `personal_sign`
+ * signature over the exact message this server would have built for the claimed address + a nonce
+ * this server issued, single-use and unexpired. Only on success does it set `aval_session` — every
+ * other path returns 401 and touches no cookie at all.
  *
  * The message itself is never taken from the client (only `address`, `signature` and the opaque
  * `nonce` token are) — it's rebuilt server-side from `buildSignInMessage`, so nothing the client

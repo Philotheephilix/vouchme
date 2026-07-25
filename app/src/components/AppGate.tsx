@@ -9,24 +9,17 @@ import { BottomNav } from "./BottomNav";
 type GateStatus = "checking" | "not-enrolled" | "enrolled" | "error";
 
 /** Bounds how long a single identity check can hang before it's treated as indeterminate rather
- *  than an infinite "checking…" spinner (docs/96-ux-audit.md U-2 / U-11: no control should loop
- *  forever with no exit). */
-// Measured against the live deployment on 2026-07-25: `/api/identity/{addr}` answered anywhere
-// from 0.5s (warm) to 107s (cold — a full `getLogs` scan from DEPLOYMENT_BLOCK, plus on-demand
-// route compilation under `next dev`). A 15s budget aborted the app's own healthy request and
-// showed "Can't reach World Chain right now" while the chain was perfectly reachable; two
-// independent runs never landed at all (126s, 112s).
-//
-// The cold path is now attacked at the source — chunk fetches run concurrently (src/lib/chain.ts),
-// the cache is primed at boot (src/instrumentation.ts), and production builds don't compile
-// per-request — so this ceiling should never be reached in practice. It stays generous anyway:
-// aborting early cannot make the answer arrive sooner, it can only replace a real answer with a
-// false alarm.
+ *  than an infinite "checking…" spinner — no control should loop forever with no exit.
+ *
+ *  Deliberately generous: a cold `/api/identity/{addr}` is a full `getLogs` scan from
+ *  DEPLOYMENT_BLOCK and can run into the minutes. Concurrent chunk fetches (src/lib/chain.ts) and
+ *  a cache primed at boot (src/instrumentation.ts) should keep it far below this ceiling in
+ *  practice, and aborting early cannot make the answer arrive sooner — it can only replace a real
+ *  answer with a false alarm. */
 const IDENTITY_CHECK_TIMEOUT_MS = 120_000;
 
 /**
- * The whole app is gated on session + enrollment state (product direction, superseding the
- * earlier "labelled demo view" — that idea is gone):
+ * The whole app is gated on session + enrollment state:
  *
  *   signed out             -> LoginScreen only. Nothing else renders, on any route.
  *   signed in, unenrolled  -> forced onto /enroll (onboarding). No nav, no other page reachable.
@@ -41,13 +34,12 @@ const IDENTITY_CHECK_TIMEOUT_MS = 120_000;
  *   404            -> a real, explicit "no Enrolled record for this address" answer -> not enrolled.
  *   anything else  -> the check FAILED (5xx from an RPC blip, a network error, a timeout, a
  *                     response that doesn't even parse as the expected envelope). This is not
- *                     the same fact as 404 and must never be treated as one — docs/96-ux-audit.md
- *                     finding U-2: reading a flaky RPC call as "you have no account" silently
- *                     disowns real enrolled members (reproduced live against carol.aval.eth and
- *                     ring1.aval.eth) and pushes them onto /enroll with an empty handle box,
- *                     inviting them to mint a second identity. So: 404 routes to /enroll; nothing
- *                     else ever does. A failed check shows a retry screen and holds the user
- *                     exactly where they were.
+ *                     the same fact as 404 and must never be treated as one: reading a flaky RPC
+ *                     call as "you have no account" silently disowns real enrolled members and
+ *                     pushes them onto /enroll with an empty handle box, inviting them to mint a
+ *                     second identity. So: 404 routes to /enroll; nothing else ever does. A
+ *                     failed check shows a retry screen and holds the user exactly where they
+ *                     were.
  *
  * Re-run whenever the signed-in address changes (including right after a fresh sign-in) so a
  * switch of account, or enrolling in another tab, is picked up rather than cached.

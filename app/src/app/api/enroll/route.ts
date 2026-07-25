@@ -90,11 +90,11 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // ── build the verify-endpoint body for whichever of the three proof shapes IDKit produced
-  // (docs task Q4: empirically, `selfieCheckLegacy()` — the only preset IDKit's own SDK exposes
-  // for this credential — is typed "This preset only returns World ID 3.0 proofs," so the 3.0
-  // branch is the one this flow actually exercises; the other two are handled for completeness
-  // against the verify endpoint's documented `oneOf`). ───────────────────────────────────────────
+  // ── build the verify-endpoint body for whichever of the three proof shapes IDKit produced.
+  // `selfieCheckLegacy()` — the only preset IDKit's own SDK exposes for this credential — is typed
+  // "This preset only returns World ID 3.0 proofs," so the 3.0 branch is the one this flow actually
+  // exercises; the other two are handled for completeness against the verify endpoint's documented
+  // `oneOf`. ─────────────────────────────────────────────────────────────────────────────────────
   let verifyBody: Record<string, unknown>;
   if (result.protocol_version === "3.0") {
     verifyBody = {

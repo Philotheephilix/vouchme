@@ -19,8 +19,8 @@ export type AccountKind = "anchor" | "member" | "platform" | "agent";
  *  The UI must never conflate them (docs/07-app-api.md, contracts/script/GenesisAnchorBook.sol). */
 export type AnchorSource = "orb" | "genesis-testnet" | "world-id-orb";
 
-/** docs/01-trust-math.md §11 — T1 = 55, T2 = 140 (errata E-16 raised both with `base`). The
- *  authoritative values are `@aval/engine`'s `T1` / `T2`; never retype them. */
+/** docs/01-trust-math.md §11 — T1 = 55, T2 = 140. The authoritative values are `@aval/engine`'s
+ *  `T1` / `T2`; never retype them. */
 export type Tier = 0 | 1 | 2;
 export type PlatformTier = "P0" | "P1" | "P2";
 
@@ -29,10 +29,9 @@ export type Credential = "orb" | "selfie" | "document";
 
 /** docs/01-trust-math.md §11 — the four human promotion gates. */
 export interface Gates {
-  /** score >= T1 (55) / >= T2 (140) — errata E-16 */
+  /** score >= T1 (55) / >= T2 (140) */
   g1ScoreThreshold: boolean;
-  /** >= MIN_VOUCHERS distinct *contributing* inbound vouches — counting raw inbound edges here is
-   *  the hole errata E-14 closed. */
+  /** >= MIN_VOUCHERS distinct *contributing* inbound vouches — raw inbound edges do not count. */
   g2TwoDistinctVouchers: boolean;
   /** path of <= 3 active vouches to an origin exists */
   g3PathToOrigin: boolean;
@@ -148,7 +147,10 @@ export type ReportStatus = "pending" | "upheld" | "rejected" | "decayed";
 /** docs/12-reporting.md §3 — the challenge game. */
 export interface ReportEntry {
   id: string;
-  direction: "against" | "filed";
+  /** Relative to the SIGNED-IN viewer, not to the subject of whatever page renders it.
+   *  "other" is load-bearing: `REPORTS` carries every report in the graph (so /profile can select
+   *  by subject), and most of them involve neither the viewer nor anyone they know. */
+  direction: "against" | "filed" | "other";
   reporter: { ensName: EnsName; kind: AccountKind; score: number };
   target: EnsName;
   status: ReportStatus;
@@ -160,9 +162,9 @@ export interface ReportEntry {
   reasonCode: string;
   /** The exact `ReportRegistry.State` this report is in on chain — PENDING, ARBITRATION, UPHELD,
    *  UNPROVEN, MALICIOUS or WITHDRAWN. `status` above is the engine's four-way reduction, in which
-   *  UNPROVEN, MALICIOUS and WITHDRAWN all read as "rejected"; errata E-12 is explicit that those
-   *  are different outcomes, so the screen shows this one when it exists. `null` in fixture mode,
-   *  where no chain state exists to report. */
+   *  UNPROVEN, MALICIOUS and WITHDRAWN all read as "rejected". They are different outcomes, so the
+   *  screen shows this one when it exists. `null` in fixture mode, where no chain state exists to
+   *  report. */
   onChainState: string | null;
   /** The transaction that filed the report. `null` off-chain. */
   txHash: string | null;
@@ -177,8 +179,19 @@ export interface ReportEntry {
   voidReason: string | null;
   /** True only if this report is among the top-3 upheld reports actually subtracted from `score`
    *  (docs/01-trust-math.md §7.3). A pending report is never counted here — an accusation is not a
-   *  verdict — and no report is ever counted against an anchor (errata E-6). */
+   *  verdict — and no report is ever counted against an anchor. */
   countedTowardScore: boolean;
+  /** The target's live published score and score-at-risk, so the effect line can state what this
+   *  report ACTUALLY did rather than whether it was selected by the top-K cut. A report can be
+   *  valid, counted and non-zero and still move neither number, because the engine floors the
+   *  result at `base + tenure` — an accusation cannot reduce someone below the fact that they are
+   *  a live human. Rendering "−10.0" beside an unchanged 20.0 is the failure this prevents. */
+  targetScore: number;
+  targetScoreAtRisk: number;
+  /** The target's positive-only score, before any report is subtracted. `targetSPlus - targetScore`
+   *  is the deduction that ACTUALLY landed; a report can be counted by the engine and still move
+   *  nothing, because the result is floored at `base + tenure` and anchors ignore inbound edges. */
+  targetSPlus: number;
   /** True if it is subtracted from `scoreAtRisk`, which prices pending accusations in. */
   countedTowardRisk: boolean;
 }
@@ -202,9 +215,9 @@ export interface SimulateVouchResult {
   /** Reasons this vouch would REVERT on chain, in the user's words. Empty means it can proceed.
    *
    *  `AvalRegistry.vouch()` reverts with `VouchExists()` if the edge is already active and
-   *  `RateLimited()` within 24h of the voucher's last vouch. Neither was checked, so the wizard
-   *  happily walked a user through a ~20s Selfie Check into a transaction that could not succeed
-   *  (docs/94-acceptance.md P0-2). Computed from live `members()` state, never assumed. */
+   *  `RateLimited()` within 24h of the voucher's last vouch. Checking both up front keeps the
+   *  wizard from walking a user through a ~20s Selfie Check into a transaction that cannot
+   *  succeed. Computed from live `members()` state, never assumed. */
   blockers: string[];
 }
 
@@ -313,8 +326,8 @@ export interface ExploreScenario {
   exhibit: string;
   description: string;
   /** False when this deployment's graph contains no such structure. The column then shows the
-   *  reason and NOTHING else — no score, no tier, no narrative. A scenario with zero nodes that
-   *  still prints "Six phones on a table" and a score is the exact defect this flag closes. */
+   *  reason and NOTHING else — no score, no tier, no narrative, since a scenario with zero nodes
+   *  behind it must never print one anyway. */
   available: boolean;
   unavailableReason: string | null;
   nodes: ExploreNode[];

@@ -3,14 +3,12 @@
 import { useAuth } from "@/lib/session";
 
 /** The entire signed-out experience. No score, no dial, no endorsement rows, no other user's
- *  data — nothing renders until someone is signed in (product direction: "the first page should
- *  be login and without it don't show anything"). */
+ *  data — nothing renders until someone is signed in. */
 export function LoginScreen() {
   const { connecting, error, connect, clearError, isInWorldApp } = useAuth();
-  // docs/96-ux-audit.md U-24 / docs/95-lifecycle.md L-19: the button said "Sign in with World" on
-  // every surface, but outside World App it opens whatever browser wallet is installed — no World
-  // ID is involved on that path. `isInWorldApp` is the host's own signal (`window.WorldApp`), so
-  // the label names the thing the tap will actually do.
+  // Outside World App no World ID is involved — the button opens whatever browser wallet is
+  // installed. `isInWorldApp` is the host's own signal (`window.WorldApp`), so the label names
+  // the thing the tap will actually do.
   const label = isInWorldApp ? "Sign in with World" : "Connect a wallet";
 
   return (

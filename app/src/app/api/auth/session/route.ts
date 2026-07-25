@@ -5,12 +5,9 @@ import { readVerifiedAddress } from "@/lib/authSession";
 /**
  * Who does the SERVER believe is signed in?
  *
- * The client used to answer this itself, from `MiniKit.user.walletAddress` or the plain `aval_addr`
- * cookie. Both are client-side facts, and neither implies the httpOnly `aval_session` cookie that
- * every server-rendered page actually authorizes against. The two could therefore disagree, and did:
- * the UI showed a signed-in wallet while `/profile/...` rendered "sign in to vouch", because
- * `readVerifiedAddress` found no verified session. Nothing was broken except that the client was
- * answering a question only the server can answer.
+ * `MiniKit.user.walletAddress` and the plain `aval_addr` cookie are client-side facts, and neither
+ * implies the httpOnly `aval_session` cookie that every server-rendered page actually authorizes
+ * against — so a client answering this itself can disagree with what those pages do.
  *
  * This route makes the server the single source of truth. It reveals nothing a caller doesn't
  * already have — it can only ever echo back the address in the caller's own signed cookie.

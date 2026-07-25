@@ -61,11 +61,10 @@ export function fmtHours(hours: number): string {
  * "74d" style countdown used next to inbound vouches.
  *
  * Deliberately no icon glyph here: the fonts in this app are loaded with only the `latin` subset
- * (see app/layout.tsx), so a character has to be checked against that subset before it's used, not
- * assumed safe because it "looks like text". U+23F3 (HOURGLASS) has default *emoji* presentation —
- * browsers route it to a colour-emoji font, which isn't guaranteed to be installed, and it rendered
- * as a tofu box in exactly that situation. The colour + `expiringSoon` triangle (⚠, default *text*
- * presentation, covered by ordinary fallback fonts) already carry the urgency signal.
+ * (see app/layout.tsx), so any glyph must be checked against that subset first. U+23F3 (HOURGLASS)
+ * has default *emoji* presentation — browsers route it to a colour-emoji font that isn't guaranteed
+ * to be installed, and it falls back to tofu. The colour + `expiringSoon` triangle (⚠, default
+ * *text* presentation, covered by ordinary fallback fonts) already carry the urgency signal.
  */
 export function fmtCountdown(days: number): string {
   return fmtDays(days);
@@ -83,16 +82,13 @@ export interface ScoreTerm {
 /**
  * The named terms behind a score, and whether they actually add up to it.
  *
- * docs/96-ux-audit.md U-3 is the reason this exists as one function instead of a line of JSX:
- * Home printed `base 10.0 + 45.0 = 55.0` under a dial reading 65.0, and — after the constants
- * moved — `base 20.0 + 0.0 = 20.0` under a dial reading 100.0 for the one Orb-verified account on
- * this deployment. Both times the equation was assembled from a subset of the terms and never
- * checked against the number above it. `matchesScore` is that check: a caller that gets `false`
- * must not print the equation, because an equation that doesn't equal the score is worse than no
- * equation at all.
+ * This exists as one function, rather than a line of JSX at each call site, so the printed equation
+ * is always assembled from the full set of terms and checked against the score above it.
+ * `matchesScore` is that check: a caller that gets `false` must not print the equation, because an
+ * equation that doesn't equal the score is worse than no equation at all.
  *
  * Anchors are deliberately not expressible here — their score is fixed at `ANCHOR` and ignores
- * every inbound edge (errata E-6), so there is no sum to show. Callers branch on `kind` first.
+ * every inbound edge, so there is no sum to show. Callers branch on `kind` first.
  */
 export function scoreTerms(r: ScoreResult): { terms: ScoreTerm[]; total: number; matchesScore: boolean } {
   const terms: ScoreTerm[] = [{ label: "base", value: r.base }];
@@ -170,13 +166,9 @@ export function dropAvalSuffix(name: string): string {
 /**
  * Presence-drip tenure curve — docs/16-presence-drip.md §4.
  *
- * R-7 (docs/97-review-engine-app.md): this used to be a hand-rolled port of the halving-band
- * formula that `@aval/engine`'s own `tenure.ts` documents, by name, as WRONG — truncating
- * `T_MAX >> k` before subtracting overstates the lower band edge by 1 centi-point at every band
- * boundary from k >= 3 onward (invariant I-19 requires the two to agree exactly). Fixing the copy
- * in place would only relocate the drift to the next place someone forgets to update both; the
- * actual fix is to not have a copy. `tenureCenti` is imported directly from the engine, which is
- * the single source of truth for this formula.
+ * `tenureCenti` is imported directly from `@aval/engine` rather than reimplemented here: invariant
+ * I-19 requires the app and the engine to agree exactly, and a hand-rolled port of the halving-band
+ * formula drifts by a centi-point at band boundaries. One implementation, no copy to keep in sync.
  */
 const EPOCHS_PER_DAY = 4; // 6h epochs
 

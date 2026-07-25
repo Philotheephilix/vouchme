@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/session";
 
-/** Four items, not five — five text labels clipped at 360px. Explore and Reports moved into
+/** Four items, not five — five text labels clip at 360px. Explore and Reports live under
  *  Profile (UX reference: Metri/Circles' Home / Wallet / Card / Shop shape). */
 export function BottomNav() {
   const pathname = usePathname();

@@ -57,7 +57,7 @@ export const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000
 export const ALL_ROLES = 0x1111111111111111111111111111111111111111111111111111111111111111n;
 
 /**
- * The role that gates ERC-1155 transfers — the whole of E-10 (docs/99-errata.md, docs/04-ens.md §7.2).
+ * The role that gates ERC-1155 transfers (docs/04-ens.md §7.2).
  *
  * The docs call it `ROLE_CAN_TRANSFER`. **That constant does not exist in the deployed contract.**
  * The Sourcify `exact_match` source of the `.eth` registry
@@ -91,7 +91,7 @@ export const ROLE_REGISTRAR = 1n;
  *     0x1111111111111111111111110111111111111111111111111111111111111111
  *                              ↑ nybble 39 (= nybble 7 + 32 admin offset) cleared
  *
- * **The bitmap alone is not enough, and that is the trap E-10 nearly fell into twice.**
+ * **The bitmap alone is not enough.**
  * `EnhancedAccessControl.hasRoles()` (`EnhancedAccessControl.sol:187-195`) ORs the account's roles
  * on the resource with its roles on `ROOT_RESOURCE`:
  *
@@ -99,8 +99,7 @@ export const ROLE_REGISTRAR = 1n;
  *
  * Aval's names are all owned by the deployer, who holds `ALL_ROLES` on every registry's root. So a
  * token minted with this bitmap is **still transferable** until the root grant is cleared too —
- * proven on chain: token `t2` in the throwaway probe registry `0xa2D4ecC0…2eA3` was minted with
- * exactly this bitmap and `safeTransferFrom` still simulated clean. See `ensureRegistrySoulbound`.
+ * see `ensureRegistrySoulbound`.
  */
 export const SOULBOUND_ROLES = ALL_ROLES & ~ROLE_CAN_TRANSFER_ADMIN;
 
@@ -425,7 +424,7 @@ export async function hasContractCode(client: EnsPublicClient, address: Address)
   return typeof code === "string" && code.length > 2;
 }
 
-// ── soulbound enforcement (E-10) ──────────────────────────────────────────────────────────────
+// ── soulbound enforcement ─────────────────────────────────────────────────────────────────────
 
 /**
  * Clears `ROLE_CAN_TRANSFER_ADMIN` from the deployer on `registry`'s `ROOT_RESOURCE`, so the root
@@ -442,8 +441,7 @@ export async function hasContractCode(client: EnsPublicClient, address: Address)
  * Nothing else depends on this role. It appears exactly once in `PermissionedRegistry`, in the
  * `_update()` transfer gate. `register()`, `setSubregistry()`, `setResolver()`, `renew()` and the
  * burn+mint of `_regenerate()` are all unaffected — `_update()` skips its check when `from` or `to`
- * is the zero address, so mint and burn still work. Verified on chain: `register()` succeeded on the
- * probe registry *after* this revocation (tx 0x0fdc4d6a…02a1).
+ * is the zero address, so mint and burn still work.
  */
 export async function ensureRegistrySoulbound(clients: EnsClients, registry: Address): Promise<Hex | null> {
   const { publicClient, walletClient } = clients;
@@ -469,7 +467,7 @@ export async function ensureRegistrySoulbound(clients: EnsClients, registry: Add
 }
 
 /**
- * Retro-fit for a name minted before this fix, i.e. with `ALL_ROLES` on its own token resource.
+ * Retro-fit for a name minted with `ALL_ROLES` on its own token resource.
  * Clearing the root grant is not enough for those: `hasRoles` ORs the two, and the token resource
  * still carries the bit. This clears it there too.
  *
@@ -540,7 +538,7 @@ export async function isNameSoulbound(
 }
 
 /**
- * The gate that stops E-10 from ever being claimed-but-not-true again. Passing a different bitmap
+ * The gate that stops a soulbound mint from being claimed but not true. Passing a different bitmap
  * to `register()` is not evidence of anything; only a live `hasRoles` read against the owner is.
  * Every mint path calls this and throws rather than return a result that says "minted".
  */
@@ -562,7 +560,7 @@ export interface DeployedRegistry {
   deployTxHash: Hex | null;
   /** The `setSubregistry` that attached it to the parent entry, when this call had to do that. */
   attachTxHash: Hex | null;
-  /** The root `ROLE_CAN_TRANSFER_ADMIN` revocation, when this call had to send it (E-10). */
+  /** The root `ROLE_CAN_TRANSFER_ADMIN` revocation, when this call had to send it. */
   soulboundTxHash: Hex | null;
 }
 
@@ -574,10 +572,11 @@ export interface DeployedRegistry {
  * The clone is initialized in the same transaction with `initialize(owner, SOULBOUND_ROLES)`,
  * mirroring how the `aval.eth` registry itself was created except that the root grant withholds
  * `ROLE_CAN_TRANSFER_ADMIN` — so a member's registry is born soulbound, with no follow-up
- * transaction, and every vouch minted inside it is non-transferable from its first block (E-10).
+ * transaction, and every vouch minted inside it is non-transferable from its first block.
  * The initializer is not part of the CREATE2 preimage, so clone addresses are unchanged by this.
  *
- * Registries deployed before this fix are repaired in place by `ensureRegistrySoulbound`.
+ * Registries deployed without that root grant cleared are repaired in place by
+ * `ensureRegistrySoulbound`.
  */
 export async function deployMemberRegistry(
   clients: EnsClients,
@@ -631,7 +630,7 @@ export interface MintResult {
   /** The member's own registry, read back from `getSubregistry(label)` after all writes. */
   subregistry: Address | null;
   resolvedAddress: Address | null;
-  /** The root/per-token `ROLE_CAN_TRANSFER_ADMIN` revocations this call had to send (E-10). */
+  /** The root/per-token `ROLE_CAN_TRANSFER_ADMIN` revocations this call had to send. */
   soulboundTxHashes: Hex[];
   /** True when nothing at all had to be written (idempotent replay). */
   alreadyComplete: boolean;
@@ -647,7 +646,7 @@ export interface MintResult {
  *   3. `setAddr(namehash("<label>.aval.eth"), targetAddress)` on the resolver,
  *   4. re-read `addr()`, `getSubregistry()` and `eth_getCode` and fail loudly if any is wrong,
  *   5. re-read `hasRoles(tokenId, ROLE_CAN_TRANSFER_ADMIN, owner)` and refuse to return at all if
- *      the name is still transferable (E-10).
+ *      the name is still transferable.
  *
  * Step 3 is the one that makes the name resolve. "The transaction succeeded" and "the name
  * resolves" are different claims; only a live `addr()` read after the write is trusted here.
@@ -663,8 +662,8 @@ export async function mintMemberName(
   const registry = await deployMemberRegistry(clients, label);
 
   // The member-name token lives in the aval.eth registry, so that is the root grant that has to be
-  // clear for it to be soulbound (E-10, and see `SOULBOUND_ROLES` on why the bitmap alone is not
-  // enough). One-way and idempotent; after the first member this is a no-op read.
+  // clear for it to be soulbound (see `SOULBOUND_ROLES` on why the bitmap alone is not enough).
+  // One-way and idempotent; after the first member this is a no-op read.
   const soulboundTxHash = await ensureRegistrySoulbound(clients, AVAL_ETH_REGISTRY);
 
   const owner = await findOwner(publicClient, AVAL_ETH_REGISTRY, label);
@@ -709,8 +708,8 @@ export async function mintMemberName(
 
   const setAddrTxHash = await setAddrIfNeeded(clients, name, targetAddress, label, registerTxHash);
 
-  // Names registered before this fix carry ROLE_CAN_TRANSFER_ADMIN on their own token resource, so
-  // clearing the root grant above does not reach them. Retro-fit those in place (no-op otherwise).
+  // A name registered with ROLE_CAN_TRANSFER_ADMIN on its own token resource is not reached by
+  // clearing the root grant above. Retro-fit those in place (no-op otherwise).
   const retroTxHash = await makeExistingNameSoulbound(clients, AVAL_ETH_REGISTRY, label);
 
   const resolvedAddress = await readAddrRecord(publicClient, name);
@@ -763,7 +762,7 @@ export interface VouchMintResult {
  * The vouch token is minted **soulbound** — `SOULBOUND_ROLES`, plus a cleared root grant on the
  * voucher's registry, plus a `hasRoles` read-back that refuses to return if either was missed.
  * docs/04-ens.md §7.2: a vouch that can be transferred is a vouch that can be sold, and
- * docs/08-threat-model.md §5 names slot markets the design's weakest point. This is E-10.
+ * docs/08-threat-model.md §5 names slot markets the design's weakest point.
  *
  * Throws `EnsVouchNestingUnavailableError` when the voucher has no registry of their own — the one
  * case where the product cannot honestly say "minted", and the UI is required to say so instead.
@@ -786,7 +785,7 @@ export async function mintVouchSubname(
 
   // The vouch token lives in the VOUCHER's registry, so that is the root grant that has to be clear
   // for it to be soulbound. Without this the `SOULBOUND_ROLES` bitmap below is a no-op, because
-  // `hasRoles` ORs the root grant in and the deployer owns the token (E-10 — see `SOULBOUND_ROLES`).
+  // `hasRoles` ORs the root grant in and the deployer owns the token (see `SOULBOUND_ROLES`).
   const voucherRegistrySoulboundTx = await ensureRegistrySoulbound(clients, voucherRegistry);
 
   // The trust edge is `Entry.subregistry` → the vouchee's own registry (docs/04-ens.md §7.1), so
@@ -832,8 +831,8 @@ export async function mintVouchSubname(
 
   const setAddrTxHash = await setAddrIfNeeded(clients, name, voucheeAddress, name, registerTxHash);
 
-  // Vouches minted before this fix hold ROLE_CAN_TRANSFER_ADMIN on their own token resource; the
-  // root revocation above does not reach them. Retro-fit in place (no-op for fresh mints).
+  // A vouch holding ROLE_CAN_TRANSFER_ADMIN on its own token resource is not reached by the root
+  // revocation above. Retro-fit in place (no-op for fresh mints).
   const retroTxHash = await makeExistingNameSoulbound(clients, voucherRegistry, voucheeLabel);
 
   const resolvedAddress = await readAddrRecord(publicClient, name);

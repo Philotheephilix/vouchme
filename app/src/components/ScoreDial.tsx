@@ -54,16 +54,11 @@ export function ScoreDial({ score, tier, countedVouchCount, size = 200 }: ScoreD
   const cy = 100;
   // banknote-engraving petal density: more counted vouches -> a busier rosette, but never a blob.
   const petals = Math.min(23, Math.max(7, 7 + countedVouchCount * 2));
-  // The single-layer version of this dial used amplitude up to 0.95 of r and still read as a
-  // plain wavy circle: at that scale the scalloping is too gentle for a same-frequency copy,
-  // rotated a few degrees, to visibly cross it — the "mesh" just blurred into one fuzzy line.
-  // Pushing the floor and ceiling up (0.55 - 0.9, was 0.15 - 0.95) gives the rosette pronounced
-  // points, so the phase-shifted back layers genuinely weave across the front one instead of
-  // hugging it. Capped below 1.0 (a < r) so the curve never loops back on itself.
+  // The floor is high on purpose: gentle scalloping is too soft for a phase-shifted copy to
+  // visibly cross, so the mesh blurs into one fuzzy line. Pronounced points make the back layers
+  // weave across the front one. Capped below 1.0 (a < r) so the curve never loops back on itself.
   const ampFactor = Math.min(0.9, Math.max(0.55, 0.4 + score / 100));
-  // R fills more of the 200x200 viewBox than the old R=78 did, so the rosette reads as filling its
-  // frame instead of floating in a wide empty margin (the dead space called out between the dial
-  // and "DEPTH N" was partly this: a visibly smaller ring inside a box sized for a bigger one).
+  // Sized so the rosette fills the 200x200 viewBox rather than floating in a wide empty margin.
   const R = 84;
   const color = TIER_COLOR[tier];
   const [whole, frac = "0"] = fmtScore(score).split(".");

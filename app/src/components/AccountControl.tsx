@@ -5,8 +5,7 @@ import { useAuth } from "@/lib/session";
 import { truncateMiddle } from "@/lib/format";
 
 /** Signed-out shows `Sign in`; signed-in shows the truncated address and a sign-out control.
- *  The one place in the header that answers "who is using this app right now" (task correction
- *  §1 — the missing foundation). */
+ *  The one place in the header that answers "who is using this app right now". */
 export function AccountControl() {
   const { address, connecting, error, connect, disconnect, clearError } = useAuth();
   const [showError, setShowError] = useState(true);

@@ -40,8 +40,8 @@ import {
 // ─── World Chain ──────────────────────────────────────────────────────────────────────────────
 // Which World Chain this is, is a DEPLOYMENT fact, not a fixed property of the code: Aval runs on
 // mainnet (480) because MiniKit will not broadcast anywhere else, and the Sepolia deployment
-// (4801) still exists and still holds the proven trust-math scenario. Hardcoding either one here
-// silently pointed the whole data layer at the wrong chain.
+// (4801) still exists and still holds the trust-math scenario. Read from env so the data layer
+// cannot point at a different chain than the rest of the app.
 export const WORLDCHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "480");
 
 const worldChain = (rpcUrls: string[]): Chain => ({
@@ -98,15 +98,13 @@ function requireEnv(name: string): string {
   return v;
 }
 
-/** Accepts either name — `NEXT_PUBLIC_WORLDCHAIN_RPC` (this app's existing convention, see
- *  app/.env.example's pre-existing `NEXT_PUBLIC_WORLDCHAIN_RPC`) or `WORLDCHAIN_SEPOLIA_RPC`
- *  (the name every script under scripts/ and contracts/.env uses) — so one RPC URL value works
- *  everywhere in the repo without duplicating it under two unrelated names. */
 /** Every distinct URL among `names`, in order — NOT just the first one that happens to be set.
  *  These become a viem `fallback()` transport, so a provider that rate-limits under the burst of
- *  reads one page issues is routed around instead of failing the request. Returning a single URL
- *  here (the previous behaviour) made `NEXT_PUBLIC_WORLDCHAIN_RPC_FALLBACK` dead config: it sat
- *  last in the list and was only ever reached if no other name was set, which never happened. */
+ *  reads one page issues is routed around instead of failing the request.
+ *
+ *  Several names are accepted (`NEXT_PUBLIC_WORLDCHAIN_RPC`, this app's convention;
+ *  `WORLDCHAIN_SEPOLIA_RPC`, the name every script under scripts/ and contracts/.env uses) so one
+ *  RPC URL value works everywhere in the repo without being duplicated under unrelated names. */
 function requireEnvAll(names: string[]): string[] {
   const urls: string[] = [];
   for (const name of names) {
@@ -135,12 +133,10 @@ function requireAddress(name: string): Address {
  *  Both differences are deliberate:
  *   - **Optional**: a deployment may genuinely have no ReportRegistry/PlatformRegistry, and the
  *     honest answer there is "not read", not a 503 for the whole app.
- *   - **Case-tolerant**: `REPORT_REGISTRY_ADDRESS` in this deployment's own `.env.local` is
- *     `0x4570B517C75A90F85c9FeD321113fB80FC777bcC`, which viem's `getAddress` rejects — it is not
- *     the EIP-55 checksum of those 20 bytes (`0x4570b517c75a90F85C9fED321113Fb80FC777bCc` is).
- *     The bytes are right, the capitalisation was retyped. Lower-casing first re-derives the
- *     checksum from the address itself, so a cosmetic transcription slip cannot silently switch
- *     reports back off. */
+ *   - **Case-tolerant**: viem's `getAddress` rejects an address whose capitalisation is not the
+ *     EIP-55 checksum, even when the 20 bytes are right. Lower-casing first re-derives the
+ *     checksum from the address itself, so a cosmetic transcription slip in `.env` cannot silently
+ *     switch reports off. */
 function optionalAddress(name: string): Address | null {
   const raw = process.env[name];
   if (!raw) return null;
@@ -173,7 +169,7 @@ function getConfig(): ChainConfig {
   return cachedConfig;
 }
 
-/** Every contract address in play, for the `meta.contracts` envelope (requirement #3). Includes
+/** Every contract address in play, for the `meta.contracts` envelope. Includes
  *  the ones this module doesn't read from (ReportRegistry, PlatformRegistry, CredibilityVault,
  *  AvalToken) so `meta` documents the full deployed set, not just the subset queried. */
 export function getContractAddressSet(): Record<string, string> {
@@ -202,8 +198,7 @@ export function getContractAddressSet(): Record<string, string> {
  *  graph context for pages that have no per-viewer concept at all (Explore, Platform), never
  *  a stand-in for a signed-in user. Every page that shows "your" data (Home, the enroll/vouch
  *  wizards) always passes a real, cookie-sourced `viewingAddress` instead — see `AppGate` and
- *  `page.tsx`'s own doc comment. Renamed from `getMeAddress` after the "why is it showing
- *  carol.aval.eth" bug, which was exactly this function's old name being taken literally. */
+ *  `page.tsx`'s own doc comment. */
 export function getDemoAddress(): Address {
   return getConfig().meAddress;
 }
@@ -231,8 +226,7 @@ export function getPlatformRegistryAddressServer(): Address | null {
 }
 
 // anchorSource() is declared `pure` on GenesisAnchorBook — it returns a compile-time constant and
-// can never change for a given deployment. Re-reading it on every graph fetch was a wasted RPC
-// round trip on a value that is, by construction, immutable. Fetch once per process.
+// can never change for a given deployment, so it is fetched once per process.
 let cachedAnchorSource: LiveAnchorSource | null = null;
 
 async function getAnchorSource(client: PublicClient, book: Address): Promise<LiveAnchorSource> {
@@ -263,16 +257,14 @@ function getClient(): PublicClient {
     chain: worldChain(cfg.rpcUrls),
     // Aggregate concurrent eth_calls into Multicall3 instead of firing one request per account.
     //
-    // Without this, each fetch issued roughly 3N+1 separate eth_calls — getIsUserVerified,
-    // members() and the presence tuple, once per account, plus anchorSource() — which at 14
-    // accounts is ~43 requests per uncached load and trips a public RPC's rate limit
-    // immediately ("Request exceeds defined limit" from the gateway). Reading anchors live is a
-    // correctness requirement (docs/03-worldid.md §3); reading them one HTTP request at a time
-    // never was. Multicall3 keeps the reads live and at a single block, while collapsing them
-    // into one or two requests.
+    // Without this, each fetch issues roughly 3N+1 separate eth_calls — the anchor read, members()
+    // and the presence tuple, once per account, plus anchorSource() — enough to trip a public
+    // RPC's rate limit on an uncached load. Reading anchors live is a correctness requirement
+    // (docs/03-worldid.md §3); reading them one HTTP request at a time never was. Multicall3 keeps
+    // the reads live and at a single block, while collapsing them into one or two requests.
     //
-    // Multicall3 is at the canonical address on World Chain Sepolia — verified on chain, 7618
-    // bytes of code, not assumed from it being an OP-stack chain.
+    // Multicall3 is at the canonical address on World Chain Sepolia — verified on chain, not
+    // assumed from it being an OP-stack chain.
     batch: {
       multicall: { batchSize: 1024, wait: 16 },
     },
@@ -280,12 +272,10 @@ function getClient(): PublicClient {
     // transient throttle as "the chain is broken." A sustained outage still surfaces: retries
     // are bounded, and getLiveGraph()/getChainHealth() let a final failure propagate as a real
     // error rather than falling back to fixtures.
-    // `fallback` over every configured URL, not just the first. Measured on 2026-07-25: a burst of
-    // 48 concurrent eth_blockNumber calls returned 40/48 on the Tenderly gateway (8 × HTTP 429)
-    // and 48/48 on Alchemy. Those empty-bodied 429s surfaced in the UI as
-    // "Cannot read properties of undefined (reading 'error')" and as `chain_unavailable`, because
-    // a throttled provider was the only provider. Retries alone can't fix that — the next attempt
-    // hits the same rate-limited host. `rank: false` keeps declared order (env order is intent).
+    // `fallback` over every configured URL, not just the first: retries alone cannot rescue a
+    // throttled provider, because the next attempt hits the same rate-limited host, and an
+    // empty-bodied 429 surfaces as `chain_unavailable` when that provider is the only provider.
+    // `rank: false` keeps declared order (env order is intent).
     transport: fallback(
       cfg.rpcUrls.map((url) => http(url, { retryCount: 3, retryDelay: 750, batch: true })),
       { rank: false, retryCount: 2 },
@@ -371,9 +361,9 @@ const AVAL_REGISTRY_ABI = [
 
 const GENESIS_ANCHOR_BOOK_ABI = [
   {
-    // Errata E-18: the real World ID Address Book has NO `getIsUserVerified` — that call reverts.
-    // It stores an EXPIRY (`addressVerifiedUntil`), because Orb verification lapses unless renewed.
-    // Both the contracts and the testnet stand-in now match this real shape.
+    // The real World ID Address Book has NO `getIsUserVerified` — that call reverts. It stores an
+    // EXPIRY (`addressVerifiedUntil`), because Orb verification lapses unless renewed. The testnet
+    // stand-in matches this shape.
     type: "function",
     name: "addressVerifiedUntil",
     stateMutability: "view",
@@ -586,8 +576,8 @@ const PLATFORM_REGISTRY_ABI = [
 export type LiveAnchorSource = "genesis-testnet" | "world-id-orb";
 
 /** World ID's real Address Book. It exists on World Chain MAINNET only — which is the entire
- *  reason `GenesisAnchorBook` was written as a testnet stand-in. Verified live before the mainnet
- *  deployment: 3095 bytes of code at chain 480 (deployments/worldchain-mainnet.json). */
+ *  reason `GenesisAnchorBook` was written as a testnet stand-in
+ *  (deployments/worldchain-mainnet.json). */
 const WORLD_ID_ADDRESS_BOOK: Address = "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D";
 
 /** Anchors are the one externally-grounded fact in the protocol, so how they are labelled is not
@@ -613,35 +603,23 @@ function isWorldIdAddressBook(book: Address): boolean {
   return book.toLowerCase() === WORLD_ID_ADDRESS_BOOK.toLowerCase();
 }
 
-// ─── log fetching, chunked — public RPCs cap the block range per eth_getLogs call. 400 blocks is
-// comfortably inside every provider's limit we've seen and keeps request counts low. ─────────────
+// ─── log fetching, chunked — public RPCs cap the block range per eth_getLogs call. ───────────────
 
-// The public Alchemy RPC caps eth_getLogs at 100 blocks per call (confirmed against this exact
-// endpoint — scripts/live-verify.mjs uses the same value for the same reason).
+// The public Alchemy RPC caps eth_getLogs at 100 blocks per call (scripts/live-verify.mjs uses the
+// same value for the same reason).
 const LOG_CHUNK_BLOCKS = BigInt(100);
 
-// How many chunk requests are in flight at once. The scan used to be strictly serial, which made
-// a cold start cost (span / 100) × 4 sequential round trips — measured 2026-07-25 at ~6 100 blocks
-// since deployment, that is ~244 calls at ~0.25s each, and `/api/identity/*` was answering 200 in
-// 45–101s. A cold start happens on every edit under `next dev` (module cache is discarded), and
-// once per process in production. 8 keeps the wall clock proportional to a single round trip
-// without reproducing the ~43-requests-at-once burst that trips provider rate limits.
+// How many chunk requests are in flight at once. A serial scan costs (span / chunk) × 4 sequential
+// round trips, paid on every cold start — which happens on every edit under `next dev` (the module
+// cache is discarded) and once per process in production. 8 keeps the wall clock proportional to a
+// single round trip without a burst large enough to trip provider rate limits.
 const LOG_CHUNK_CONCURRENCY = 8;
 
-// The 100-block cap is Alchemy's, not the chain's. Measured directly against both configured
-// providers on 2026-07-25, same address and range:
-//
-//     span   Alchemy                                        Tenderly
-//     100    OK                                             OK
-//     1000   "You can make eth_getLogs requests with up      OK
-//            to a 100 block range"
-//     10000  same error                                     OK
-//
-// Scanning the whole history at 100 blocks costs ~70 chunks × 4 event types = ~280 requests and
-// measured 66s. So: ask for a wide range first, and narrow to 100 ONLY for the ranges that are
+// The 100-block cap is Alchemy's, not the chain's — other configured providers serve 10 000-block
+// ranges happily. So: ask for a wide range first, and narrow to 100 ONLY for the ranges that are
 // actually refused. Against a wide-range provider the historical scan collapses to a handful of
-// requests; against Alchemy it degrades to exactly the old behaviour. Neither provider is assumed
-// — the code discovers which it is talking to from the error it gets back.
+// requests; against Alchemy it degrades to a per-100-block scan. Neither provider is assumed — the
+// code discovers which it is talking to from the error it gets back.
 const LOG_CHUNK_BLOCKS_WIDE = BigInt(10_000);
 
 /** True for a provider complaining that the requested block range is too large — as opposed to a
@@ -657,7 +635,7 @@ function isBlockRangeError(err: unknown): boolean {
     msg.includes("exceed maximum block range") ||
     // Every provider phrases this differently, and a phrase this list does not know about is not a
     // cosmetic miss — the request fails hard instead of narrowing, and the whole app returns 503
-    // `chain_unavailable` while the chain is perfectly healthy. Observed verbatim in production:
+    // `chain_unavailable` while the chain is perfectly healthy. Verbatim examples:
     //   thirdweb: "Log response size exceeded. Maximum allowed number of requested blocks is 1000"
     //             (plus a bare "Request exceeds defined limit.")
     //   Alchemy:  "You can make eth_getLogs requests with up to a 100 block range"
@@ -724,8 +702,8 @@ async function getLogsChunked<const TEvent extends AbiEvent>(
 // ─── incremental log accumulation ─────────────────────────────────────────────────────────────
 // World Chain Sepolia produces a new block roughly every second or two, which would make a naive
 // "rescan every event from the deployment block on every cache miss" approach re-fetch a growing,
-// unbounded history on almost every request — exactly the "public RPCs rate-limit and lag"
-// problem the task calls out. Instead, remember how far we've scanned and only ever fetch the
+// unbounded history on almost every request, which public RPCs answer with rate limits and lag.
+// Instead, remember how far we've scanned and only ever fetch the
 // (usually tiny, often empty) range since last time, appending to a monotonically growing log
 // set. This is still a from-scratch rescan on the very first request after a cold start, and
 // still recomputes `compute()` on every call (cheap — see `getLiveGraph`'s own block-keyed
@@ -833,9 +811,8 @@ export interface MemberInfo {
   credentialExpiresAt: number;
   activeOutbound: number;
   /** Unix seconds of this account's last `vouch()`. `AvalRegistry` reverts with `RateLimited()`
-   *  within 24h of it, so the UI needs it to refuse a vouch that cannot succeed — it was read from
-   *  the contract and then discarded, which is why "next vouch in 24h" was a hardcoded literal
-   *  rendered in the grammar of a live countdown. */
+   *  within 24h of it, so the UI needs it to refuse a vouch that cannot succeed and to show a real
+   *  countdown rather than a fixed "24h". */
   lastVouchAt: number;
   enrolled: boolean;
   fraudulent: boolean;
@@ -990,7 +967,7 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
   // each.
   // An expiry, compared against the chain's own clock — not a stored flag. Someone whose Orb
   // verification has lapsed stops being an anchor at that instant, which a boolean could not
-  // express (errata E-18).
+  // express.
   const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
   const anchorExpiries = await Promise.all(
     addresses.map((addr) =>
@@ -1295,10 +1272,9 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
  * 2. **The seven-state on-chain enum → the engine's four.** ARBITRATION collapses into `pending`
  *    (engine/src/types.ts:46 — "no report weight until a terminal state is reached"), UNPROVEN and
  *    MALICIOUS both collapse into `rejected` (neither damages the target), WITHDRAWN stays
- *    distinct because docs/12-reporting.md §4 prices it differently for the reporter (10% burn)
- *    and errata E-12 insists the four outcomes are four outcomes.
- * 3. **`upheldAt` is mandatory for an upheld report.** `compute()` now throws rather than letting
- *    a missing timestamp make a report immortal (it drives both §7.4 decay and the 180-day
+ *    distinct because docs/12-reporting.md §4 prices it differently for the reporter (10% burn).
+ * 3. **`upheldAt` is mandatory for an upheld report.** `compute()` throws rather than let a
+ *    missing timestamp make a report immortal (it drives both §7.4 decay and the 180-day
  *    reporter-voiding window). `resolvedAt` is the timestamp `resolve()`/`juryVote` wrote in the
  *    same transaction that set the state, so it is exactly that value — and if it is somehow 0, we
  *    surface the contradiction instead of substituting the epoch.
@@ -1360,23 +1336,21 @@ async function getLatestBlockCached(): Promise<bigint> {
   return block;
 }
 
-// docs/07-app-api.md §5: "cache.ts — 5s TTL, keyed by indexed block." World Chain Sepolia mints a
-// new block roughly every 1-2s, so caching strictly "by block number" (recompute whenever the
-// chain has moved at all) would recompute on nearly every request — the exact "public RPCs
-// rate-limit and lag" failure mode the task warns about. A 5s TTL is the doc's own answer: two
-// requests within the same 5s window always see the identical, already-computed result (still
-// genuinely keyed by which block it was computed at — `meta.computedAtBlock` reports the real
-// value, never a stale placeholder), and a burst of traffic pays the RPC cost once per window
-// instead of once per request. The incremental log accumulator above means even a cache refresh
-// is cheap: it only ever re-scans the (usually empty) range since the last refresh.
-// 15s, not 5s. World Chain Sepolia produces a block every second or two, and a single page load
-// fans out to several API routes — a 5s window meant most requests missed the cache and went
-// back to the RPC. 15s is still well inside "live" for a trust score that changes on human
-// timescales, and it is the difference between one upstream fetch per page and several.
+// docs/07-app-api.md §5 asks for "cache.ts — 5s TTL, keyed by indexed block". World Chain mints a
+// new block every second or two, so caching strictly by block number (recompute whenever the chain
+// has moved at all) would recompute on nearly every request. A time window instead: two requests
+// inside it see the identical, already-computed result, and a burst pays the RPC cost once. The
+// result is still genuinely keyed by the block it was computed at — `meta.computedAtBlock` reports
+// the real value, never a stale placeholder — and the incremental log accumulator above keeps a
+// refresh cheap, re-scanning only the (usually empty) range since the last one.
+//
+// 15s rather than the doc's 5s: a single page load fans out to several API routes, and 5s is short
+// enough that most of them miss. 15s is still well inside "live" for a trust score that changes on
+// human timescales, and it is the difference between one upstream fetch per page and several.
 const GRAPH_CACHE_TTL_MS = 15_000;
 let graphCache: { fetchedAt: number; promise: Promise<LiveGraph> } | null = null;
 
-/** The live graph, cached with a 5s TTL. */
+/** The live graph, cached for `GRAPH_CACHE_TTL_MS`. */
 export async function getLiveGraph(): Promise<LiveGraph> {
   const nowMs = Date.now();
   if (graphCache && nowMs - graphCache.fetchedAt < GRAPH_CACHE_TTL_MS) return graphCache.promise;
@@ -1396,7 +1370,7 @@ export interface ChainHealth {
   deploymentBlock: bigint;
 }
 
-/** Cheap, no getLogs — just the RPC's current block vs. the deployment block (requirement #3). */
+/** Cheap, no getLogs — just the RPC's current block vs. the deployment block. */
 export async function getChainHealth(): Promise<ChainHealth> {
   const cfg = getConfig();
   const currentBlock = await getLatestBlockCached();

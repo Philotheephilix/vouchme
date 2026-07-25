@@ -4,8 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 /** Resolves a handle ("alice" or "alice.aval.eth") or a raw address against the live directory
- *  (`/api/identity/[idOrAddress]`, backed by real `Enrolled` events) and opens their profile.
- *  Replaces the earlier hardcoded candidate lists — a real, if single-result, search. */
+ *  (`/api/identity/[idOrAddress]`, backed by real `Enrolled` events) and opens their profile. */
 export function SearchBox() {
   const router = useRouter();
   const [query, setQuery] = useState("");

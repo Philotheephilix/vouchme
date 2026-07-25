@@ -1,23 +1,18 @@
 /**
  * app/src/lib/session.tsx
  *
- * The missing foundation: who is using this app right now. `connect()` tries MiniKit's native
- * SIWE (`walletAuth`) when running inside World App, and falls back to a plain EIP-1193
- * `personal_sign` prompt everywhere else (see src/lib/wallet.ts — no wagmi, no RainbowKit).
+ * Who is using this app right now. `connect()` tries MiniKit's native SIWE (`walletAuth`) when
+ * running inside World App, and falls back to a plain EIP-1193 `personal_sign` prompt everywhere
+ * else (see src/lib/wallet.ts — no wagmi, no RainbowKit).
  *
- * docs/96-ux-audit.md U-24: this used to stop at "ask the wallet for an address" on the fallback
- * path and write that straight into a plain, client-writable `aval_addr` cookie — no signature
- * requested, none checked, so the cookie *was* the identity (confirmed: a curl request with a
- * forged `aval_addr` rendered another member's real dashboard, server-side, before any client JS
- * even ran). Both paths now go through a server-issued nonce -> real signature ->
- * `/api/auth/verify` round trip (src/lib/authClient.ts, src/app/api/auth/*, src/lib/authSession.ts)
- * before any session exists. On success the server sets two cookies via `Set-Cookie`:
+ * Both paths go through a server-issued nonce -> real signature -> `/api/auth/verify` round trip
+ * (src/lib/authClient.ts, src/app/api/auth/*, src/lib/authSession.ts) before any session exists.
+ * On success the server sets two cookies via `Set-Cookie`:
  *   - `aval_session` (httpOnly, HMAC-bound to the verified address) — the only cookie any server
- *     page in this fix's scope (Home, Reports, Profile, this gate) trusts for authorization.
- *   - `aval_addr` (plain, unchanged name/shape) — kept only so this module can read it back here
- *     for a fast, non-blocking UI restore on load, and because src/app/agents/ (out of scope for
- *     this fix) still reads it directly. It is display-only now; nothing security-relevant reads
- *     it any more.
+ *     page (Home, Reports, Profile, this gate) trusts for authorization.
+ *   - `aval_addr` (plain) — kept only so this module can read it back here for a fast,
+ *     non-blocking UI restore on load, and because src/app/agents/ still reads it directly. It is
+ *     display-only; nothing security-relevant reads it.
  */
 
 "use client";
@@ -110,10 +105,8 @@ export function activeMiniKit(): typeof MiniKit {
  *     isInstalled() { return this._isReady && Boolean(window.MiniKit); }
  *
  * So a call made before World App has injected `window.WorldApp` fails and leaves `_isReady`
- * false — permanently, because nothing retries. This ran once from a mount effect and latched a
- * module flag whether it succeeded or not, so losing that race meant `isInstalled()` stayed false
- * for the whole session and the app told a user standing inside World App to "open this app
- * inside World App".
+ * false — permanently, unless something retries, and then `isInstalled()` answers false for the
+ * whole session.
  *
  * `window.WorldApp` is injected by the host webview and is not guaranteed to exist by the time
  * React mounts. Polling briefly costs nothing when it's already there (first attempt wins) and
@@ -170,14 +163,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const inWorldApp = inWorldAppNow();
 
       // THE source of truth: what the server will actually authorize, read from the httpOnly
-      // session cookie the client cannot see or forge.
-      //
-      // Previously this effect declared the user signed in from `MiniKit.user.walletAddress` or the
-      // plain `aval_addr` cookie. Both are client-side facts that say nothing about whether a
-      // verified `aval_session` exists — so the UI showed a connected wallet while every
-      // server-rendered page still saw a stranger, and the profile screen said "sign in to vouch"
-      // to someone visibly signed in. Claiming a session the server won't honour is worse than
-      // showing a Sign in button, because the Sign in button is the thing that fixes it.
+      // session cookie the client cannot see or forge. `MiniKit.user.walletAddress` and the plain
+      // `aval_addr` cookie are client-side facts that say nothing about whether a verified
+      // `aval_session` exists — claiming a session the server won't honour is worse than showing a
+      // Sign in button, because the Sign in button is the thing that fixes it.
       const verified = await fetchVerifiedSession();
       if (cancelled) return;
       if (verified) {
@@ -196,10 +185,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (cookieAddr) {
-        // A stale `aval_addr` mirror with no verified session behind it — e.g. the session expired,
-        // or it was written by a build whose sign-in could not verify smart-contract-wallet
-        // signatures (errata E-19). Clear it rather than render a signed-in shell the server will
-        // refuse to fill.
+        // A stale `aval_addr` mirror with no verified session behind it — e.g. an expired session.
+        // Clear it rather than render a signed-in shell the server will refuse to fill.
         writeCookie(COOKIE_NAME, null);
         if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: inWorldApp }));
       } else if (!cancelled) {
@@ -217,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Retry the install here too, not just on mount. The mount attempt can lose the race with
       // World App injecting `window.WorldApp`, and a user tapping Connect is the strongest signal
       // yet that the host is ready — so this is the moment worth re-checking, rather than
-      // reporting "no wallet" off a stale result from page load.
+      // answering off a stale result from page load.
       let miniKitDetail = "not attempted";
       try {
         miniKitDetail = (await ensureMiniKit(getAppId())).detail;
@@ -236,11 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // delegated to that copy and OUR imported class's `_isReady` never becomes true. Its
       // `isInstalled()` then answers false forever, no matter how many times install succeeds.
       //
-      // That is why the previous build still failed inside World App: the World-App branch was
-      // gated on a flag belonging to the wrong object, so a real World App session fell through to
-      // the browser-extension branch and reported "no wallet extension found".
-      //
-      // Fix: decide the branch on `window.WorldApp`, and issue commands through whichever MiniKit
+      // So: decide the branch on `window.WorldApp`, and issue commands through whichever MiniKit
       // object is actually live.
       if (inWorldAppNow()) {
         const MK = activeMiniKit();
@@ -274,12 +257,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState((s) => ({ ...s, address: getAddress(verified.address), via: "injected", connecting: false }));
         return;
       }
-      // Reported from inside World App, after a SUCCESSFUL Selfie Check: "no wallet found, open
-      // this app inside World App" — while already inside it. The old message asserted a cause
-      // ("you're not in World App") that the code had no evidence for, and gave the user nothing
-      // to report back. These four facts are the ones that actually separate the possibilities:
-      // `WorldApp` absent means the host never injected it; present-but-MiniKit-false means
-      // install ran too early or failed, and `install` carries the reason.
+      // The message asserts no cause, because the code has no evidence for one — it reports the
+      // four facts that actually separate the possibilities: `WorldApp` absent means the host
+      // never injected it; present-but-MiniKit-false means install ran too early or failed, and
+      // `install` carries the reason.
       const worldAppGlobal = typeof window !== "undefined" && "WorldApp" in window;
       throw new WalletError(
         "no_wallet",

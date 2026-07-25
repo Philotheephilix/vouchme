@@ -1,8 +1,8 @@
 /**
  * app/src/lib/authClient.ts
  *
- * Client-side helpers for the sign-in-with-a-real-signature flow (docs/96-ux-audit.md U-24),
- * called from src/lib/session.tsx. Mirrors src/lib/worldid-client.ts's `fetchRpContext` shape on
+ * Client-side helpers for the sign-in-with-a-real-signature flow, called from
+ * src/lib/session.tsx. Mirrors src/lib/worldid-client.ts's `fetchRpContext` shape on
  * purpose — same "fetch a server-signed token, then redeem it" pattern as
  * `/api/enroll/rp-context`, just for `/api/auth/nonce` + `/api/auth/verify` instead.
  */

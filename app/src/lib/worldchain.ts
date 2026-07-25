@@ -12,17 +12,10 @@
 import { getAddress, type Address } from "viem";
 
 /**
- * The chain Aval's contracts live on. NOT a constant any more, and NOT optional to get right:
- * MiniKit refuses to broadcast on anything but World Chain mainnet. From
- * @worldcoin/minikit-js 2.0.3's send-transaction source:
- *
- *     var WORLD_CHAIN_ID = 480;
- *     if (chainId !== WORLD_CHAIN_ID)
- *       throw new SendTransactionError("invalid_operation",
- *         { reason: `World App only supports World Chain (chainId: ${WORLD_CHAIN_ID})` });
- *
- * Passing 4801 here is exactly what made every Mini App transaction fail with
- * "invalid_operation" — the check is client-side, so nothing even reached World App.
+ * The chain Aval's contracts live on. MiniKit refuses to broadcast on anything but World Chain
+ * mainnet (480) — @worldcoin/minikit-js 2.0.3's send-transaction path throws
+ * `SendTransactionError("invalid_operation")` client-side for any other chain id, so the request
+ * never reaches World App at all.
  *
  * Written as a literal `process.env.NEXT_PUBLIC_CHAIN_ID` member expression for the inlining
  * reason documented below; falls back to mainnet, because mainnet is the only value at which the
@@ -57,12 +50,10 @@ export class ClientConfigError extends Error {}
  *
  * Next.js inlines these values into the client bundle by statically substituting the literal
  * text at build time. A computed key cannot be analysed statically, so it is never substituted,
- * and the variable reads as `undefined` in the browser while working perfectly on the server.
+ * and the variable reads as `undefined` in the browser while working perfectly on the server —
+ * a correctly-populated .env.local then looks like a missing one.
  *
- * That is exactly the bug this replaced: a `requirePublicAddress(name)` helper doing
- * `process.env[name]`, which made a correctly-populated .env.local look like a missing one and
- * put "WORLD ID NOT CONFIGURED" on the enrollment screen. `getAppId()` below always worked,
- * because it happened to use the literal form.
+ * Hence the shape below: callers pass the literal read in, and this helper only validates it.
  */
 function parsePublicAddress(name: string, raw: string | undefined): Address {
   if (!raw) {
@@ -95,8 +86,8 @@ export function getAppId(): string {
   return v;
 }
 
-/** The nullifier namespace (docs/03-worldid.md §2). Same action for enrollment AND vouch presence
- *  proofs (errata E-1, docs/03-worldid.md §5.1) — `aval-vouch-v1` is retired and must not return. */
+/** The nullifier namespace (docs/03-worldid.md §2). One action covers enrollment AND vouch presence
+ *  proofs (docs/03-worldid.md §5.1); a separate `aval-vouch-v1` action must not be reintroduced. */
 export function getWorldIdAction(): string {
   const v = process.env.NEXT_PUBLIC_WORLD_ID_ACTION;
   if (!v) throw new ClientConfigError("NEXT_PUBLIC_WORLD_ID_ACTION is not set — see app/.env.example.");

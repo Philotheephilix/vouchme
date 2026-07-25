@@ -8,23 +8,38 @@ import type { ReportEntry } from "@/lib/types";
  *  - a pending report never touches `score`, only `scoreAtRisk` — "an accusation is not a verdict"
  *    (docs/01-trust-math.md §7.5);
  *  - a valid upheld report that is NOT counted is either outside the top-3 (§7.3), or aimed at an
- *    anchor, whose score ignores every inbound edge (errata E-6), or aimed at someone already at
- *    their floor `base + tenure`, which no accusation can reach (errata E-8). */
+ *    anchor, whose score ignores every inbound edge, or aimed at someone already at their floor
+ *    `base + tenure`, which no accusation can reach. */
 export function reportEffectLine(report: ReportEntry): string {
   if (!report.valid) {
     return `Voided by the engine${report.voidReason ? ` (${report.voidReason})` : ""} — subtracts nothing.`;
   }
+  // `countedTowardRisk` / `countedTowardScore` are TOP-K MEMBERSHIP flags — "the engine selected
+  // this report" — not "this changed the number". The engine floors every result at
+  // `base + tenure`, so a target already at their floor absorbs the whole subtraction and the
+  // published figures are identical with and without the report. Assert a deduction only when the
+  // target's own numbers actually differ.
+  const risked = report.targetScore !== report.targetScoreAtRisk;
   if (report.status === "pending") {
-    return report.countedTowardRisk
+    if (!report.countedTowardRisk) return "Pending, and outside the top-3 by weight, so it moves nothing at all.";
+    return risked
       ? `Counted against score-at-risk only (−${fmtScore(report.baseWeight)}). The published score does not move until a verdict.`
-      : "Pending, and outside the top-3 by weight, so it moves nothing at all.";
+      : `Counted, but it changes nothing: ${fmtScore(report.targetScore)} is already this account's floor, and no accusation reduces someone below the fact that they are a live human.`;
   }
   if (report.status === "decayed") return "Fully decayed — 180 days have passed, so it now subtracts zero.";
-  if (report.countedTowardScore) return `Counted: −${fmtScore(report.weight)} from the published score.`;
+  if (report.countedTowardScore) {
+    // For an UPHELD report the question is whether the published score sits below the target's
+    // positive-only score. `risked` answers a different question (is score-at-risk lower), which is
+    // about PENDING accusations, so it cannot stand in here.
+    const landed = report.targetSPlus - report.targetScore;
+    return landed > 0
+      ? `Counted: −${fmtScore(Math.min(report.weight, landed))} from the published score.`
+      : `Counted, but the published score is unchanged at ${fmtScore(report.targetScore)} — the target is already at their floor, which no accusation reduces.`;
+  }
   return "Upheld, but not subtracted: either it is outside the top-3 by weight, or the target's score is fixed (anchor) or already at its floor.";
 }
 
-/** The four terminal verdicts are four different things (errata E-12): UNPROVEN means the
+/** The four terminal verdicts are four different things: UNPROVEN means the
  *  accusation was not substantiated and nobody is punished, MALICIOUS means the reporter was, and
  *  WITHDRAWN means it was never tested at all. The engine collapses all three into `rejected`
  *  because none of them subtracts a point — but stamping "REJECTED" on all three tells the person

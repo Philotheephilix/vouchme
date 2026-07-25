@@ -27,7 +27,7 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
   const [claimError, setClaimError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   // A World App UserOperation hash is not a transaction hash — `worldscan.org/tx/…` does not
-  // resolve one. Linking it presented a dead URL as proof the claim landed.
+  // resolve one, so it must never be rendered as an explorer link.
   const [txIsUserOp, setTxIsUserOp] = useState(false);
 
   const claimedFraction = Math.min(1, Math.max(0, (presence.maxUnclaimedDays - presence.daysUntilCap) / presence.maxUnclaimedDays));
@@ -57,8 +57,8 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
 
       // `MiniKit.isInstalled()` on the imported class can be false during a healthy World App
       // session when another copy of the module owns `window.MiniKit` — see src/lib/session.tsx's
-      // `activeMiniKit`. Gating on it sent World App users down the browser-extension path, which
-      // then failed with "no wallet extension found".
+      // `activeMiniKit`. Hence the host check here rather than `isInstalled()`; gating on the
+      // latter sends World App users down the browser-extension path.
       if (inWorldAppNow()) {
         const result = await activeMiniKit().sendTransaction({ transactions: [{ to: dripAddress, data }], chainId: WORLDCHAIN_ID });
         setTxHash(result.data.userOpHash);
@@ -153,8 +153,7 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
       <div className="mt-6">
         <div className="mb-1 flex items-baseline justify-between">
           {/* `epochsClaimed` only advances when you claim, so this is presence CREDITED on chain,
-              not time elapsed since enrolling. "Present 0d" told a user who had been enrolled for
-              a week that they had not been present. */}
+              not time elapsed since enrolling. */}
           <span className="text-2xs text-graphite">Credited {presence.presentDays}d</span>
           <span className="font-mono text-sm" style={{ color: "var(--color-seal)" }}>
             tenure +{fmtScore(presence.tenureBonus)}

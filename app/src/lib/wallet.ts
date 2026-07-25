@@ -72,9 +72,9 @@ export async function getAuthorizedAccount(): Promise<Address | null> {
   }
 }
 
-/** EIP-191 `personal_sign` over a plain-text message (docs/96-ux-audit.md U-24: this, not just an
- *  address, is what a real sign-in requires). Params are `[message, address]` per the JSON-RPC
- *  spec, message hex-encoded as every wallet expects. */
+/** EIP-191 `personal_sign` over a plain-text message — a real sign-in proves control of the
+ *  address, not just knowledge of it. Params are `[message, address]` per the JSON-RPC spec,
+ *  message hex-encoded as every wallet expects. */
 export async function personalSign(message: string, account: Address): Promise<Hex> {
   const provider = requireProvider();
   const signature = (await provider.request({
@@ -117,8 +117,6 @@ export async function ensureWorldChainSepolia(): Promise<void> {
         ],
       });
     } else {
-      // Was hardcoded "World Chain Sepolia (chain 4801)". This deployment is World Chain MAINNET
-      // (480) — the message named a chain the app does not use and told the user to switch to it.
       throw new WalletError(
         "wrong_network",
         `Please switch your wallet to ${WORLDCHAIN.name} (chain ${WORLDCHAIN_ID}) and try again.`,
@@ -136,8 +134,8 @@ export async function sendFromInjected(account: Address, to: Address, data: Hex)
 }
 
 /** Best-effort decode of a contract revert into the real Solidity error name
- *  (`NullifierUsed`, `AlreadyEnrolled`, `BadAttestation`, ...) instead of a generic failure
- *  message — requirement: "Surface the real revert reason ... never a generic failure." */
+ *  (`NullifierUsed`, `AlreadyEnrolled`, `BadAttestation`, ...) rather than a generic failure
+ *  message. */
 export function decodeRevertReason(err: unknown): string {
   if (err instanceof WalletError) return err.message;
   const e = err as {
@@ -175,8 +173,7 @@ export interface TxOutcome {
 
 /** Sends from the injected wallet, waits for the receipt, and — on revert — replays the exact
  *  same call at the mined block to recover the real Solidity error name (`NullifierUsed`,
- *  `RateLimited`, `InsufficientTier`, ...) instead of a generic "transaction reverted." Surfacing
- *  the real reason is a hard requirement: "never a generic failure." */
+ *  `RateLimited`, `InsufficientTier`, ...) instead of a generic "transaction reverted." */
 export async function submitFromInjected(account: Address, to: Address, data: Hex): Promise<TxOutcome> {
   const hash = await sendFromInjected(account, to, data);
   const client = getPublicClient();
