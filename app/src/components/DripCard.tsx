@@ -6,8 +6,8 @@ import { encodeFunctionData } from "viem";
 import { MiniKit } from "@worldcoin/minikit-js";
 import { fmtAval, fmtDays, fmtScore } from "@/lib/format";
 import type { Address, PresenceState } from "@/lib/types";
-import { useAuth } from "@/lib/session";
-import { PRESENCE_DRIP_ABI, WORLDCHAIN_SEPOLIA_ID, explorerTxUrl, getPresenceDripAddress } from "@/lib/worldchain";
+import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
+import { PRESENCE_DRIP_ABI, WORLDCHAIN_ID, explorerTxUrl, getPresenceDripAddress } from "@/lib/worldchain";
 import { decodeRevertReason, ensureWorldChainSepolia, submitFromInjected } from "@/lib/wallet";
 
 /**
@@ -26,6 +26,9 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  // A World App UserOperation hash is not a transaction hash — `worldscan.org/tx/…` does not
+  // resolve one. Linking it presented a dead URL as proof the claim landed.
+  const [txIsUserOp, setTxIsUserOp] = useState(false);
 
   const claimedFraction = Math.min(1, Math.max(0, (presence.maxUnclaimedDays - presence.daysUntilCap) / presence.maxUnclaimedDays));
   const claimedPct = claimedFraction * 100;
@@ -52,13 +55,19 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
       });
       const dripAddress = getPresenceDripAddress();
 
-      if (auth.via === "minikit" && MiniKit.isInstalled()) {
-        const result = await MiniKit.sendTransaction({ transactions: [{ to: dripAddress, data }], chainId: WORLDCHAIN_SEPOLIA_ID });
+      // `MiniKit.isInstalled()` on the imported class can be false during a healthy World App
+      // session when another copy of the module owns `window.MiniKit` — see src/lib/session.tsx's
+      // `activeMiniKit`. Gating on it sent World App users down the browser-extension path, which
+      // then failed with "no wallet extension found".
+      if (inWorldAppNow()) {
+        const result = await activeMiniKit().sendTransaction({ transactions: [{ to: dripAddress, data }], chainId: WORLDCHAIN_ID });
         setTxHash(result.data.userOpHash);
+        setTxIsUserOp(true);
       } else {
         await ensureWorldChainSepolia();
         const outcome = await submitFromInjected(auth.address, dripAddress, data);
         setTxHash(outcome.hash);
+        setTxIsUserOp(false);
         if (outcome.status !== "success") throw new Error(outcome.revertReason ?? "Transaction reverted.");
       }
       router.refresh(); // re-fetches the server-rendered accrued figure from the now-updated chain state
@@ -105,7 +114,7 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
           {claimError}
         </p>
       ) : null}
-      {txHash ? (
+      {txHash && !txIsUserOp ? (
         <a
           href={explorerTxUrl(txHash)}
           target="_blank"
@@ -115,6 +124,12 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
         >
           {txHash}
         </a>
+      ) : null}
+      {txHash && txIsUserOp ? (
+        <p className="mt-2 truncate-mono font-mono text-2xs text-graphite">
+          user operation {txHash} — submitted to World App&apos;s bundler; the accrued figure updates once it is
+          mined.
+        </p>
       ) : null}
 
       <div className="mt-5">
@@ -137,7 +152,10 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
 
       <div className="mt-6">
         <div className="mb-1 flex items-baseline justify-between">
-          <span className="text-2xs text-graphite">Present {presence.presentDays}d</span>
+          {/* `epochsClaimed` only advances when you claim, so this is presence CREDITED on chain,
+              not time elapsed since enrolling. "Present 0d" told a user who had been enrolled for
+              a week that they had not been present. */}
+          <span className="text-2xs text-graphite">Credited {presence.presentDays}d</span>
           <span className="font-mono text-sm" style={{ color: "var(--color-seal)" }}>
             tenure +{fmtScore(presence.tenureBonus)}
           </span>

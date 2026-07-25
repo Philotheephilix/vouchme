@@ -1,9 +1,15 @@
 "use client";
 
+import { WORLDCHAIN } from "@/lib/worldchain";
+
+/** Named from the configured chain, never typed in. The panel used to say "World Chain Sepolia"
+ *  on a World Chain mainnet deployment. */
+const CHAIN_LABEL = WORLDCHAIN.name;
+
 /**
  * Route-segment error boundary (Next.js App Router convention: `app/error.tsx`).
  *
- * LIVE mode reads World Chain Sepolia directly on every request — no subgraph buffering the
+ * LIVE mode reads World Chain directly on every request — no subgraph buffering the
  * app from an RPC hiccup. Public RPCs rate-limit and lag (task brief, and observed firsthand
  * under concurrent load in this environment): without this boundary, a transient
  * `loadAvalData()` rejection is an unhandled Server Component error, and Next's default handling
@@ -13,6 +19,12 @@
  * layout instead of a blank/generic error page.
  */
 export default function RouteError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  // docs/96-ux-audit.md U-22: this panel printed viem's own text at the user — "An unknown RPC
+  // error occurred. Details: Cannot read properties of undefined (reading 'error') Version:
+  // viem@2.55.8". That tells them nothing except that something crashed. The library text belongs
+  // in the console; the panel gets one sentence a person can act on.
+  if (typeof console !== "undefined") console.error("[aval] route error", error);
+
   return (
     <div className="pb-8" data-testid="route-error">
       <header className="sticky top-0 z-30 bg-void" style={{ paddingTop: "env(safe-area-inset-top)" }}>
@@ -26,10 +38,14 @@ export default function RouteError({ error, reset }: { error: Error & { digest?:
           <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
             Could not load live data
           </p>
-          <p className="mt-2 text-sm leading-relaxed text-cream">{error.message || "Unknown error."}</p>
+          <p className="mt-2 text-sm leading-relaxed text-cream">
+            World Chain didn&apos;t answer. Your score and your vouches are safe on chain — this screen just
+            couldn&apos;t read them.
+          </p>
           <p className="mt-2 text-2xs leading-relaxed text-graphite">
-            World Chain Sepolia is read directly, live, on every request — a public RPC occasionally rate-limits or
-            lags. This is reported rather than papered over with stale or fixture data.
+            {CHAIN_LABEL} is read directly, live, on every request — a public RPC occasionally rate-limits or lags.
+            This is reported rather than papered over with stale or fixture data. The technical detail is in the
+            browser console.
           </p>
         </div>
         <button

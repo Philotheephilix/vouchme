@@ -1,12 +1,12 @@
 import { cookies } from "next/headers";
-import { isAddress } from "viem";
 import { notFound } from "next/navigation";
+import { CREDENTIAL_GRACE_DAYS, CREDENTIAL_VALIDITY_DAYS } from "@aval/engine";
 import { Header } from "@/components/Header";
 import { TierBadge } from "@/components/TierBadge";
 import { VouchRow } from "@/components/VouchRow";
+import { readVerifiedAddress } from "@/lib/authSession";
 import { fmtScore, truncateMiddle } from "@/lib/format";
 import { loadAvalData } from "@/lib/mock";
-import type { Address } from "@/lib/types";
 
 /** "Show the credential as a real object" — expiry read live from `credentialExpiresAt`, not
  *  hidden. Anchor status is read live from GenesisAnchorBook (docs/03-worldid.md §3), the
@@ -16,8 +16,12 @@ function credentialLine(subject: { kind: string; credentialStatus: string; crede
   if (subject.kind === "anchor") return "credential: orb · anchor";
   const daysLeft = Math.round((new Date(subject.credentialExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   if (subject.credentialStatus === "suspended") return "credential: selfie check · expired, suspended";
-  if (subject.credentialStatus === "grace") return `credential: selfie check · grace period, ${Math.max(0, daysLeft + 14)}d left`;
-  return `credential: selfie check · ${Math.max(0, daysLeft)}d of 90 remaining`;
+  // Window lengths from the engine's constants, not retyped — the "90" and "14" here used to be
+  // literals that would silently disagree with the contract the day either window moved.
+  if (subject.credentialStatus === "grace") {
+    return `credential: selfie check · grace period, ${Math.max(0, daysLeft + CREDENTIAL_GRACE_DAYS)}d left`;
+  }
+  return `credential: selfie check · ${Math.max(0, daysLeft)}d of ${CREDENTIAL_VALIDITY_DAYS} remaining`;
 }
 
 export const dynamic = "force-dynamic";
@@ -31,9 +35,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const { idOrAddress } = await params;
   const decoded = decodeURIComponent(idOrAddress);
 
+  // Verified, not the raw `aval_addr` cookie (docs/96-ux-audit.md U-24) — see src/app/page.tsx's
+  // comment on readVerifiedAddress. `viewingAddress` here decides both whose data renders as "you"
+  // (isSelf/vouch eligibility below) and, via loadAvalData, what a signed-out visitor gets — it
+  // must never be forgeable.
   const cookieStore = await cookies();
-  const cookieAddr = cookieStore.get("aval_addr")?.value;
-  const viewingAddress = cookieAddr && isAddress(cookieAddr) ? (cookieAddr as Address) : undefined;
+  const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
 
   const data = await loadAvalData(viewingAddress);
   const subject = data.getScoreResult(decoded);
@@ -62,8 +69,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           </span>
           <TierBadge tier={subject.tier} />
         </div>
+        {/* `depth ∞` is a mathematical symbol standing in for "not connected to any anchor" —
+            precisely the fact that most needs words (docs/95-lifecycle.md L-12). */}
         <p className="mt-2 font-mono text-2xs text-graphite">
-          @{subject.ensName.replace(/\.aval\.eth$/, "")} · depth {subject.depth ?? "∞"}
+          @{subject.ensName.replace(/\.aval\.eth$/, "")} ·{" "}
+          {subject.depth === null ? "no path to an anchor" : `depth ${subject.depth}`}
         </p>
         <p className="mt-1 font-mono text-2xs text-graphite" data-testid="credential-line">
           {credentialLine(subject)}
@@ -74,7 +84,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
       <section className="mt-6 px-4">
         <h2 className="mb-1 text-2xs uppercase tracking-widest text-graphite">Vouched for by</h2>
         {subject.breakdown.length === 0 ? (
-          <p className="py-3 text-2xs text-graphite">No vouches yet.</p>
+          <p className="py-3 text-2xs leading-relaxed text-graphite">
+            {subject.kind === "anchor"
+              ? "No inbound vouches — and they would not change this score anyway: an anchor's score is fixed and ignores every inbound edge."
+              : "No vouches yet."}
+          </p>
         ) : (
           subject.breakdown.map((row) => <VouchRow key={row.voucher.ensName} row={row} />)
         )}
@@ -84,13 +98,14 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
         <section className="mt-8 px-4">
           <div className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">More</div>
           <a href="/explore" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
-            Explore — honest path vs. collusion ring
+            Explore — who reaches an anchor, and who doesn&apos;t reach one
           </a>
           <a href="/reports" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
             Reports — against you / filed by you
           </a>
+          {/* Minting an agent subname is not built — the link used to advertise it as an action. */}
           <a href="/agents" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
-            Agents — mint an ENSIP-26 agent subname
+            Agents — ENSIP-26 records, preview only
           </a>
         </section>
       ) : null}

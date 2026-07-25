@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { Header } from "@/components/Header";
 import { TierBadge } from "@/components/TierBadge";
+import { readVerifiedAddress } from "@/lib/authSession";
 import { anchorSourceLabel, dropAvalSuffix, fmtScore, truncateMiddle } from "@/lib/format";
 import { loadAvalData } from "@/lib/mock";
 import type { ExploreScenario } from "@/lib/types";
@@ -7,6 +9,21 @@ import type { ExploreScenario } from "@/lib/types";
 function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
   const color = scenario.finalTier > 0 ? "var(--color-seal)" : "var(--color-graphite)";
   const sortedNodes = [...scenario.nodes].sort((a, b) => (a.depth ?? 99) - (b.depth ?? 99));
+
+  // An exhibit with nothing in it must show nothing — not a score, not a tier, not the narrative.
+  // Both columns used to be selected by matching FIXTURE names against live handles, so on this
+  // deployment both came back empty and the page still printed "Six-account collusion ring / Six
+  // phones on a table" over a fallback score of 20.0, and described mainnet's genuinely
+  // Orb-verified anchors as "genesis (testnet)".
+  if (!scenario.available) {
+    return (
+      <div className="flex-1">
+        <div className="mb-3 font-mono text-2xs uppercase tracking-widest text-graphite">{scenario.exhibit}</div>
+        <h2 className="text-sm text-cream">{scenario.label}</h2>
+        <p className="mt-1 text-2xs leading-relaxed text-graphite">{scenario.unavailableReason}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1">
@@ -48,23 +65,33 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
             would — that was the original bug: the *target*, the actual information, is what got
             cut. */}
         <div className="mb-1 font-mono text-2xs uppercase tracking-widest text-graphite">Edges</div>
+        {scenario.edges.length === 0 ? (
+          <p className="py-1 text-2xs text-graphite">No vouches between these accounts yet.</p>
+        ) : null}
         {scenario.edges.map((edge) => (
-          <div key={`${edge.from}->${edge.to}`} className="flex items-center gap-2 py-1">
-            <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-2xs text-graphite">
-              <span className="truncate-mono min-w-0 flex-1">{truncateMiddle(dropAvalSuffix(edge.from), 11)}</span>
-              <span aria-hidden="true" className="shrink-0">
-                →
+          <div key={`${edge.from}->${edge.to}`} className="py-1">
+            <div className="flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-2xs text-graphite">
+                <span className="truncate-mono min-w-0 flex-1">{truncateMiddle(dropAvalSuffix(edge.from), 11)}</span>
+                <span aria-hidden="true" className="shrink-0">
+                  →
+                </span>
+                <span className="truncate-mono min-w-0 flex-1 text-cream">
+                  {truncateMiddle(dropAvalSuffix(edge.to), 11)}
+                </span>
               </span>
-              <span className="truncate-mono min-w-0 flex-1 text-cream">
-                {truncateMiddle(dropAvalSuffix(edge.to), 11)}
+              {/* "blocked" reads as an error and was never explained (docs/96-ux-audit.md U-16).
+                  The value is +0.0 and the engine already hands us the reason. */}
+              <span
+                className="shrink-0 font-mono text-2xs"
+                style={{ color: edge.counted ? "var(--color-seal)" : "var(--color-graphite)" }}
+              >
+                +{edge.contribution.toFixed(1)}
               </span>
-            </span>
-            <span
-              className="shrink-0 font-mono text-2xs"
-              style={{ color: edge.counted ? "var(--color-seal)" : "var(--color-graphite)" }}
-            >
-              {edge.counted ? `+${edge.contribution.toFixed(1)}` : "blocked"}
-            </span>
+            </div>
+            {!edge.counted && edge.reason ? (
+              <p className="mt-0.5 text-2xs leading-relaxed text-graphite">{edge.reason}</p>
+            ) : null}
           </div>
         ))}
       </div>
@@ -76,10 +103,20 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
 export const dynamic = "force-dynamic";
 
 export default async function ExplorePage() {
-  const { EXPLORE_HONEST, EXPLORE_RING } = await loadAvalData();
+  // docs/96-ux-audit.md U-7 / docs/95-lifecycle.md L-11: this page ran the full chain read and
+  // shipped every member's handle, score, tier and depth in the RSC payload to clients with no
+  // cookie at all — the login screen rendered on top, but `view source` had the graph. The stated
+  // rule is "signed out -> nothing else renders, on any route." Same check the other routes use.
+  const cookieStore = await cookies();
+  const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
+  if (!viewingAddress) return null;
+
+  const { EXPLORE_HONEST, EXPLORE_RING } = await loadAvalData(viewingAddress);
   return (
     <div className="pb-8">
-      <Header eyebrow="EXPLORE" title="honest path vs. collusion ring" />
+      {/* Was "honest path vs. collusion ring" unconditionally — including on a deployment with no
+          ring at all. The columns name themselves now. */}
+      <Header eyebrow="EXPLORE" title="who reaches an anchor" />
 
       <section className="grid grid-cols-1 gap-8 px-4 pt-6 md:grid-cols-[1fr_auto_1fr] md:gap-6">
         <ScenarioColumn scenario={EXPLORE_HONEST} />

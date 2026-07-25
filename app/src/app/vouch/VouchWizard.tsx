@@ -9,12 +9,12 @@ import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { fmtHours, fmtScore, tierLabel, truncateMiddle } from "@/lib/format";
 import type { CandidateVoucher, IdentityResult, SimulateVouchResult } from "@/lib/types";
-import { useAuth } from "@/lib/session";
+import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { encodeVouchSignal, fetchRpContext, type RpContext } from "@/lib/worldid-client";
 import {
   AVAL_REGISTRY_ABI,
   ClientConfigError,
-  WORLDCHAIN_SEPOLIA_ID,
+  WORLDCHAIN_ID,
   explorerTxUrl,
   getAppId,
   getAvalRegistryAddress,
@@ -22,7 +22,10 @@ import {
 } from "@/lib/worldchain";
 import { decodeRevertReason, ensureWorldChainSepolia, submitFromInjected } from "@/lib/wallet";
 
-const STEPS = ["Who?", "Preview", "Confirm", "Presence", "Transaction", "Result"] as const;
+// "Presence" was renamed after errata E-19: `selfieCheckLegacy()` returns World ID 3.0 proofs,
+// which carry no presence field, so no liveness is established at this step and naming it after
+// one described something that does not happen.
+const STEPS = ["Who?", "Preview", "Confirm", "Verify", "Transaction", "Result"] as const;
 
 interface VouchAttestResponse {
   voucher: string;
@@ -34,6 +37,28 @@ interface VouchAttestResponse {
   environment: string;
 }
 
+/** docs/04-ens.md §7.1 — the vouch as a name: `register(vouchee)` inside the VOUCHER's own
+ *  registry, i.e. a real `carol.alice.aval.eth`. Minted on Ethereum Sepolia by `/api/vouch/ens`
+ *  after the World Chain vouch lands. */
+interface VouchEnsResponse {
+  name: string;
+  voucherRegistry: string;
+  voucheeRegistry: string;
+  registerTxHash: string | null;
+  setAddrTxHash: string | null;
+  resolvedAddress: string | null;
+  alreadyComplete: boolean;
+}
+
+type EnsMintState =
+  | { kind: "idle" }
+  | { kind: "minting" }
+  | { kind: "minted"; data: VouchEnsResponse }
+  | { kind: "unavailable"; message: string }
+  | { kind: "failed"; message: string };
+
+const sepoliaTxUrl = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
+
 function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${string}` } | { error: string } {
   return useMemo(() => {
     try {
@@ -44,6 +69,40 @@ function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${
   }, []);
 }
 
+
+/**
+ * Poll `/api/score/{vouchee}` until the voucher actually appears in their breakdown — i.e. the
+ * `Vouched` event is on chain and the engine has counted it.
+ *
+ * World App's `sendTransaction` resolves with a bundler UserOperation hash, which proves only that
+ * the call was accepted for inclusion. Reading it as confirmation showed "Vouched" for a vouch that
+ * had not landed, and started the ENS mint against an edge that did not exist.
+ *
+ * Returns false on timeout rather than throwing: the vouch may still land later, so the honest
+ * report is "submitted, not yet confirmed", never "failed".
+ */
+async function waitForVouchOnChain(
+  vouchee: `0x${string}`,
+  voucher: `0x${string}`,
+  timeoutMs = 120_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const res = await fetch(`/api/score/${encodeURIComponent(vouchee)}`, { cache: "no-store" });
+      if (res.ok) {
+        const body: unknown = await res.json();
+        const rows = (body as { data?: { breakdown?: Array<{ voucher?: { address?: string } }> } }).data?.breakdown ?? [];
+        if (rows.some((r) => r.voucher?.address?.toLowerCase() === voucher.toLowerCase())) return true;
+      }
+    } catch {
+      // Network blip — the deadline below is the only exit.
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+  }
+}
+
 export function VouchWizard() {
   const auth = useAuth();
   const config = useClientConfig();
@@ -51,6 +110,7 @@ export function VouchWizard() {
 
   // ── step 0: who ──────────────────────────────────────────────────────────────────────────────
   const [candidates, setCandidates] = useState<CandidateVoucher[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -71,7 +131,13 @@ export function VouchWizard() {
   // ── step 4: transaction ──────────────────────────────────────────────────────────────────────
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "confirmed" | "reverted">("idle");
+  // World App returns a UserOperation hash; `worldscan.org/tx/<userOpHash>` does not resolve, so
+  // linking it presented a dead link as on-chain evidence.
+  const [txIsUserOp, setTxIsUserOp] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
+
+  // ── step 5: the vouch as an ENS name ─────────────────────────────────────────────────────────
+  const [ensMint, setEnsMint] = useState<EnsMintState>({ kind: "idle" });
 
   useEffect(() => {
     if (!auth.address) return;
@@ -83,6 +149,8 @@ export function VouchWizard() {
         if (!cancelled && res.ok && !body.error) setCandidates(body.data as CandidateVoucher[]);
       } catch {
         // best-effort — the free-text resolver below still works without a candidate list
+      } finally {
+        if (!cancelled) setCandidatesLoading(false);
       }
     })();
     return () => {
@@ -183,6 +251,28 @@ export function VouchWizard() {
     [auth.address, target],
   );
 
+  /** Mints `<vouchee>.<voucher>.aval.eth` for real, and reports honestly when it can't. */
+  const mintVouchName = useCallback(async () => {
+    if (!auth.address || !target) return;
+    setEnsMint({ kind: "minting" });
+    try {
+      const res = await fetch("/api/vouch/ens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voucher: auth.address, vouchee: target.address }),
+      });
+      const body = await res.json();
+      if (res.status === 409 && body?.error?.code === "vouch_name_unavailable") {
+        setEnsMint({ kind: "unavailable", message: body.error.message as string });
+        return;
+      }
+      if (!res.ok || body.error) throw new Error(body?.error?.message ?? "Could not mint the vouch name.");
+      setEnsMint({ kind: "minted", data: body.data as VouchEnsResponse });
+    } catch (err) {
+      setEnsMint({ kind: "failed", message: err instanceof Error ? err.message : String(err) });
+    }
+  }, [auth.address, target]);
+
   const sendVouchTx = useCallback(async () => {
     if (!auth.address || !target || !attestData || "error" in config) return;
     setTxError(null);
@@ -193,23 +283,38 @@ export function VouchWizard() {
         functionName: "vouch",
         args: [target.address, attestData.voucherTier, BigInt(attestData.deadline), BigInt(attestData.nonce), attestData.attestation],
       });
-      if (auth.via === "minikit" && MiniKit.isInstalled()) {
-        const result = await MiniKit.sendTransaction({ transactions: [{ to: config.avalRegistry, data }], chainId: WORLDCHAIN_SEPOLIA_ID });
+      let landed = false;
+      // Gate on the host, not on `MiniKit.isInstalled()` — that reads a per-module-copy flag that
+      // can be false in a working World App session (src/lib/session.tsx `activeMiniKit`), which
+      // routed World App users into the browser-extension path and "no wallet extension found".
+      if (inWorldAppNow()) {
+        const result = await activeMiniKit().sendTransaction({ transactions: [{ to: config.avalRegistry, data }], chainId: WORLDCHAIN_ID });
+        // A UserOperation hash, NOT a transaction hash. World App returns it the moment its bundler
+        // accepts the call — before it is mined, and before it is known to have succeeded. Treating
+        // that as "confirmed" claimed the vouch had landed while it might still fail, and kicked off
+        // the ENS mint against an edge that did not exist yet. The injected branch below has always
+        // been correct because it awaits a receipt.
         setTxHash(result.data.userOpHash);
-        setTxStatus("confirmed");
+        setTxIsUserOp(true);
+        setTxStatus("pending");
+        landed = await waitForVouchOnChain(target.address, auth.address);
+        setTxStatus(landed ? "confirmed" : "pending");
       } else {
         await ensureWorldChainSepolia();
         const outcome = await submitFromInjected(auth.address, config.avalRegistry, data);
         setTxHash(outcome.hash);
         setTxStatus(outcome.status === "success" ? "confirmed" : "reverted");
         if (outcome.status !== "success") setTxError(outcome.revertReason ?? "Transaction reverted.");
+        landed = outcome.status === "success";
       }
       setStep(5);
+      // Only once the trust edge actually exists on World Chain is the name minted on Sepolia.
+      if (landed) void mintVouchName();
     } catch (err) {
       setTxStatus("reverted");
       setTxError(decodeRevertReason(err));
     }
-  }, [auth.address, auth.via, attestData, config, target]);
+  }, [auth.address, auth.via, attestData, config, target, mintVouchName]);
 
   const first = step === 0;
 
@@ -292,12 +397,22 @@ export function VouchWizard() {
 
             {candidates.length > 0 ? (
               <div className="mt-6">
-                <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">Or pick a prospective voucher target</h3>
+                {/* This list is `/api/candidates/{me}`, which returns people who could vouch FOR
+                    you — `candidatesFor` filters to tier >= 1 and "not already vouching you". The
+                    heading said "prospective voucher target" and tapping a row set that person as
+                    the person you vouch for, i.e. the app suggested spending your 24h slot on
+                    exactly the wrong people: on this deployment the top suggestion is an anchor,
+                    whose score is fixed and cannot be raised by a vouch at all (errata E-6). */}
+                <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">People who could vouch for you</h3>
+                <p className="mb-2 text-2xs leading-relaxed text-graphite">
+                  Not people to vouch for — these are Tier 1+ accounts whose vouch would raise your score. Open one to
+                  ask.
+                </p>
                 {candidates.map((c) => (
                   <button
                     key={c.ensName}
                     type="button"
-                    onClick={() => void resolveTarget(c.address)}
+                    onClick={() => { window.location.href = `/profile/${c.address}`; }}
                     className="flex w-full min-h-[44px] items-center justify-between border-b border-rule py-3 text-left"
                   >
                     <span className="truncate-mono max-w-[180px] text-sm" style={{ color: "var(--color-cream)" }}>
@@ -309,8 +424,15 @@ export function VouchWizard() {
                   </button>
                 ))}
               </div>
+            ) : candidatesLoading ? (
+              <p className="mt-6 text-2xs text-graphite">Looking for accounts that could vouch for you…</p>
             ) : (
-              <p className="mt-6 text-2xs text-graphite">No prospective candidates loaded — resolve someone directly above.</p>
+              /* Stating "none" while the fetch was still in flight reported a conclusion the app
+                 had not reached yet. */
+              <p className="mt-6 text-2xs text-graphite">
+                Nobody on this deployment can vouch for you yet — vouching needs Tier 1, and no other account has
+                reached it.
+              </p>
             )}
 
             <button
@@ -356,8 +478,9 @@ export function VouchWizard() {
               <span className="font-mono" style={{ color: "var(--color-protest)" }}>
                 ⚠
               </span>{" "}
-              You are putting your name on this person. If they&apos;re confirmed fraudulent, you lose a slot for 30
-              days.
+              You are putting your name on{" "}
+              <span className="font-mono text-cream">{target?.ensName ?? "this account"}</span>. If they&apos;re
+              confirmed fraudulent, you lose a slot for 30 days.
             </p>
           </div>
         ) : null}
@@ -366,9 +489,14 @@ export function VouchWizard() {
           <div>
             <h2 className="mb-3 text-sm text-cream">World ID</h2>
             <p className="mb-4 text-2xs leading-relaxed text-graphite">
-              <code className="font-mono">require_user_presence: true</code> — a vouch is the only operation that
-              creates trust from nothing, so this is the one place the protocol spends friction. Reuses the same
-              action as enrollment; the edge is bound through <code className="font-mono">signal</code>.
+              A vouch is the only operation that creates trust from nothing, so this is the one place the protocol
+              spends friction. Reuses the same action as enrollment, so the returned nullifier must equal the one you
+              enrolled with — checked server-side, not here — and the edge is bound through{" "}
+              <code className="font-mono">signal</code>.
+            </p>
+            <p className="mb-4 text-2xs leading-relaxed" style={{ color: "var(--color-graphite)" }}>
+              Liveness (<code className="font-mono">require_user_presence</code>) is not enforced on this step:
+              Selfie Check returns World ID 3.0 proofs, which carry no presence field. See errata E-19.
             </p>
             <button
               type="button"
@@ -392,7 +520,25 @@ export function VouchWizard() {
                 action={config.action}
                 rp_context={rpContext}
                 allow_legacy_proofs={true}
-                require_user_presence={true}
+                // MUST stay false while the preset is `selfieCheckLegacy` (errata E-19). idkit-core
+                // gates on a World ID 4.0-only field:
+                //
+                //     const userPresenceCompleted = getUserPresenceCompleted(responsePayload);
+                //     if (config.require_user_presence === true && !userPresenceCompleted)
+                //       this.complete({ success: false, error: "user_presence_failed" });
+                //
+                //     getUserPresenceCompleted = p => p?.user_presence_completed === true
+                //                                  || p?.proof_response?.user_presence_completed === true
+                //
+                // `selfieCheckLegacy()` returns 3.0 proofs, whose payload has no such field — so with
+                // `true` the user completes a real face scan and IDKit then rejects it as
+                // `user_presence_failed`. Unsatisfiable by construction, not a flaky check.
+                //
+                // What actually secures the vouch is unchanged and enforced on the SERVER
+                // (api/vouch/attest): the returned nullifier must equal the account's enrolled
+                // nullifier (same action ⇒ same nullifier), and `signal` binds the proof to this
+                // exact voucher→vouchee edge. Liveness is the only property lost.
+                require_user_presence={false}
                 preset={selfieCheckLegacy({ signal: encodeVouchSignal(auth.address, target.address) })}
                 onSuccess={handlePresenceSuccess}
                 onError={(code) => setPresenceError(`World ID error: ${code}`)}
@@ -424,27 +570,95 @@ export function VouchWizard() {
 
         {step === 5 ? (
           <div>
-            <h2 className="mb-3 text-sm text-cream">{txStatus === "reverted" ? "Reverted" : "Minted"}</h2>
+            <h2 className="mb-3 text-sm text-cream">{txStatus === "reverted" ? "Reverted" : "Vouched"}</h2>
             {target ? (
               <p className="truncate-mono text-base" style={{ color: txStatus === "reverted" ? "var(--color-protest)" : "var(--color-seal)" }}>
                 {target.ensName}
               </p>
             ) : null}
+            {/* A UserOperation hash is not a transaction hash — `worldscan.org/tx/<userOpHash>`
+                does not resolve, so linking it presented a dead link as on-chain evidence. Render
+                it as what it is, and only link when it really is a tx hash. */}
             {txHash ? (
-              <a
-                href={explorerTxUrl(txHash)}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate-mono mt-2 block font-mono text-2xs underline"
-                style={{ color: "var(--color-seal)" }}
-              >
-                {txHash}
-              </a>
+              txIsUserOp ? (
+                <div className="mt-2">
+                  <div className="font-mono text-2xs uppercase tracking-widest text-graphite">
+                    World App user operation
+                  </div>
+                  <div className="truncate-mono font-mono text-2xs text-cream">{txHash}</div>
+                  <div className="mt-1 text-2xs text-graphite">
+                    Not a transaction hash — World App bundles the call, so this id isn&apos;t on the block explorer.
+                    The vouch below is confirmed by reading the chain, not by this id.
+                  </div>
+                </div>
+              ) : (
+                <a
+                  href={explorerTxUrl(txHash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate-mono mt-2 block font-mono text-2xs underline"
+                  style={{ color: "var(--color-seal)" }}
+                >
+                  {txHash}
+                </a>
+              )
             ) : null}
             {txStatus === "reverted" ? (
               <p className="mt-3 text-2xs" style={{ color: "var(--color-protest)" }}>
                 {txError}
               </p>
+            ) : null}
+
+            {txStatus !== "reverted" ? (
+              <div className="mt-6 border-t border-rule pt-4">
+                <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">The vouch, as a name</h3>
+                {ensMint.kind === "idle" || ensMint.kind === "minting" ? (
+                  <p className="text-2xs text-graphite">Minting the subname on Ethereum Sepolia…</p>
+                ) : null}
+                {ensMint.kind === "minted" ? (
+                  <>
+                    <p className="truncate-mono text-base" style={{ color: "var(--color-seal)" }}>
+                      {ensMint.data.name}
+                    </p>
+                    <p className="mt-1 font-mono text-2xs text-graphite">
+                      resolves to {truncateMiddle(ensMint.data.resolvedAddress ?? "—", 22)}
+                    </p>
+                    {ensMint.data.registerTxHash ? (
+                      <a
+                        href={sepoliaTxUrl(ensMint.data.registerTxHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate-mono mt-2 block font-mono text-2xs underline"
+                        style={{ color: "var(--color-seal)" }}
+                      >
+                        {ensMint.data.registerTxHash}
+                      </a>
+                    ) : (
+                      <p className="mt-2 text-2xs text-graphite">Already minted by an earlier attempt — nothing rewritten.</p>
+                    )}
+                  </>
+                ) : null}
+                {ensMint.kind === "unavailable" ? (
+                  <p className="text-2xs leading-relaxed" style={{ color: "var(--color-protest)" }}>
+                    Not minted. {ensMint.message}
+                  </p>
+                ) : null}
+                {ensMint.kind === "failed" ? (
+                  <>
+                    <p className="text-2xs leading-relaxed" style={{ color: "var(--color-protest)" }}>
+                      Not minted. {ensMint.message}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void mintVouchName()}
+                      className="mt-3 min-h-[44px] w-full border px-4 font-mono text-2xs uppercase tracking-widest"
+                      style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+                    >
+                      Retry the name
+                    </button>
+                  </>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}

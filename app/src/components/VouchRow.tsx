@@ -8,6 +8,10 @@ import type { VouchContribution } from "@/lib/types";
  */
 export function VouchRow({ row }: { row: VouchContribution }) {
   const name = row.voucher.ensName;
+  // Truncated toward zero at one decimal, the same direction the engine truncates (invariant
+  // I-15), so the printed product is the one the protocol would compute.
+  const uncapped = Math.trunc(row.voucher.score * row.weight * 10) / 10;
+  const capped = row.counted && uncapped > row.contribution + 0.05;
 
   if (!row.counted) {
     return (
@@ -55,8 +59,13 @@ export function VouchRow({ row }: { row: VouchContribution }) {
           </div>
         </div>
       </div>
+      {/* The derivation has to reach the number on the right. This printed "100.0 x 0.25" beside
+          "+20.0" — 100 × 0.25 is 25, and the missing term is the 20-point per-edge cap, which is
+          exactly the rule most worth teaching at that moment (docs/95-lifecycle.md L-16,
+          docs/96-ux-audit.md U-14). */}
       <div className="mt-1.5 font-mono text-2xs text-graphite">
-        {fmtScore(row.voucher.score)} x {fmtMultiplier(row.weight)}
+        {fmtScore(row.voucher.score)} x {fmtMultiplier(row.weight)} = {fmtScore(uncapped)}
+        {capped ? ` -> capped at ${fmtScore(row.contribution)}` : ""}
       </div>
       {row.voucher.isAnchor ? (
         <div className="mt-0.5 font-mono text-2xs uppercase tracking-wide" style={{ color: "var(--color-anchor)" }}>

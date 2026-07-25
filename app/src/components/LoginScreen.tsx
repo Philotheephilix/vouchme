@@ -6,7 +6,12 @@ import { useAuth } from "@/lib/session";
  *  data — nothing renders until someone is signed in (product direction: "the first page should
  *  be login and without it don't show anything"). */
 export function LoginScreen() {
-  const { connecting, error, connect, clearError } = useAuth();
+  const { connecting, error, connect, clearError, isInWorldApp } = useAuth();
+  // docs/96-ux-audit.md U-24 / docs/95-lifecycle.md L-19: the button said "Sign in with World" on
+  // every surface, but outside World App it opens whatever browser wallet is installed — no World
+  // ID is involved on that path. `isInWorldApp` is the host's own signal (`window.WorldApp`), so
+  // the label names the thing the tap will actually do.
+  const label = isInWorldApp ? "Sign in with World" : "Connect a wallet";
 
   return (
     <main
@@ -29,8 +34,14 @@ export function LoginScreen() {
         className="mt-10 min-h-[44px] w-full max-w-xs border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-50"
         style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
       >
-        {connecting ? "Connecting…" : "Sign in with World"}
+        {connecting ? "Connecting…" : label}
       </button>
+      {!isInWorldApp ? (
+        <p className="mt-3 max-w-xs text-2xs leading-relaxed text-graphite">
+          Open this in World App to sign in with World ID. In a browser you can connect a wallet and read your
+          account, but enrolling needs World ID.
+        </p>
+      ) : null}
       {error ? (
         <button
           type="button"

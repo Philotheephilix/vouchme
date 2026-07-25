@@ -6,13 +6,13 @@ import { IDKitRequestWidget, selfieCheckLegacy, type IDKitResult } from "@worldc
 import { MiniKit } from "@worldcoin/minikit-js";
 import { Header } from "@/components/Header";
 import { ScoreDial } from "@/components/ScoreDial";
-import { ENROLLMENT_BASE_SCORE } from "@/lib/mock";
-import { useAuth } from "@/lib/session";
+import { ANCHOR_VOUCH_CONTRIBUTION, ENROLLMENT_BASE_SCORE, TIER_1_THRESHOLD_SCORE } from "@/lib/mock";
+import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { fetchRpContext, type RpContext } from "@/lib/worldid-client";
 import {
   AVAL_REGISTRY_ABI,
   ClientConfigError,
-  WORLDCHAIN_SEPOLIA_ID,
+  WORLDCHAIN_ID,
   ensExplorerTxUrl,
   explorerTxUrl,
   getAppId,
@@ -22,6 +22,47 @@ import {
 import { decodeRevertReason, ensureWorldChainSepolia, sendFromInjected } from "@/lib/wallet";
 
 const HANDLE_RE = /^[a-z0-9-]{3,20}$/;
+
+/**
+ * What enrollment actually leaves you needing, computed from the engine's own constants.
+ *
+ * Both copies of this sentence used to say "three people who are already trusted need to vouch for
+ * you" — a hardcoded count that is false at the current constants (docs/95-lifecycle.md L-4): two
+ * *anchors* clear Tier 1 (20 + 20 + 20 = 60 >= 55), three ordinary Tier 1 members clear it, and
+ * two ordinary members do not. The number depends on who the vouchers are, which is the whole
+ * thesis of the product, so it must not be stated as a constant.
+ */
+const ANCHORS_TO_TIER_1 = Math.ceil((TIER_1_THRESHOLD_SCORE - ENROLLMENT_BASE_SCORE) / ANCHOR_VOUCH_CONTRIBUTION);
+const AFTER_ENROLL_COPY =
+  `You're verified as a live human. That's the floor — score ${ENROLLMENT_BASE_SCORE.toFixed(1)}, Tier 0. It doesn't ` +
+  `yet prove you only have one account. Tier 1 starts at ${TIER_1_THRESHOLD_SCORE.toFixed(1)}, and each vouch is ` +
+  `worth a quarter of the voucher's own score, capped at ${ANCHOR_VOUCH_CONTRIBUTION.toFixed(1)}: ` +
+  `${ANCHORS_TO_TIER_1} vouches from Orb-verified people get you there, and more than that if they aren't.`;
+
+/**
+ * Poll until `/api/identity/{address}` stops returning 404 — i.e. the `Enrolled` event is actually
+ * readable from chain.
+ *
+ * Needed because World App returns a UserOperation hash the moment the bundler accepts the call,
+ * not when it is mined. Anything that reads chain state straight afterwards is racing the block.
+ *
+ * Resolves rather than throws on timeout: enrollment itself has already succeeded by this point,
+ * so a slow block must not be reported to the user as a failed enrollment. The mint that follows
+ * is independently retryable and reports its own outcome.
+ */
+async function waitForEnrollmentOnChain(address: `0x${string}`, timeoutMs = 90_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const res = await fetch(`/api/identity/${encodeURIComponent(address)}`, { cache: "no-store" });
+      if (res.ok) return;
+    } catch {
+      // Network blip — keep waiting; the deadline below is the only exit.
+    }
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+}
 
 interface EnrollAttestationResponse {
   address: `0x${string}`;
@@ -40,6 +81,10 @@ interface MintResponse {
   address: `0x${string}`;
   registerTxHash: Hex | null;
   setAddrTxHash: Hex | null;
+  registryDeployTxHash: Hex | null;
+  /** docs/04-ens.md §7: "a member = a PermissionedRegistry they own." This is theirs — the
+   *  contract that will hold every vouch they issue as a subname. */
+  subregistry: `0x${string}` | null;
   resolvedAddress: `0x${string}` | null;
   alreadyComplete: boolean;
 }
@@ -70,6 +115,9 @@ export default function EnrollPage() {
   const [stage, setStage] = useState<Stage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  // World App returns a UserOperation hash, which is NOT a transaction hash: `worldscan.org/tx/…`
+  // does not resolve it. Linking it as a tx produced a dead link presented as on-chain evidence.
+  const [txIsUserOp, setTxIsUserOp] = useState(false);
   const [mint, setMint] = useState<MintResponse | null>(null);
   const [mintError, setMintError] = useState<string | null>(null);
 
@@ -149,19 +197,34 @@ export default function EnrollPage() {
         });
         if ("error" in config) throw new Error(config.error);
 
-        if (auth.via === "minikit") {
-          const result = await MiniKit.sendTransaction({
-            chainId: WORLDCHAIN_SEPOLIA_ID,
+        // Host-based, and issued through the live MiniKit object — `auth.via` is only as good as
+        // the detection that set it, and the imported class may not be the installed one
+        // (src/lib/session.tsx `activeMiniKit`).
+        if (inWorldAppNow()) {
+          const result = await activeMiniKit().sendTransaction({
+            chainId: WORLDCHAIN_ID,
             transactions: [{ to: config.avalRegistry, data }],
           });
           setTxHash(result.data.userOpHash);
+          setTxIsUserOp(true);
         } else {
           await ensureWorldChainSepolia();
           const hash = await sendFromInjected(auth.address!, config.avalRegistry, data);
           setTxHash(hash);
+          setTxIsUserOp(false);
         }
         // Enrolled on World Chain — now mint the name. A mint failure here must never look like
         // an enrollment failure: it's reported as its own, separately-retryable state below.
+        //
+        // Wait for the enrollment to be VISIBLE ON CHAIN first. MiniKit returns a `userOpHash`,
+        // not a mined transaction hash — World App bundles the call as a UserOperation and returns
+        // as soon as it is accepted, well before it lands in a block. Calling the mint immediately
+        // asked the server "is this wallet enrolled?" seconds before it was, and the answer was a
+        // truthful no: "This wallet is not enrolled in Aval yet — enroll first, then a name is
+        // minted." The enrollment was fine; only the question was premature.
+        //
+        // The injected path never showed this because `sendFromInjected` awaits a receipt.
+        await waitForEnrollmentOnChain(resp.address);
         await mintName(resp.address);
       } catch (err) {
         setStage(null);
@@ -227,7 +290,7 @@ export default function EnrollPage() {
           <p className="mt-2 font-mono text-2xs uppercase tracking-widest text-graphite">
             base {ENROLLMENT_BASE_SCORE.toFixed(1)} · selfie check
           </p>
-          {txHash ? (
+          {txHash && !txIsUserOp ? (
             <a
               className="mt-2 block truncate-mono text-2xs underline"
               style={{ color: "var(--color-seal)" }}
@@ -237,6 +300,11 @@ export default function EnrollPage() {
             >
               World Chain: {txHash}
             </a>
+          ) : null}
+          {txHash && txIsUserOp ? (
+            <p className="mt-2 truncate-mono font-mono text-2xs text-graphite">
+              World Chain user operation: {txHash} — not a transaction hash, so there is no explorer page for it.
+            </p>
           ) : null}
 
           <div className="mt-6 border-t border-rule pt-4">
@@ -271,6 +339,21 @@ export default function EnrollPage() {
                     setAddr: {mint.setAddrTxHash}
                   </a>
                 ) : null}
+                {/* docs/95-lifecycle.md L-7: `register()` and `deployMemberRegistry()` both pass
+                    DEPLOYER_ADDRESS as owner, so the name and the registry belong to Aval's
+                    operator key, not to the person who just enrolled. Calling it "your registry"
+                    claimed an ownership they do not have. */}
+                {mint.subregistry ? (
+                  <>
+                    <p className="mt-2 truncate-mono font-mono text-2xs text-graphite">
+                      registry for your vouches: {mint.subregistry}
+                    </p>
+                    <p className="mt-1 text-2xs leading-relaxed text-graphite">
+                      Aval holds this name and this registry on your behalf — they are registered to the operator
+                      key, not to your wallet. The name resolves to your address.
+                    </p>
+                  </>
+                ) : null}
               </div>
             ) : mintError ? (
               <div>
@@ -289,10 +372,7 @@ export default function EnrollPage() {
             ) : null}
           </div>
 
-          <p className="mt-6 text-sm leading-relaxed text-cream">
-            You&apos;re verified as a live human. That&apos;s the floor. It doesn&apos;t yet prove you only have one
-            account — for that, two people who are already trusted need to vouch for you.
-          </p>
+          <p className="mt-6 text-sm leading-relaxed text-cream">{AFTER_ENROLL_COPY}</p>
 
           <button
             type="button"
@@ -425,10 +505,7 @@ export default function EnrollPage() {
         <div className="mb-3 font-mono text-2xs uppercase tracking-widest text-graphite">
           After you verify — score {ENROLLMENT_BASE_SCORE.toFixed(1)}, tier 0
         </div>
-        <p className="text-sm leading-relaxed text-cream">
-          You&apos;re verified as a live human. That&apos;s the floor. It doesn&apos;t yet prove you only have
-          one account — for that, two people who are already trusted need to vouch for you.
-        </p>
+        <p className="text-sm leading-relaxed text-cream">{AFTER_ENROLL_COPY}</p>
       </section>
     </div>
   );
