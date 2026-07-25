@@ -27,8 +27,15 @@ out/
 # ─── foundry ─────────────────────────────────────────────────────────────────
 contracts/out/
 contracts/cache/
-contracts/broadcast/
 contracts/lib/forge-std/.git
+
+# contracts/broadcast is deliberately NOT ignored here. `forge init` writes a
+# nested contracts/.gitignore containing `!/broadcast`, and a nested ignore file
+# wins over a parent rule for paths inside it — so a `contracts/broadcast/` line
+# here would silently do nothing and read as protection that isn't there.
+# Foundry's convention is the right one anyway: real deployment logs are a public
+# audit trail (they carry tx hashes, addresses and constructor args, never keys),
+# while local anvil (31337) and dry-runs are excluded by the nested file.
 
 # ─── the graph ───────────────────────────────────────────────────────────────
 subgraph/generated/
