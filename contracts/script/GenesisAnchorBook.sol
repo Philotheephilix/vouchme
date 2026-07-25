@@ -13,7 +13,7 @@ import {IAddressBook} from "../src/interfaces/IAddressBook.sol";
 /// @dev    THIS IS THE ONE PLACE WHERE A TESTNET DEPLOYMENT DIFFERS FROM THE REAL PROTOCOL, AND
 ///         IT IS THE MOST IMPORTANT PLACE TO BE HONEST ABOUT.
 ///
-///         Anchors are the only externally-grounded fact in Aval. Scores are the *least* fixed
+///         Anchors are the only externally-grounded fact in VouchMe. Scores are the *least* fixed
 ///         point of a system of equations that also admits self-supporting cliques
 ///         (docs/01-trust-math.md §5.1), and a least fixed point needs a bottom. Orb verification
 ///         is that bottom: it is the only claim in the system that does not depend on any other
@@ -54,12 +54,12 @@ contract GenesisAnchorBook is IAddressBook {
         }
     }
 
-    /// @notice Same selector and semantics as the real Address Book, so AvalRegistry needs no
+    /// @notice Same selector and semantics as the real Address Book, so VouchMeRegistry needs no
     ///         testnet-specific code path. The difference is in who is asserting, not in the shape.
     ///
     /// @dev    An expiry, not a flag, matching the real Address Book. A genesis anchor is returned
     ///         as "verified far into the future" so the same `> block.timestamp` comparison in
-    ///         `AvalRegistry.isAnchor` works identically against either contract.
+    ///         `VouchMeRegistry.isAnchor` works identically against either contract.
     function addressVerifiedUntil(address user) external view returns (uint256) {
         return verified[user] ? type(uint256).max : 0;
     }

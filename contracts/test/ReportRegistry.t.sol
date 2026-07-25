@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {AvalToken} from "../src/AvalToken.sol";
-import {AvalRegistry} from "../src/AvalRegistry.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
+import {VouchMeRegistry} from "../src/VouchMeRegistry.sol";
 import {CredibilityVault} from "../src/CredibilityVault.sol";
 import {PlatformRegistry} from "../src/PlatformRegistry.sol";
 import {ReportRegistry} from "../src/ReportRegistry.sol";
@@ -12,8 +12,8 @@ import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 /// @notice Covers the challenge game (docs/12-reporting.md §3, §5) end to end: filing, the 72h
 ///         window (silence ⇒ UPHELD, rebuttal ⇒ ARBITRATION), withdrawal, and arbitration verdicts.
 contract ReportRegistryTest is Test {
-    AvalToken internal token;
-    AvalRegistry internal avalRegistry;
+    VouchMeToken internal token;
+    VouchMeRegistry internal vouchMeRegistry;
     CredibilityVault internal vault;
     PlatformRegistry internal platformRegistry;
     ReportRegistry internal reportRegistry;
@@ -39,16 +39,16 @@ contract ReportRegistryTest is Test {
     bytes32 internal constant CRED = keccak256("orb");
 
     function setUp() public {
-        vm.warp(10 days); // see AvalRegistryTest for why: avoids a spurious RateLimited at t=1
+        vm.warp(10 days); // see VouchMeRegistryTest for why: avoids a spurious RateLimited at t=1
 
         attestor = vm.addr(attestorPk);
         addressBook = new MockAddressBook();
-        token = new AvalToken(governor);
-        avalRegistry = new AvalRegistry(address(addressBook), governor, attestor);
+        token = new VouchMeToken(governor);
+        vouchMeRegistry = new VouchMeRegistry(address(addressBook), governor, attestor);
         vault = new CredibilityVault(address(token), governor, treasury);
         platformRegistry = new PlatformRegistry(address(token), governor, treasury);
         reportRegistry = new ReportRegistry(
-            address(avalRegistry), address(vault), address(platformRegistry), governor
+            address(vouchMeRegistry), address(vault), address(platformRegistry), governor
         );
 
         vm.startPrank(governor);
@@ -56,7 +56,7 @@ contract ReportRegistryTest is Test {
         reportRegistry.setAttestor(attestor, true);
         platformRegistry.setAttestor(attestor, true);
         vault.setReportRegistry(address(reportRegistry));
-        avalRegistry.setReportRegistry(address(reportRegistry));
+        vouchMeRegistry.setReportRegistry(address(reportRegistry));
         platformRegistry.setReportRegistry(address(reportRegistry));
         vm.stopPrank();
 
@@ -65,7 +65,7 @@ contract ReportRegistryTest is Test {
         _fundAndBond(alice, 10_000e18); // headroom to cover any report bond used in these tests
     }
 
-    // ─── AvalRegistry enroll/vouch helpers (same pattern as AvalRegistry.t.sol) ─────────────
+    // ─── VouchMeRegistry enroll/vouch helpers (same pattern as VouchMeRegistry.t.sol) ─────────────
 
     function _signEnroll(address account, uint256 nullifierHash, uint64 deadline, uint256 nonce)
         internal
@@ -73,9 +73,9 @@ contract ReportRegistryTest is Test {
         returns (bytes memory)
     {
         bytes32 structHash = keccak256(
-            abi.encode(avalRegistry.ENROLL_TYPEHASH(), account, nullifierHash, CRED, deadline, nonce)
+            abi.encode(vouchMeRegistry.ENROLL_TYPEHASH(), account, nullifierHash, CRED, deadline, nonce)
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", avalRegistry.domainSeparator(), structHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vouchMeRegistry.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
         return abi.encodePacked(r, s, v);
     }
@@ -85,7 +85,7 @@ contract ReportRegistryTest is Test {
         uint256 nonce = uint256(keccak256(abi.encode(account, nullifierHash, "enroll-nonce")));
         bytes memory sig = _signEnroll(account, nullifierHash, deadline, nonce);
         vm.prank(account);
-        avalRegistry.enroll(nullifierHash, CRED, "handle", deadline, nonce, sig);
+        vouchMeRegistry.enroll(nullifierHash, CRED, "handle", deadline, nonce, sig);
     }
 
     function _signVouch(address voucher, address vouchee, uint8 tier, uint64 deadline, uint256 nonce)
@@ -94,9 +94,9 @@ contract ReportRegistryTest is Test {
         returns (bytes memory)
     {
         bytes32 structHash = keccak256(
-            abi.encode(avalRegistry.VOUCH_TYPEHASH(), voucher, vouchee, tier, deadline, nonce)
+            abi.encode(vouchMeRegistry.VOUCH_TYPEHASH(), voucher, vouchee, tier, deadline, nonce)
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", avalRegistry.domainSeparator(), structHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vouchMeRegistry.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
         return abi.encodePacked(r, s, v);
     }
@@ -106,7 +106,7 @@ contract ReportRegistryTest is Test {
         uint256 nonce = uint256(keccak256(abi.encode(voucher, vouchee, block.timestamp, "vouch-nonce")));
         bytes memory sig = _signVouch(voucher, vouchee, 1, deadline, nonce);
         vm.prank(voucher);
-        avalRegistry.vouch(vouchee, 1, deadline, nonce, sig);
+        vouchMeRegistry.vouch(vouchee, 1, deadline, nonce, sig);
     }
 
     // ─── CredibilityVault bonding helper ─────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ contract ReportRegistryTest is Test {
         uint256 nonce = 1;
         bytes32 structHash = keccak256(
             abi.encode(
-                platformRegistry.REGISTER_TYPEHASH(), platformAddr, keccak256(bytes("platform.aval.eth")),
+                platformRegistry.REGISTER_TYPEHASH(), platformAddr, keccak256(bytes("platform.vouchme.eth")),
                 deadline, nonce
             )
         );
@@ -168,7 +168,7 @@ contract ReportRegistryTest is Test {
 
         vm.prank(platformAddr);
         platformRegistry.registerPlatform(
-            "platform.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce,
+            "platform.vouchme.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce,
             abi.encodePacked(r, s, v)
         );
     }
@@ -303,7 +303,7 @@ contract ReportRegistryTest is Test {
 
         (, , , , , , , , , ReportRegistry.State state) = reportRegistry.reports(id);
         assertEq(uint8(state), uint8(ReportRegistry.State.WITHDRAWN));
-        assertEq(token.balanceOf(treasury), 10e18, "10% of the 100 AVAL bond is burned to the treasury");
+        assertEq(token.balanceOf(treasury), 10e18, "10% of the 100 VOUCHME bond is burned to the treasury");
         assertEq(reportRegistry.openReportCount(alice), 0);
     }
 
@@ -415,10 +415,10 @@ contract ReportRegistryTest is Test {
         // Rebutters' stakes are gone (settled through CredibilityVault, verified in
         // CredibilityVault.t.sol); here we confirm the ReportRegistry-side effect: the -1 slot / 30d
         // penalty from docs/12-reporting.md §6 lands on both rebutters.
-        (, , , , uint64 carolPenaltyUntil, uint8 carolPenaltyCount, ,) = avalRegistry.members(carol);
+        (, , , , uint64 carolPenaltyUntil, uint8 carolPenaltyCount, ,) = vouchMeRegistry.members(carol);
         assertTrue(carolPenaltyUntil > block.timestamp);
         assertEq(carolPenaltyCount, 1);
-        (, , , , uint64 davePenaltyUntil, uint8 davePenaltyCount, ,) = avalRegistry.members(dave);
+        (, , , , uint64 davePenaltyUntil, uint8 davePenaltyCount, ,) = vouchMeRegistry.members(dave);
         assertTrue(davePenaltyUntil > block.timestamp);
         assertEq(davePenaltyCount, 1);
     }

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {AvalToken} from "../src/AvalToken.sol";
-import {AvalRegistry} from "../src/AvalRegistry.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
+import {VouchMeRegistry} from "../src/VouchMeRegistry.sol";
 import {CredibilityVault} from "../src/CredibilityVault.sol";
 import {PresenceDrip} from "../src/PresenceDrip.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
@@ -24,8 +24,8 @@ contract PresenceDripHarness is PresenceDrip {
 }
 
 contract PresenceDripTest is Test {
-    AvalToken internal token;
-    AvalRegistry internal registry;
+    VouchMeToken internal token;
+    VouchMeRegistry internal registry;
     CredibilityVault internal vault;
     PresenceDripHarness internal drip;
     MockAddressBook internal addressBook;
@@ -39,15 +39,15 @@ contract PresenceDripTest is Test {
     function setUp() public {
         attestor = vm.addr(attestorPk);
         addressBook = new MockAddressBook();
-        registry = new AvalRegistry(address(addressBook), governor, attestor);
-        token = new AvalToken(governor);
+        registry = new VouchMeRegistry(address(addressBook), governor, attestor);
+        token = new VouchMeToken(governor);
         vault = new CredibilityVault(address(token), governor, treasury);
         drip = new PresenceDripHarness(address(token), address(vault), address(registry), governor);
 
         vm.prank(governor);
         token.setMinter(address(drip), true);
 
-        // Enroll alice so PresenceDrip's `_startTime` (which reads AvalRegistry.members(a).enrolledAt)
+        // Enroll alice so PresenceDrip's `_startTime` (which reads VouchMeRegistry.members(a).enrolledAt)
         // has a nonzero baseline.
         uint64 deadline = uint64(block.timestamp + 5 minutes);
         uint256 nonce = 1;
@@ -100,14 +100,14 @@ contract PresenceDripTest is Test {
     function test_Accrued_90Days_CapsAt30DaysWorth() public {
         skip(90 days);
         uint256 amount = drip.accrued(alice);
-        // 120 epochs (the 30-day cap) × 0.25 AVAL/epoch = 30 AVAL, at the nominal (tier-blind) rate.
+        // 120 epochs (the 30-day cap) × 0.25 VOUCHME/epoch = 30 VOUCHME, at the nominal (tier-blind) rate.
         assertEq(amount, 30e18, "90 days unclaimed must cap at exactly 30 days' worth");
     }
 
     function test_Accrued_Under30Days_IsUncapped() public {
         skip(10 days);
         uint256 amount = drip.accrued(alice);
-        // 10 days = 40 epochs × 0.25 AVAL = 10 AVAL, well under the cap.
+        // 10 days = 40 epochs × 0.25 VOUCHME = 10 VOUCHME, well under the cap.
         assertEq(amount, 10e18);
     }
 
@@ -134,7 +134,7 @@ contract PresenceDripTest is Test {
         vm.prank(alice);
         drip.claim(0, deadline, 1, sig);
 
-        // 40 epochs × 0.25 AVAL × 25% = 2.5 AVAL
+        // 40 epochs × 0.25 VOUCHME × 25% = 2.5 VOUCHME
         assertEq(token.balanceOf(alice), 2.5e18);
         (, uint64 epochsClaimed, ) = drip.presence(alice);
         assertEq(epochsClaimed, 0, "tier 0 must gain zero tenure epochs");
@@ -151,7 +151,7 @@ contract PresenceDripTest is Test {
         vm.prank(alice);
         drip.claim(1, deadline, 1, sig);
 
-        assertEq(token.balanceOf(alice), 10e18, "40 epochs x 0.25 AVAL at full rate = 10 AVAL");
+        assertEq(token.balanceOf(alice), 10e18, "40 epochs x 0.25 VOUCHME at full rate = 10 VOUCHME");
         (, uint64 epochsClaimed, ) = drip.presence(alice);
         assertEq(epochsClaimed, 40);
     }

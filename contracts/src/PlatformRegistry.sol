@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AvalToken} from "./AvalToken.sol";
+import {VouchMeToken} from "./VouchMeToken.sol";
 
-/// @dev Minimal local interface mirroring `AvalRegistry.isEnrolled`, used only for the dual-role
+/// @dev Minimal local interface mirroring `VouchMeRegistry.isEnrolled`, used only for the dual-role
 ///      guard in `registerPlatform` (docs/02-contracts.md §0). Settable post-deploy
-///      by governor — see `AvalRegistry.platformRegistry` for the matching reasoning in reverse.
-interface IAvalRegistryCheck {
+///      by governor — see `VouchMeRegistry.platformRegistry` for the matching reasoning in reverse.
+interface IVouchMeRegistryCheck {
     function isEnrolled(address account) external view returns (bool);
 }
 
@@ -17,8 +17,8 @@ interface IAvalRegistryCheck {
 ///         anywhere in this contract that lets a platform vouch for a human** — that absence is a
 ///         spec requirement (docs/13-platforms.md §1, test P-3; docs/10-constants.md §10 "can vouch
 ///         humans: never — no such function"). Platforms live in an entirely separate contract from
-///         `AvalRegistry`, so even if a platform address called `AvalRegistry.vouch`, it would
-///         revert `NotEnrolled` — platforms never hold an `AvalRegistry.Member` record.
+///         `VouchMeRegistry`, so even if a platform address called `VouchMeRegistry.vouch`, it would
+///         revert `NotEnrolled` — platforms never hold a `VouchMeRegistry.Member` record.
 /// @dev Deviations from the doc's §8 "contract sketch" (which shows only storage + events, no
 ///      functions beyond the §2/§5 code blocks), documented inline with `NOTE(deviation)`:
 ///        1. The registration bond is custodied directly by this contract (its own `transferFrom`
@@ -30,7 +30,7 @@ interface IAvalRegistryCheck {
 ///        2. `ensName` resolution-to-caller and `voucherTier` are whole-graph / off-chain facts
 ///           (ENS resolution *could* be checked live via the ENS registry, but this repo stays
 ///           dependency-free beyond forge-std, so it is attested like everything else off-chain —
-///           same EIP-712 + `attestors` pattern as `AvalRegistry`).
+///           same EIP-712 + `attestors` pattern as `VouchMeRegistry`).
 contract PlatformRegistry {
     // ─── types ──────────────────────────────────────────────────────────────
     struct Platform {
@@ -79,13 +79,13 @@ contract PlatformRegistry {
     bytes32 public immutable domainSeparator;
 
     // ─── storage ────────────────────────────────────────────────────────────
-    AvalToken public immutable token;
+    VouchMeToken public immutable token;
     address   public governor;
     address   public treasury;
     address   public reportRegistry;
     /// @dev Dual-role guard counterpart: `registerPlatform` reverts if this address reports
     ///      the caller as an enrolled human. No-ops (permits registration) while unset.
-    address   public avalRegistry;
+    address   public vouchMeRegistry;
 
     mapping(address => Platform) public platforms;
     mapping(bytes32 => bool)     public scoreRequests;         // keccak(platform, subject) => queried
@@ -108,7 +108,7 @@ contract PlatformRegistry {
     event GovernorTransferred(address indexed previousGovernor, address indexed newGovernor);
     event TreasurySet(address indexed treasury);
     event ReportRegistrySet(address indexed reportRegistry);
-    event AvalRegistrySet(address indexed avalRegistry);
+    event VouchMeRegistrySet(address indexed vouchMeRegistry);
 
     // ─── errors ─────────────────────────────────────────────────────────────
     error NotGovernor(); error NotReportRegistry(); error ZeroAddress();
@@ -118,7 +118,7 @@ contract PlatformRegistry {
     error InsufficientTier(); error OpenReportsExist(); error UnbondNotMatured();
     error NotDeregistering();
     /// @notice Dual-role guard: raised by `registerPlatform` when `msg.sender` is already
-    ///         enrolled as a human in the wired `AvalRegistry`.
+    ///         enrolled as a human in the wired `VouchMeRegistry`.
     error AlreadyEnrolledHuman();
 
     modifier onlyGovernor() {
@@ -133,7 +133,7 @@ contract PlatformRegistry {
 
     constructor(address _token, address _governor, address _treasury) {
         if (_token == address(0) || _governor == address(0) || _treasury == address(0)) revert ZeroAddress();
-        token = AvalToken(_token);
+        token = VouchMeToken(_token);
         governor = _governor;
         treasury = _treasury;
         emit GovernorTransferred(address(0), _governor);
@@ -160,12 +160,12 @@ contract PlatformRegistry {
         emit ReportRegistrySet(_reportRegistry);
     }
 
-    /// @notice Wires the `AvalRegistry` address for the dual-role guard in `registerPlatform`
+    /// @notice Wires the `VouchMeRegistry` address for the dual-role guard in `registerPlatform`
     ///         (docs/02-contracts.md §0). Governor-only, post-deploy, same reasoning as
     ///         `setReportRegistry`.
-    function setAvalRegistry(address _avalRegistry) external onlyGovernor {
-        avalRegistry = _avalRegistry;
-        emit AvalRegistrySet(_avalRegistry);
+    function setVouchMeRegistry(address _vouchMeRegistry) external onlyGovernor {
+        vouchMeRegistry = _vouchMeRegistry;
+        emit VouchMeRegistrySet(_vouchMeRegistry);
     }
 
     function setTreasury(address _treasury) external onlyGovernor {
@@ -182,19 +182,19 @@ contract PlatformRegistry {
 
     // ─── §2 registration ─────────────────────────────────────────────────────
     function registerPlatform(
-        string calldata ensName,        // app.aval.eth — must resolve to the caller
+        string calldata ensName,        // app.vouchme.eth — must resolve to the caller
         bytes32 metadataURI,            // description, contact, policy
         bytes32 policyURI,
-        uint128 bond,                   // ≥ 5 000 AVAL
+        uint128 bond,                   // ≥ 5 000 VOUCHME
         uint64  deadline,
         uint256 nonce,
         bytes calldata attestation      // attests `ensName` resolves to msg.sender
     ) external {
         if (platforms[msg.sender].active) revert AlreadyRegistered();
         if (bond < MIN_REGISTRATION_BOND) revert InsufficientBond();
-        // Dual-role guard: no-ops (permits registration) until governor wires `avalRegistry`
-        // post-deploy — same convention as `AvalRegistry.enroll`'s mirror-image check.
-        if (avalRegistry != address(0) && IAvalRegistryCheck(avalRegistry).isEnrolled(msg.sender)) {
+        // Dual-role guard: no-ops (permits registration) until governor wires `vouchMeRegistry`
+        // post-deploy — same convention as `VouchMeRegistry.enroll`'s mirror-image check.
+        if (vouchMeRegistry != address(0) && IVouchMeRegistryCheck(vouchMeRegistry).isEnrolled(msg.sender)) {
             revert AlreadyEnrolledHuman();
         }
 
@@ -249,7 +249,7 @@ contract PlatformRegistry {
     // ─── §4 platform vouching (separate slot pool — never the other direction) ──
     function vouchPlatform(
         address platform,
-        uint8   voucherTier,       // asserted by attestor, same pattern as AvalRegistry.vouch
+        uint8   voucherTier,       // asserted by attestor, same pattern as VouchMeRegistry.vouch
         uint64  deadline,
         uint256 nonce,
         bytes calldata attestation

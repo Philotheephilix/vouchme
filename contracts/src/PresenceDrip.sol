@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AvalToken} from "./AvalToken.sol";
+import {VouchMeToken} from "./VouchMeToken.sol";
 import {CredibilityVault} from "./CredibilityVault.sol";
-import {AvalRegistry} from "./AvalRegistry.sol";
+import {VouchMeRegistry} from "./VouchMeRegistry.sol";
 
 /// @title PresenceDrip
 /// @notice "Claiming is how the protocol observes that you are still here." docs/16-presence-drip.md.
@@ -14,10 +14,10 @@ import {AvalRegistry} from "./AvalRegistry.sol";
 ///        1. `claim()` / `claimAndBond()` gain `(tier, deadline, nonce, attestation)` parameters.
 ///           The doc's own rate table (§3) makes the *actual minted amount* depend on tier
 ///           (25% at Tier 0, 100% at Tier 1/2) — tier is a whole-graph fact the EVM cannot compute
-///           (same reasoning as `voucherTier` on `AvalRegistry.vouch`), so it is attested and
+///           (same reasoning as `voucherTier` on `VouchMeRegistry.vouch`), so it is attested and
 ///           checked against `attestors`, exactly like every other whole-graph fact in this repo.
 ///        2. `accrued(address)` stays parameterless and returns the *nominal*, tier-blind amount
-///           (capped epochs × 0.25 AVAL) — it is the epoch-counting primitive `claim` builds on, not
+///           (capped epochs × 0.25 VOUCHME) — it is the epoch-counting primitive `claim` builds on, not
 ///           the final payable amount. The tier discount is applied only where it can be attested,
 ///           inside `claim`/`claimAndBond`.
 ///        3. `tenureCenti` computes each band edge as `T_MAX_CENTI * (2^k - 1) / 2^k` (multiply
@@ -28,14 +28,14 @@ import {AvalRegistry} from "./AvalRegistry.sol";
 ///           vs the table's **468**. `500>>k` truncates *before* the subtraction, which is wrong by
 ///           one centi-point exactly where `500/2^k` has a fractional remainder (k≥3). Multiplying
 ///           first avoids the double-truncation and reproduces the doc's own table bit-for-bit.
-///        4. `zeroTenure` / `pauseAccrual` are exposed for `AvalRegistry.confirmFraud` /
+///        4. `zeroTenure` / `pauseAccrual` are exposed for `VouchMeRegistry.confirmFraud` /
 ///           `ReportRegistry`'s UPHELD path to call, but those two contracts only hold this
 ///           contract's address via a post-deploy governor setter (constructor-time circular
-///           dependency: this contract needs `AvalRegistry`'s and `CredibilityVault`'s addresses, so
+///           dependency: this contract needs `VouchMeRegistry`'s and `CredibilityVault`'s addresses, so
 ///           neither of *them* can also require this one's address at construction). Both setters
-///           (`AvalRegistry.setPresenceDrip`, `ReportRegistry.setPresenceDrip`) already exist and are
+///           (`VouchMeRegistry.setPresenceDrip`, `ReportRegistry.setPresenceDrip`) already exist and are
 ///           exercised by the deploy flow in `script/Deploy.s.sol`, which performs the full post-
-///           deploy wiring dance (this contract, plus the `AvalRegistry` <-> `PlatformRegistry`
+///           deploy wiring dance (this contract, plus the `VouchMeRegistry` <-> `PlatformRegistry`
 ///           dual-role cross-reference from docs/02-contracts.md §0) in the one place deployment
 ///           order allows it.
 contract PresenceDrip {
@@ -51,7 +51,7 @@ contract PresenceDrip {
     uint64  public constant MAX_UNCLAIMED  = 120;      // 30 days, in epochs
     uint64  public constant E_HALF         = 720;      // 180 days, in epochs
     uint32  public constant T_MAX_CENTI    = 500;      // 5.00 points
-    uint256 public constant DRIP_NOMINAL   = 0.25e18;  // AVAL per epoch = 1 AVAL/day at full rate
+    uint256 public constant DRIP_NOMINAL   = 0.25e18;  // VOUCHME per epoch = 1 VOUCHME/day at full rate
     uint256 public constant TIER0_RATE_BPS = 2_500;    // 25%
     uint256 public constant FULL_RATE_BPS  = 10_000;
     uint64  public constant REPORT_PAUSE   = 90 days;
@@ -71,9 +71,9 @@ contract PresenceDrip {
     bytes32 public immutable domainSeparator;
 
     // ─── storage ────────────────────────────────────────────────────────────
-    AvalToken        public immutable token;
+    VouchMeToken        public immutable token;
     CredibilityVault public immutable vault;
-    AvalRegistry     public immutable avalRegistry;
+    VouchMeRegistry     public immutable vouchMeRegistry;
     address public governor;
     address public reportRegistry; // authorized to call `pauseAccrual`
     mapping(address => bool) public attestors;
@@ -103,13 +103,13 @@ contract PresenceDrip {
         _;
     }
 
-    constructor(address _token, address _vault, address _avalRegistry, address _governor) {
-        if (_token == address(0) || _vault == address(0) || _avalRegistry == address(0) || _governor == address(0)) {
+    constructor(address _token, address _vault, address _vouchMeRegistry, address _governor) {
+        if (_token == address(0) || _vault == address(0) || _vouchMeRegistry == address(0) || _governor == address(0)) {
             revert ZeroAddress();
         }
-        token = AvalToken(_token);
+        token = VouchMeToken(_token);
         vault = CredibilityVault(_vault);
-        avalRegistry = AvalRegistry(_avalRegistry);
+        vouchMeRegistry = VouchMeRegistry(_vouchMeRegistry);
         governor = _governor;
         emit GovernorTransferred(address(0), _governor);
         domainSeparator = keccak256(
@@ -149,7 +149,7 @@ contract PresenceDrip {
     function _startTime(address a) internal view returns (uint64) {
         uint64 last = presence[a].lastClaimAt;
         if (last != 0) return last;
-        (uint64 enrolledAt,,,,,,,) = avalRegistry.members(a);
+        (uint64 enrolledAt,,,,,,,) = vouchMeRegistry.members(a);
         return enrolledAt;
     }
 
@@ -162,7 +162,7 @@ contract PresenceDrip {
     }
 
     function _effectiveRateBps(address account, uint8 tier) internal view returns (uint256) {
-        if (avalRegistry.isSuspended(account)) return 0;
+        if (vouchMeRegistry.isSuspended(account)) return 0;
         if (block.timestamp < presence[account].accrualPausedUntil) return 0;
         return tier == 0 ? TIER0_RATE_BPS : FULL_RATE_BPS;
     }
@@ -247,12 +247,12 @@ contract PresenceDrip {
     }
 
     /// @notice The one irreversible tenure penalty: confirmed fraud zeroes `epochsClaimed`.
-    ///         Restricted to `avalRegistry` itself so only `AvalRegistry.confirmFraud` can trigger
-    ///         it. `AvalRegistry.presenceDrip` must be wired (governor `setPresenceDrip`, done in
+    ///         Restricted to `vouchMeRegistry` itself so only `VouchMeRegistry.confirmFraud` can trigger
+    ///         it. `VouchMeRegistry.presenceDrip` must be wired (governor `setPresenceDrip`, done in
     ///         `script/Deploy.s.sol`'s post-deploy step) for `confirmFraud` to actually call this —
     ///         it no-ops the hook while unset, same convention as every other post-deploy address.
     function zeroTenure(address account) external {
-        if (msg.sender != address(avalRegistry)) revert NotGovernor();
+        if (msg.sender != address(vouchMeRegistry)) revert NotGovernor();
         presence[account].epochsClaimed = 0;
         emit TenureZeroed(account, keccak256("confirmed-fraud"));
     }

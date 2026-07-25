@@ -2,35 +2,35 @@
 pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
-import {AvalToken} from "../src/AvalToken.sol";
-import {AvalRegistry} from "../src/AvalRegistry.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
+import {VouchMeRegistry} from "../src/VouchMeRegistry.sol";
 import {CredibilityVault} from "../src/CredibilityVault.sol";
 import {PlatformRegistry} from "../src/PlatformRegistry.sol";
 import {ReportRegistry} from "../src/ReportRegistry.sol";
 import {PresenceDrip} from "../src/PresenceDrip.sol";
 
 /// @title Deploy
-/// @notice Deploys all six Aval contracts (docs/02-contracts.md §0) in dependency order and performs
+/// @notice Deploys all six VouchMe contracts (docs/02-contracts.md §0) in dependency order and performs
 ///         every post-deploy wiring step the individual contracts leave to a governor setter because
 ///         their constructors would otherwise need each other's not-yet-existing address:
 ///
-///           AvalToken         — no dependencies
-///           AvalRegistry      — needs the World ID Address Book (external)
-///           CredibilityVault  — needs AvalToken
-///           PlatformRegistry  — needs AvalToken
-///           ReportRegistry    — needs AvalRegistry, CredibilityVault, PlatformRegistry
-///           PresenceDrip      — needs AvalToken, CredibilityVault, AvalRegistry
+///           VouchMeToken     — no dependencies
+///           VouchMeRegistry  — needs the World ID Address Book (external)
+///           CredibilityVault — needs VouchMeToken
+///           PlatformRegistry — needs VouchMeToken
+///           ReportRegistry   — needs VouchMeRegistry, CredibilityVault, PlatformRegistry
+///           PresenceDrip     — needs VouchMeToken, CredibilityVault, VouchMeRegistry
 ///
 ///         Post-deploy wiring (all governor-only setters, all safe no-ops until called — see each
 ///         contract's own doc comments for the constructor-order reasoning):
-///           AvalRegistry.setReportRegistry(ReportRegistry)          — UPHELD slot penalty
-///           AvalRegistry.setPresenceDrip(PresenceDrip)              — confirmed-fraud tenure zero
-///           AvalRegistry.setPlatformRegistry(PlatformRegistry)      — dual-role guard
-///           PlatformRegistry.setReportRegistry(ReportRegistry)      — open-report bond lock
-///           PlatformRegistry.setAvalRegistry(AvalRegistry)          — dual-role guard
-///           CredibilityVault.setReportRegistry(ReportRegistry)      — lockForReport/Rebuttal/settle
-///           ReportRegistry.setPresenceDrip(PresenceDrip)            — UPHELD accrual pause
-///           AvalToken.setMinter(PresenceDrip, true)                 — PresenceDrip mints the drip
+///           VouchMeRegistry.setReportRegistry(ReportRegistry)     — UPHELD slot penalty
+///           VouchMeRegistry.setPresenceDrip(PresenceDrip)         — confirmed-fraud tenure zero
+///           VouchMeRegistry.setPlatformRegistry(PlatformRegistry) — dual-role guard
+///           PlatformRegistry.setReportRegistry(ReportRegistry)    — open-report bond lock
+///           PlatformRegistry.setVouchMeRegistry(VouchMeRegistry)  — dual-role guard
+///           CredibilityVault.setReportRegistry(ReportRegistry)    — lockForReport/Rebuttal/settle
+///           ReportRegistry.setPresenceDrip(PresenceDrip)          — UPHELD accrual pause
+///           VouchMeToken.setMinter(PresenceDrip, true)            — PresenceDrip mints the drip
 ///
 ///         Run with `forge script script/Deploy.s.sol --rpc-url <...> --broadcast`. Reads
 ///         PRIVATE_KEY / ADDRESS_BOOK_ADDRESS / ATTESTOR_ADDRESS / GOVERNOR_ADDRESS from the
@@ -46,8 +46,8 @@ contract Deploy is Script {
     function run()
         external
         returns (
-            AvalToken token,
-            AvalRegistry avalRegistry,
+            VouchMeToken token,
+            VouchMeRegistry vouchMeRegistry,
             CredibilityVault vault,
             PlatformRegistry platformRegistry,
             ReportRegistry reportRegistry,
@@ -63,24 +63,24 @@ contract Deploy is Script {
 
         vm.startBroadcast(deployerPk);
 
-        token = new AvalToken(governor);
-        avalRegistry = new AvalRegistry(addressBook, governor, attestor);
+        token = new VouchMeToken(governor);
+        vouchMeRegistry = new VouchMeRegistry(addressBook, governor, attestor);
         vault = new CredibilityVault(address(token), governor, treasury);
         platformRegistry = new PlatformRegistry(address(token), governor, treasury);
         reportRegistry = new ReportRegistry(
-            address(avalRegistry), address(vault), address(platformRegistry), governor
+            address(vouchMeRegistry), address(vault), address(platformRegistry), governor
         );
-        presenceDrip = new PresenceDrip(address(token), address(vault), address(avalRegistry), governor);
+        presenceDrip = new PresenceDrip(address(token), address(vault), address(vouchMeRegistry), governor);
 
         // Post-deploy wiring. Every setter above is `onlyGovernor`, so this only succeeds when the
         // deploying key doubles as governor (local/testnet). Against a real multisig governor these
         // calls simply revert and are skipped here — see the contract-level doc comment.
         if (governor == deployer) {
-            avalRegistry.setReportRegistry(address(reportRegistry));
-            avalRegistry.setPresenceDrip(address(presenceDrip));
-            avalRegistry.setPlatformRegistry(address(platformRegistry));
+            vouchMeRegistry.setReportRegistry(address(reportRegistry));
+            vouchMeRegistry.setPresenceDrip(address(presenceDrip));
+            vouchMeRegistry.setPlatformRegistry(address(platformRegistry));
             platformRegistry.setReportRegistry(address(reportRegistry));
-            platformRegistry.setAvalRegistry(address(avalRegistry));
+            platformRegistry.setVouchMeRegistry(address(vouchMeRegistry));
             vault.setReportRegistry(address(reportRegistry));
             reportRegistry.setPresenceDrip(address(presenceDrip));
             token.setMinter(address(presenceDrip), true);

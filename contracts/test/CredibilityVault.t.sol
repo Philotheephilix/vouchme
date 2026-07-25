@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {AvalToken} from "../src/AvalToken.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
 import {CredibilityVault} from "../src/CredibilityVault.sol";
 
 contract CredibilityVaultTest is Test {
-    AvalToken internal token;
+    VouchMeToken internal token;
     CredibilityVault internal vault;
 
     address internal governor = address(0xF00D);
@@ -19,7 +19,7 @@ contract CredibilityVaultTest is Test {
     address internal erin = address(0x5555);
 
     function setUp() public {
-        token = new AvalToken(governor);
+        token = new VouchMeToken(governor);
         vault = new CredibilityVault(address(token), governor, treasury);
 
         vm.startPrank(governor);
@@ -56,7 +56,7 @@ contract CredibilityVaultTest is Test {
         vm.prank(reportRegistry);
         vault.lockForReport(reportId, alice, 400e18);
 
-        // 600 AVAL is still unlocked; request-unbond it and let the 14-day timer mature.
+        // 600 VOUCHME is still unlocked; request-unbond it and let the 14-day timer mature.
         vm.prank(alice);
         vault.requestUnbond(600e18);
         skip(14 days + 1);
@@ -145,12 +145,12 @@ contract CredibilityVaultTest is Test {
         vault.applyDemurrage(alice);
         (uint128 bondedAfter, , , , ) = vault.positions(alice);
 
-        // Continuous decay over half a year is `sqrt(0.93) * 1000 AVAL` ≈ 964.365 AVAL, distinct
-        // from a linear approximation's `1000 * (1 - 0.035) = 965 AVAL`. Pin the exact integer the
+        // Continuous decay over half a year is `sqrt(0.93) * 1000 VOUCHME` ≈ 964.365 VOUCHME, distinct
+        // from a linear approximation's `1000 * (1 - 0.035) = 965 VOUCHME`. Pin the exact integer the
         // fixed-point `_wadPow` implementation produces rather than only bounding it, so a linear
         // formula — landing at 965e18, outside this tolerance — fails loudly.
         assertEq(bondedAfter, 964365076097496600000, "continuous decay must match sqrt(0.93) exactly");
-        assertLt(bondedAfter, 965e18 - 0.5e18, "must not match the old linear approximation (965 AVAL)");
+        assertLt(bondedAfter, 965e18 - 0.5e18, "must not match the old linear approximation (965 VOUCHME)");
     }
 
     function test_ApplyDemurrage_LockedBalanceExempt() public {
@@ -165,8 +165,8 @@ contract CredibilityVaultTest is Test {
 
         (uint128 bondedAfter, uint128 lockedAfter, , , ) = vault.positions(alice);
         assertEq(lockedAfter, 600e18, "locked balance must not decay at all");
-        // Only the idle 400 AVAL decays by ~7%; the exact figure is deterministic.
-        assertEq(bondedAfter, 971999999998612163200, "only the idle 400 AVAL decays");
+        // Only the idle 400 VOUCHME decays by ~7%; the exact figure is deterministic.
+        assertEq(bondedAfter, 971999999998612163200, "only the idle 400 VOUCHME decays");
         assertApproxEqAbs(bondedAfter, 972e18, 1e18);
     }
 

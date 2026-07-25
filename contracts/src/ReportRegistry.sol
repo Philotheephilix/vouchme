@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AvalRegistry} from "./AvalRegistry.sol";
+import {VouchMeRegistry} from "./VouchMeRegistry.sol";
 import {CredibilityVault} from "./CredibilityVault.sol";
 import {PlatformRegistry} from "./PlatformRegistry.sol";
 
@@ -18,7 +18,7 @@ interface IPresenceDripPause {
 /// @dev Deviations from the `contract sketch` in docs/12-reporting.md §5, each necessary to compile
 ///      and behave, documented inline with `NOTE(deviation)`:
 ///        1. `file` and the attestation-consuming path add a `nonce` parameter (same reasoning as
-///           `AvalRegistry`: the EIP-712 struct needs an explicit nonce field, and the doc's
+///           `VouchMeRegistry`: the EIP-712 struct needs an explicit nonce field, and the doc's
 ///           `weightPoints` — like `voucherTier` on a vouch — is a whole-graph fact the EVM cannot
 ///           compute, so it is attested and checked against an `attestors` allowlist here too).
 ///        2. Juror **selection** (VRF over Tier-2 accounts ≥2 hops from both parties) is a
@@ -27,7 +27,7 @@ interface IPresenceDripPause {
 ///           transitions PENDING → ARBITRATION on the on-chain-checkable rebuttal-stake condition
 ///           and emits `Escalated` with a placeholder all-zero panel; `assignJurors` (onlyGovernor,
 ///           the same "least decentralized surface, stated plainly" pattern as
-///           `AvalRegistry.confirmFraud`) fills the panel once VRF selection runs off-chain. Juror
+///           `VouchMeRegistry.confirmFraud`) fills the panel once VRF selection runs off-chain. Juror
 ///           staking and the 20%-of-loser's-deposit panel payout are TODO — they need their own
 ///           bonding path in `CredibilityVault`, which the doc's vault sketch does not provide.
 ///        3. The "-1 slot / 30d" penalty on UPHELD applies to the on-chain-known rebutters
@@ -62,7 +62,7 @@ contract ReportRegistry {
     uint64  public constant CHALLENGE_WINDOW    = 72 hours;
     uint64  public constant ARBITRATION_WINDOW  = 7 days;
     uint64  public constant SAME_PAIR_COOLDOWN  = 180 days;
-    uint256 public constant BOND_PER_WEIGHT     = 10e18;    // 10 AVAL / weight point
+    uint256 public constant BOND_PER_WEIGHT     = 10e18;    // 10 VOUCHME / weight point
     uint256 public constant WITHDRAW_BURN_BPS   = 1_000;    // 10%
     uint32  public constant HUMAN_CONCURRENT_CAP = 1;
 
@@ -75,7 +75,7 @@ contract ReportRegistry {
     bytes32 public immutable domainSeparator;
 
     // ─── storage ────────────────────────────────────────────────────────────
-    AvalRegistry      public immutable avalRegistry;
+    VouchMeRegistry      public immutable vouchMeRegistry;
     CredibilityVault  public immutable vault;
     PlatformRegistry  public immutable platformRegistry;
     address public governor;
@@ -124,11 +124,11 @@ contract ReportRegistry {
         _;
     }
 
-    constructor(address _avalRegistry, address _vault, address _platformRegistry, address _governor) {
-        if (_avalRegistry == address(0) || _vault == address(0) || _platformRegistry == address(0) || _governor == address(0)) {
+    constructor(address _vouchMeRegistry, address _vault, address _platformRegistry, address _governor) {
+        if (_vouchMeRegistry == address(0) || _vault == address(0) || _platformRegistry == address(0) || _governor == address(0)) {
             revert ZeroAddress();
         }
-        avalRegistry = AvalRegistry(_avalRegistry);
+        vouchMeRegistry = VouchMeRegistry(_vouchMeRegistry);
         vault = CredibilityVault(_vault);
         platformRegistry = PlatformRegistry(_platformRegistry);
         governor = _governor;
@@ -177,7 +177,7 @@ contract ReportRegistry {
             bytes32 reqKey = keccak256(abi.encode(msg.sender, target));
             if (!platformRegistry.scoreRequests(reqKey)) revert NoScoreRequest();
         } else {
-            (, , , , , , bool enrolled, ) = avalRegistry.members(msg.sender);
+            (, , , , , , bool enrolled, ) = vouchMeRegistry.members(msg.sender);
             if (!enrolled) revert NotEnrolledHuman();
         }
 
@@ -228,7 +228,7 @@ contract ReportRegistry {
         Report storage r = reports[id];
         if (r.state != State.PENDING) revert NotPending();
         if (block.timestamp >= r.filedAt + CHALLENGE_WINDOW) revert ChallengeWindowClosed();
-        if (!avalRegistry.isActiveVoucher(msg.sender, r.target)) revert NotActiveVoucher();
+        if (!vouchMeRegistry.isActiveVoucher(msg.sender, r.target)) revert NotActiveVoucher();
         if (stake == 0) revert ZeroAmount();
 
         vault.lockForRebuttal(id, msg.sender, stake);
@@ -284,7 +284,7 @@ contract ReportRegistry {
     }
 
     /// @notice Fills the jury panel once off-chain VRF selection has run. onlyGovernor in v1 —
-    ///         the same centralization stated plainly for `AvalRegistry.confirmFraud`.
+    ///         the same centralization stated plainly for `VouchMeRegistry.confirmFraud`.
     function assignJurors(bytes32 id, address[5] calldata jurors) external onlyGovernor {
         Report storage r = reports[id];
         if (r.state != State.ARBITRATION) revert NotArbitration();
@@ -359,7 +359,7 @@ contract ReportRegistry {
     ///         revoked before an UPHELD resolution — "doing nothing costs the same as defending and
     ///         losing" (docs/12-reporting.md §6). The registry has no on-chain reverse index of a
     ///         target's vouchers (deliberately — "the contract stores facts", docs/02-contracts.md
-    ///         §1), so this list is supplied the same way `AvalRegistry.confirmFraud`'s `vouchees`
+    ///         §1), so this list is supplied the same way `VouchMeRegistry.confirmFraud`'s `vouchees`
     ///         and `CredibilityVault.slashInsurance`'s `insuredVouchers` are.
     function applySilentPenalty(bytes32 id, address[] calldata silentVouchers) external onlyGovernor {
         Report storage r = reports[id];
@@ -367,13 +367,13 @@ contract ReportRegistry {
         for (uint256 i = 0; i < silentVouchers.length; ++i) {
             if (rebuttalOf[id][silentVouchers[i]] != 0) continue; // already penalized as a rebutter
         }
-        avalRegistry.applyReportPenalty(silentVouchers);
+        vouchMeRegistry.applyReportPenalty(silentVouchers);
     }
 
     function _applyUpheldRebutterPenalties(bytes32 id) internal {
         address[] storage rebutters = rebuttersOf[id];
         if (rebutters.length > 0) {
-            avalRegistry.applyReportPenalty(rebutters);
+            vouchMeRegistry.applyReportPenalty(rebutters);
         }
     }
 

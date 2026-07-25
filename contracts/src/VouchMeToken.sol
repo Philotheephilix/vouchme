@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title AvalToken
-/// @notice The AVAL token. A bond, not a score — see docs/11-token-vault.md §1.
+/// @title VouchMeToken
+/// @notice The VOUCHME token. A bond, not a score — see docs/11-token-vault.md §1.
 ///         "Money makes claims cost something. It never makes them true." No code path in this
-///         repo lets an AVAL balance enter the scoring function; this contract only moves value.
+///         repo lets a VOUCHME balance enter the scoring function; this contract only moves value.
 /// @dev Minimal, dependency-free ERC20 (no OpenZeppelin). Capped supply, role-gated minting.
 ///      Minting is restricted to the emission contracts (surviving-vouch mining, upheld-report
 ///      mining, platform-vouch mining, PresenceDrip) via the `minters` mapping — never a public
 ///      mint, never purchasable score.
-contract AvalToken {
+contract VouchMeToken {
     // ─── ERC20 metadata ─────────────────────────────────────────────────────
-    string public constant name = "Aval";
-    string public constant symbol = "AVAL";
+    string public constant name = "VouchMe";
+    string public constant symbol = "VOUCHME";
     uint8  public constant decimals = 18;
 
     // ─── supply ─────────────────────────────────────────────────────────────
-    /// @notice Hard cap: 1,000,000,000 AVAL. No public sale, no path around the cap.
+    /// @notice Hard cap: 1,000,000,000 VOUCHME. No public sale, no path around the cap.
     uint256 public constant CAP = 1_000_000_000e18;
     uint256 public totalSupply;
 

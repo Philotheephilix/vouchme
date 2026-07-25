@@ -3,13 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {AvalRegistry} from "../src/AvalRegistry.sol";
-import {AvalToken} from "../src/AvalToken.sol";
+import {VouchMeRegistry} from "../src/VouchMeRegistry.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
 import {PlatformRegistry} from "../src/PlatformRegistry.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 
-contract AvalRegistryTest is Test {
-    AvalRegistry internal registry;
+contract VouchMeRegistryTest is Test {
+    VouchMeRegistry internal registry;
     MockAddressBook internal addressBook;
 
     uint256 internal attestorPk = 0xA11CE;
@@ -33,7 +33,7 @@ contract AvalRegistryTest is Test {
 
         attestor = vm.addr(attestorPk);
         addressBook = new MockAddressBook();
-        registry = new AvalRegistry(address(addressBook), governor, attestor);
+        registry = new VouchMeRegistry(address(addressBook), governor, attestor);
     }
 
     // ─── signing helpers ────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signEnroll(bob, nullifier, CRED, deadline, nonce);
 
         vm.prank(bob);
-        vm.expectRevert(AvalRegistry.NullifierUsed.selector);
+        vm.expectRevert(VouchMeRegistry.NullifierUsed.selector);
         registry.enroll(nullifier, CRED, "bob-handle", deadline, nonce, sig);
     }
 
@@ -102,7 +102,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signEnroll(alice, 2, CRED, deadline, nonce);
 
         vm.prank(alice);
-        vm.expectRevert(AvalRegistry.AlreadyEnrolled.selector);
+        vm.expectRevert(VouchMeRegistry.AlreadyEnrolled.selector);
         registry.enroll(2, CRED, "alice-handle-2", deadline, nonce, sig);
     }
 
@@ -114,7 +114,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signVouch(alice, alice, 1, deadline, nonce);
 
         vm.prank(alice);
-        vm.expectRevert(AvalRegistry.SelfVouch.selector);
+        vm.expectRevert(VouchMeRegistry.SelfVouch.selector);
         registry.vouch(alice, 1, deadline, nonce, sig);
     }
 
@@ -139,7 +139,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signVouch(alice, erin, 1, deadline, nonce);
 
         vm.prank(alice);
-        vm.expectRevert(AvalRegistry.NoSlots.selector);
+        vm.expectRevert(VouchMeRegistry.NoSlots.selector);
         registry.vouch(erin, 1, deadline, nonce, sig);
     }
 
@@ -155,7 +155,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signVouch(alice, carol, 1, deadline, nonce);
 
         vm.prank(alice);
-        vm.expectRevert(AvalRegistry.RateLimited.selector);
+        vm.expectRevert(VouchMeRegistry.RateLimited.selector);
         registry.vouch(carol, 1, deadline, nonce, sig);
     }
 
@@ -215,7 +215,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = _signEnroll(alice, nullifier, CRED, deadline, nonce);
 
         vm.expectEmit(true, true, false, true, address(registry));
-        emit AvalRegistry.Enrolled(alice, nullifier, CRED, uint64(block.timestamp) + registry.CREDENTIAL_VALIDITY(), "handle");
+        emit VouchMeRegistry.Enrolled(alice, nullifier, CRED, uint64(block.timestamp) + registry.CREDENTIAL_VALIDITY(), "handle");
 
         vm.prank(alice);
         registry.enroll(nullifier, CRED, "handle", deadline, nonce, sig);
@@ -235,7 +235,7 @@ contract AvalRegistryTest is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.prank(alice);
-        vm.expectRevert(AvalRegistry.BadAttestation.selector);
+        vm.expectRevert(VouchMeRegistry.BadAttestation.selector);
         registry.enroll(nullifier, CRED, "handle", deadline, nonce, sig);
     }
 
@@ -259,9 +259,9 @@ contract AvalRegistryTest is Test {
         vouchees[1] = carol;
 
         vm.expectEmit(true, true, false, true, address(registry));
-        emit AvalRegistry.OutboundVouchVoided(alice, bob, uint64(block.timestamp));
+        emit VouchMeRegistry.OutboundVouchVoided(alice, bob, uint64(block.timestamp));
         vm.expectEmit(true, true, false, true, address(registry));
-        emit AvalRegistry.OutboundVouchVoided(alice, carol, uint64(block.timestamp));
+        emit VouchMeRegistry.OutboundVouchVoided(alice, carol, uint64(block.timestamp));
 
         vm.prank(governor);
         registry.confirmFraud(alice, vouchers, vouchees, keccak256("sybil-ring"));
@@ -292,7 +292,7 @@ contract AvalRegistryTest is Test {
         vm.recordLogs();
         vm.prank(governor);
         // Must not revert: a caller passing addresses that were never actually vouchees is a no-op
-        // for those entries, exactly like AvalRegistry.sweep skipping a dead/nonexistent edge.
+        // for those entries, exactly like VouchMeRegistry.sweep skipping a dead/nonexistent edge.
         registry.confirmFraud(alice, vouchers, vouchees, keccak256("no-op-guard"));
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -308,7 +308,7 @@ contract AvalRegistryTest is Test {
     // ─── dual-role guard: an address must not be both a human and a platform ───────────────
 
     function test_Enroll_RevertsIfRegisteredPlatform() public {
-        AvalToken token = new AvalToken(governor);
+        VouchMeToken token = new VouchMeToken(governor);
         PlatformRegistry platformRegistry = new PlatformRegistry(address(token), governor, address(0xBEEF));
 
         vm.startPrank(governor);
@@ -327,7 +327,7 @@ contract AvalRegistryTest is Test {
         uint256 nonce = 1;
         bytes32 structHash = keccak256(
             abi.encode(
-                platformRegistry.REGISTER_TYPEHASH(), bob, keccak256(bytes("bobapp.aval.eth")), deadline, nonce
+                platformRegistry.REGISTER_TYPEHASH(), bob, keccak256(bytes("bobapp.vouchme.eth")), deadline, nonce
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", platformRegistry.domainSeparator(), structHash));
@@ -335,7 +335,7 @@ contract AvalRegistryTest is Test {
 
         vm.prank(bob);
         platformRegistry.registerPlatform(
-            "bobapp.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce,
+            "bobapp.vouchme.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce,
             abi.encodePacked(r, s, v)
         );
 
@@ -345,7 +345,7 @@ contract AvalRegistryTest is Test {
         bytes memory esig = _signEnroll(bob, 999, CRED, edeadline, enonce);
 
         vm.prank(bob);
-        vm.expectRevert(AvalRegistry.AlreadyPlatform.selector);
+        vm.expectRevert(VouchMeRegistry.AlreadyPlatform.selector);
         registry.enroll(999, CRED, "bob-handle", edeadline, enonce, esig);
     }
 }

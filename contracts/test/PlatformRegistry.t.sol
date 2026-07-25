@@ -3,14 +3,14 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {AvalToken} from "../src/AvalToken.sol";
-import {AvalRegistry} from "../src/AvalRegistry.sol";
+import {VouchMeToken} from "../src/VouchMeToken.sol";
+import {VouchMeRegistry} from "../src/VouchMeRegistry.sol";
 import {PlatformRegistry} from "../src/PlatformRegistry.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 
 contract PlatformRegistryTest is Test {
-    AvalToken internal token;
-    AvalRegistry internal avalRegistry;
+    VouchMeToken internal token;
+    VouchMeRegistry internal vouchMeRegistry;
     PlatformRegistry internal platformRegistry;
     MockAddressBook internal addressBook;
 
@@ -24,8 +24,8 @@ contract PlatformRegistryTest is Test {
     function setUp() public {
         attestor = vm.addr(attestorPk);
         addressBook = new MockAddressBook();
-        token = new AvalToken(governor);
-        avalRegistry = new AvalRegistry(address(addressBook), governor, attestor);
+        token = new VouchMeToken(governor);
+        vouchMeRegistry = new VouchMeRegistry(address(addressBook), governor, attestor);
         platformRegistry = new PlatformRegistry(address(token), governor, treasury);
 
         vm.startPrank(governor);
@@ -46,7 +46,7 @@ contract PlatformRegistryTest is Test {
             abi.encode(
                 platformRegistry.REGISTER_TYPEHASH(),
                 platform,
-                keccak256(bytes("myapp.aval.eth")),
+                keccak256(bytes("myapp.vouchme.eth")),
                 deadline,
                 nonce
             )
@@ -56,7 +56,7 @@ contract PlatformRegistryTest is Test {
 
         vm.prank(platform);
         platformRegistry.registerPlatform(
-            "myapp.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce, abi.encodePacked(r, s, v)
+            "myapp.vouchme.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce, abi.encodePacked(r, s, v)
         );
     }
 
@@ -66,8 +66,8 @@ contract PlatformRegistryTest is Test {
     // `msg.sender` — grep the file: the only vouch-shaped entry points are `vouchPlatform` (a HUMAN
     // vouching for a platform) and `revokePlatformVouch`. This is a compile-time absence (P-3), not
     // a runtime check. As a runtime corroboration, the only place a "vouch" from an arbitrary
-    // address could land on a human is `AvalRegistry.vouch`, and a platform address was never
-    // `AvalRegistry.enroll`-ed (registration happens exclusively through PlatformRegistry, an
+    // address could land on a human is `VouchMeRegistry.vouch`, and a platform address was never
+    // `VouchMeRegistry.enroll`-ed (registration happens exclusively through PlatformRegistry, an
     // entirely separate contract/storage space), so even a platform attempting to call the human
     // registry's vouch function structurally fails.
     function test_P3_NoPlatformToHumanVouchPath() public {
@@ -77,8 +77,8 @@ contract PlatformRegistryTest is Test {
         bytes memory bogusSig = new bytes(65);
 
         vm.prank(platform);
-        vm.expectRevert(AvalRegistry.NotEnrolled.selector);
-        avalRegistry.vouch(humanVoucher, 1, deadline, 1, bogusSig);
+        vm.expectRevert(VouchMeRegistry.NotEnrolled.selector);
+        vouchMeRegistry.vouch(humanVoucher, 1, deadline, 1, bogusSig);
     }
 
     // ─── requestScore records the pair and is queryable by ReportRegistry ──
@@ -125,7 +125,7 @@ contract PlatformRegistryTest is Test {
         uint64 deadline = uint64(block.timestamp + 5 minutes);
         uint256 nonce = 2;
         bytes32 structHash = keccak256(
-            abi.encode(platformRegistry.REGISTER_TYPEHASH(), platform, keccak256(bytes("x.aval.eth")), deadline, nonce)
+            abi.encode(platformRegistry.REGISTER_TYPEHASH(), platform, keccak256(bytes("x.vouchme.eth")), deadline, nonce)
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", platformRegistry.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
@@ -133,16 +133,16 @@ contract PlatformRegistryTest is Test {
         vm.prank(platform);
         vm.expectRevert(PlatformRegistry.InsufficientBond.selector);
         platformRegistry.registerPlatform(
-            "x.aval.eth", bytes32(0), bytes32(0), 100e18, deadline, nonce, abi.encodePacked(r, s, v)
+            "x.vouchme.eth", bytes32(0), bytes32(0), 100e18, deadline, nonce, abi.encodePacked(r, s, v)
         );
     }
 
     function test_HumanAndPlatformSlots_AreIndependentPools() public {
         _registerPlatform();
-        // Human slot pool lives entirely in AvalRegistry.Member.activeOutbound; platform slot pool
+        // Human slot pool lives entirely in VouchMeRegistry.Member.activeOutbound; platform slot pool
         // lives in PlatformRegistry.HumanActivity.activeOutbound. Confirm they are in fact two
         // different storage locations, not shared counters, by checking a fresh human's platform
-        // activity is zero regardless of AvalRegistry state.
+        // activity is zero regardless of VouchMeRegistry state.
         (uint32 platformActive, , ) = platformRegistry.humanActivity(humanVoucher);
         assertEq(platformActive, 0);
     }
@@ -151,21 +151,21 @@ contract PlatformRegistryTest is Test {
 
     function test_RegisterPlatform_RevertsIfEnrolledHuman() public {
         vm.startPrank(governor);
-        avalRegistry.setAttestor(attestor, true);
-        platformRegistry.setAvalRegistry(address(avalRegistry));
+        vouchMeRegistry.setAttestor(attestor, true);
+        platformRegistry.setVouchMeRegistry(address(vouchMeRegistry));
         vm.stopPrank();
 
-        // A registered platform address (`platform`) first enrolls as a human in AvalRegistry.
+        // A registered platform address (`platform`) first enrolls as a human in VouchMeRegistry.
         uint64 deadline = uint64(block.timestamp + 5 minutes);
         uint256 nonce = 1;
         bytes32 structHash = keccak256(
-            abi.encode(avalRegistry.ENROLL_TYPEHASH(), platform, uint256(777), keccak256("orb"), deadline, nonce)
+            abi.encode(vouchMeRegistry.ENROLL_TYPEHASH(), platform, uint256(777), keccak256("orb"), deadline, nonce)
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", avalRegistry.domainSeparator(), structHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vouchMeRegistry.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
 
         vm.prank(platform);
-        avalRegistry.enroll(777, keccak256("orb"), "platform-as-human", deadline, nonce, abi.encodePacked(r, s, v));
+        vouchMeRegistry.enroll(777, keccak256("orb"), "platform-as-human", deadline, nonce, abi.encodePacked(r, s, v));
 
         // Now the same address tries to register as a platform — must revert. `expectRevert` only
         // covers the *very next* call, so the attestation is signed here (off-chain, no external
@@ -175,7 +175,7 @@ contract PlatformRegistryTest is Test {
         uint256 nonce2 = 2;
         bytes32 structHash2 = keccak256(
             abi.encode(
-                platformRegistry.REGISTER_TYPEHASH(), platform, keccak256(bytes("myapp.aval.eth")), deadline2, nonce2
+                platformRegistry.REGISTER_TYPEHASH(), platform, keccak256(bytes("myapp.vouchme.eth")), deadline2, nonce2
             )
         );
         bytes32 digest2 = keccak256(abi.encodePacked("\x19\x01", platformRegistry.domainSeparator(), structHash2));
@@ -184,7 +184,7 @@ contract PlatformRegistryTest is Test {
         vm.prank(platform);
         vm.expectRevert(PlatformRegistry.AlreadyEnrolledHuman.selector);
         platformRegistry.registerPlatform(
-            "myapp.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline2, nonce2,
+            "myapp.vouchme.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline2, nonce2,
             abi.encodePacked(r2, s2, v2)
         );
     }

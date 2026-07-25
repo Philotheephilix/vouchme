@@ -4,28 +4,28 @@ pragma solidity ^0.8.24;
 import {IAddressBook} from "./interfaces/IAddressBook.sol";
 
 /// @dev Minimal local interface to avoid a circular concrete import with `PresenceDrip` (which
-///      itself imports `AvalRegistry`). Used only by the optional post-deploy fraud-zero hook.
+///      itself imports `VouchMeRegistry`). Used only by the optional post-deploy fraud-zero hook.
 interface IPresenceDripZero {
     function zeroTenure(address account) external;
 }
 
 /// @dev Minimal local interface mirroring `PlatformRegistry.isRegistered`, used only for the
 ///      dual-role guard in `enroll` (docs/02-contracts.md §0). Avoids a circular
-///      concrete import: `PlatformRegistry` has no compile-time dependency on `AvalRegistry`, but
+///      concrete import: `PlatformRegistry` has no compile-time dependency on `VouchMeRegistry`, but
 ///      wiring both directions through a concrete import would still force a deployment order.
 ///      Settable post-deploy by governor, same pattern as `reportRegistry` / `presenceDrip`.
 interface IPlatformRegistryCheck {
     function isRegistered(address account) external view returns (bool);
 }
 
-/// @title AvalRegistry
+/// @title VouchMeRegistry
 /// @notice The trust graph. Records facts only — enroll, vouch, reaffirm, revoke — as events; the
 ///         Subgraph computes score/tier/depth. See docs/02-contracts.md §1.
 /// @dev Global properties whose truth spans the whole graph (voucherTier at vouch time, report
 ///      weight elsewhere) are supplied by an off-chain attestor over EIP-712 and checked against
 ///      the `attestors` allowlist. A forged attestation buys an edge the Subgraph recompute simply
 ///      will not credit — see docs/02-contracts.md §3.2.
-contract AvalRegistry {
+contract VouchMeRegistry {
     // ─── types ──────────────────────────────────────────────────────────────
     struct Member {
         uint64  enrolledAt;
@@ -146,7 +146,7 @@ contract AvalRegistry {
         domainSeparator = keccak256(
             abi.encode(
                 EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes("AvalRegistry")),
+                keccak256(bytes("VouchMeRegistry")),
                 keccak256(bytes("1")),
                 block.chainid,
                 address(this)

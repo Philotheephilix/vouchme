@@ -11,7 +11,7 @@ pragma solidity ^0.8.24;
 ///      boolean could not represent anchor status at all.
 ///
 ///      The Address Book is deployed on World Chain mainnet only. Testnet deployments point
-///      `AvalRegistry` at `script/GenesisAnchorBook.sol`, which implements this same interface.
+///      `VouchMeRegistry` at `script/GenesisAnchorBook.sol`, which implements this same interface.
 interface IAddressBook {
     /// @notice Unix timestamp until which `user`'s Orb verification is valid. Zero, or any value
     ///         in the past, means not currently verified.

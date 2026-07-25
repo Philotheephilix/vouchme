@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AvalToken} from "./AvalToken.sol";
+import {VouchMeToken} from "./VouchMeToken.sol";
 
 /// @title CredibilityVault
-/// @notice "AVAL is a bond, not a score." (docs/11-token-vault.md §1). This contract is the only
-///         place AVAL is put at risk: report bonds, rebuttal bonds, insurance bonds, platform
+/// @notice "VOUCHME is a bond, not a score." (docs/11-token-vault.md §1). This contract is the only
+///         place VOUCHME is put at risk: report bonds, rebuttal bonds, insurance bonds, platform
 ///         registration bonds. No balance here ever enters a scoring function.
 /// @dev Deviations from the doc's `contract sketch` (docs/11-token-vault.md §3), each necessary to
 ///      make the sketch compile and behave, are called out inline with `NOTE(deviation)`:
@@ -22,9 +22,9 @@ import {AvalToken} from "./AvalToken.sol";
 ///           `12-reporting.md` §4 is later, more detailed, and matches the `ReportRegistry` enum
 ///           actually shipped, so it is treated as authoritative here.
 ///        4. `applyDemurrage` decays *idle-but-bonded* balance (`bonded - locked`) held inside this
-///           vault, not raw wallet balance. The literal text ("idle unbonded balances... bonded AVAL
+///           vault, not raw wallet balance. The literal text ("idle unbonded balances... bonded VOUCHME
 ///           is exempt") reads as wallet balances, which would require granting this vault a
-///           privileged forced-transfer hook on `AvalToken` beyond the single `minter` role the
+///           privileged forced-transfer hook on `VouchMeToken` beyond the single `minter` role the
 ///           spec calls for. Decaying the vault's own custodied-but-unlocked balance needs no new
 ///           privilege (the vault already holds the tokens) and preserves "money at risk is exempt,
 ///           money doing nothing decays" exactly. Decay itself is exact continuous compounding via
@@ -84,11 +84,11 @@ contract CredibilityVault {
     ///      exact real-number compounding is on the order of `25 * 1e-18` — utterly negligible next
     ///      to 18-decimal token amounts. Verified against the exact 1-year case: raising this
     ///      constant to `365 days` in seconds yields `929999999996530408` (vs. the exact
-    ///      `930000000000000000`), an absolute error of ~3.5e-9 AVAL per 1 AVAL of idle balance.
+    ///      `930000000000000000`), an absolute error of ~3.5e-9 VOUCHME per 1 VOUCHME of idle balance.
     uint256 public constant DEMURRAGE_RATE_PER_SECOND_WAD = 999999997698798429;
 
     // ─── storage ────────────────────────────────────────────────────────────
-    AvalToken public immutable token;
+    VouchMeToken public immutable token;
     address   public governor;
     address   public reportRegistry;
     address   public treasury;
@@ -143,7 +143,7 @@ contract CredibilityVault {
 
     constructor(address _token, address _governor, address _treasury) {
         if (_token == address(0) || _governor == address(0) || _treasury == address(0)) revert ZeroAddress();
-        token = AvalToken(_token);
+        token = VouchMeToken(_token);
         governor = _governor;
         treasury = _treasury;
         emit GovernorTransferred(address(0), _governor);
@@ -193,7 +193,7 @@ contract CredibilityVault {
         emit Bonded(account, amount, p.bonded);
     }
 
-    /// @notice Starts a 14-day unbonding timer for `amount` of currently-unlocked bonded AVAL.
+    /// @notice Starts a 14-day unbonding timer for `amount` of currently-unlocked bonded VOUCHME.
     function requestUnbond(uint128 amount) external {
         if (amount == 0) revert ZeroAmount();
         Position storage p = positions[msg.sender];
@@ -247,7 +247,7 @@ contract CredibilityVault {
         emit LockedForRebuttal(reportId, rebutter, amount);
     }
 
-    /// @notice A voucher expresses confidence in `vouchee` by locking AVAL behind the vouch. Does
+    /// @notice A voucher expresses confidence in `vouchee` by locking VOUCHME behind the vouch. Does
     ///         **not** raise `vouchee`'s score by a single point (docs/11-token-vault §2.1).
     function bondInsurance(address vouchee, uint128 amount) external {
         if (amount == 0) revert ZeroAmount();
@@ -344,7 +344,7 @@ contract CredibilityVault {
     ///         rebuttal stakes. Covers **every** insured voucher, not only rebutters, which is what
     ///         makes the "UPHELD, nobody defends" row of the payoff matrix work: the reporter's
     ///         `+0.5 I` does not depend on anyone having rebutted.
-    /// @dev Permissionless and idempotent by construction, same guard pattern as `AvalRegistry.sweep`
+    /// @dev Permissionless and idempotent by construction, same guard pattern as `VouchMeRegistry.sweep`
     ///      / `confirmFraud`'s `vouchees` list: `insuredVouchers` is a keeper/governor-supplied list
     ///      (the vault keeps no reverse index of "who insured `target`" — "the contract stores
     ///      facts", docs/02-contracts.md §1), and each entry is checked against live on-chain
@@ -378,9 +378,9 @@ contract CredibilityVault {
     }
 
     // ─── demurrage ───────────────────────────────────────────────────────────
-    /// @notice Permissionless, lazy, exactly-continuous 7%/yr decay on idle-but-bonded AVAL
-    ///         (`bonded - locked`). Locked (actively securing a claim/insurance) AVAL is exempt —
-    ///         "money at risk is money working" (docs/11-token-vault §4.4). Decayed AVAL flows to
+    /// @notice Permissionless, lazy, exactly-continuous 7%/yr decay on idle-but-bonded VOUCHME
+    ///         (`bonded - locked`). Locked (actively securing a claim/insurance) VOUCHME is exempt —
+    ///         "money at risk is money working" (docs/11-token-vault §4.4). Decayed VOUCHME flows to
     ///         the treasury. `balance(t) = balance(0) * (1 - 0.07)^(t / 365d)`, computed via
     ///         `DEMURRAGE_RATE_PER_SECOND_WAD` raised to the integer power `elapsed` (seconds) — see
     ///         that constant's doc comment for the derivation and the precision bound.
