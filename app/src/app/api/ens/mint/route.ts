@@ -60,6 +60,12 @@ export async function POST(req: Request): Promise<Response> {
         address,
         registerTxHash: result.registerTxHash,
         setAddrTxHash: result.setAddrTxHash,
+        registryDeployTxHash: result.registryDeployTxHash,
+        setSubregistryTxHash: result.setSubregistryTxHash,
+        // docs/04-ens.md §7: "a member = a PermissionedRegistry they own". This is that registry,
+        // read back from `getSubregistry(label)` after the writes — it is what makes
+        // `<someone>.<label>.aval.eth` possible at all.
+        subregistry: result.subregistry,
         resolvedAddress: result.resolvedAddress,
         alreadyComplete: result.alreadyComplete,
       },

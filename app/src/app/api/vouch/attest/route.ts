@@ -61,15 +61,33 @@ export async function POST(req: Request): Promise<Response> {
     return fail(503, "worldid_config_missing", "World ID is not configured on this server (RP_ID / WORLD_ID_ACTION).");
   }
 
-  // W-5 (docs/03-worldid.md §8): "Vouch without require_user_presence ⇒ attestation refused by
-  // the backend." Checked before anything else touches the chain.
-  if (result.user_presence_completed !== true) {
-    return fail(
-      400,
-      "presence_not_completed",
-      "World App did not confirm a live user-presence check for this proof. Vouching requires presence.",
-    );
-  }
+  // W-5 (docs/03-worldid.md §8) said: "Vouch without require_user_presence ⇒ attestation refused by
+  // the backend." That rule assumed the presence flag would be available. It is not — errata E-19.
+  //
+  // `user_presence_completed` is a World ID 4.0 field. The enrollment and vouch flows both use
+  // `selfieCheckLegacy()`, whose own SDK docstring says "This preset only returns World ID 3.0
+  // proofs", and a 3.0 payload has no such field. Requiring `=== true` therefore rejected every
+  // genuine vouch: the user completed a real face scan and was told presence failed.
+  //
+  // There is NO presence gate here, and a three-state one would be wrong too. A first attempt at
+  // this fix refused `user_presence_completed === false` on the reasoning that an explicit `false`
+  // must mean "presence was attempted and failed". It does not. The client sends
+  // `require_user_presence: false` (it has no choice — see the widget comment in VouchWizard.tsx),
+  // so World App never runs a presence check and reports `false` to mean **"not requested"**. The
+  // vouch was rejected with "World App reported that the user-presence check was not completed",
+  // which was simply untrue: nothing had been asked of it.
+  //
+  // `false` and `undefined` are therefore indistinguishable here — both mean "this flow did not
+  // ask for presence" — and neither is evidence of anything. Gating on a field whose value the
+  // server itself determined by not requesting it is a check that can only ever produce false
+  // negatives.
+  //
+  // What actually makes a vouch unforgeable is enforced below and is untouched:
+  //   - the nullifier must equal the voucher's ENROLLED nullifier — the same human, not merely
+  //     some verified human;
+  //   - `signal` binds the proof to this exact voucher→vouchee edge, so a proof for A→B cannot be
+  //     replayed as A→C.
+  // Liveness is the only property lost, and it is lost at the SDK level (errata E-19), not here.
 
   // Edge binding — docs/03-worldid.md §5.1: "the edge is bound through `signal`, not through the
   // action string." A proof for edge A→B must not be replayable as A→C.
