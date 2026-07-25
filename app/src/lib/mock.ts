@@ -5,17 +5,34 @@
  * file (or derived from something exported here via src/lib/format.ts). Nothing is typed directly
  * into JSX.
  *
- * The fixture graph below is run through `computeStage1`, a hand-written but faithful port of the
- * stage-1 (positive score) reference algorithm in docs/01-trust-math.md §15 — same BFS-by-depth
- * ordering, same integer centi-point truncation (§10), same gates (§11). Nothing here is typed in
- * by hand as a final answer; it is *computed* from a graph, the same way the real engine
- * (docs/07-app-api.md §5) will compute it. That is what makes the numbers verifiable against
- * docs/01-trust-math.md §12.1 rather than merely plausible.
- *
- * When @aval/engine exists, this file is the thing that gets deleted — everything that imports it
- * should instead call src/lib/api.ts against real endpoints.
+ * R-8 (docs/97-review-engine-app.md): this file used to carry its own hand-written port of the
+ * stage-1 (positive score) algorithm, and that port reimplemented (and got wrong) gate 2 — it
+ * counted raw inbound edges instead of *contributing* vouchers, so
+ * `EXPLORE_RING.gates.g2TwoDistinctVouchers` came out `true` when docs/01-trust-math.md §12.1's
+ * own worked table says `false` for exactly this six-account ring. The fix is not to patch that
+ * port; it is to delete it. Below, this file supplies only the GRAPH — accounts, vouches,
+ * platform vouches, reports — in `@aval/engine`'s own input shape, and calls the real `compute()`
+ * / `breakdown()` for every score, tier, depth, and per-edge contribution. That is the only way
+ * the UI can't drift from the protocol: one scoring implementation, used everywhere. A few display
+ * fields genuinely have no engine equivalent (edge timestamps, slot bookkeeping, bond amounts) —
+ * those are called out with a comment at the point they're derived.
  */
 
+import {
+  BASE,
+  CAP_NEG,
+  GATE4_WINDOW_DAYS,
+  MAX_DEPTH,
+  MIN_VOUCHERS,
+  M_POS_DEN,
+  M_POS_NUM,
+  P1,
+  SECONDS_PER_DAY,
+  T1,
+  breakdown,
+  compute,
+} from "@aval/engine";
+import type { Account, EngineInput, EngineOutput, PlatformVouch, Report, Vouch } from "@aval/engine";
 import type {
   AccountKind,
   AgentRecord,
@@ -31,8 +48,10 @@ import type {
   PlatformScoreResult,
   PresenceState,
   ReportEntry,
+  ReportStatus,
   ScoreResult,
   SimulateVouchResult,
+  SimulateVouchStep,
   Slots,
   Tier,
   VouchContribution,
@@ -45,251 +64,208 @@ import { centiToScore, tenureCurve, tenureFromDays } from "./format";
 export const NOW = new Date("2026-07-25T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const iso = (daysFromNow: number): string => new Date(NOW.getTime() + daysFromNow * DAY_MS).toISOString();
+/** The engine works in unix seconds, supplied by the caller (@aval/engine never reads a clock). */
+const GRAPH_NOW = Math.floor(NOW.getTime() / 1000);
 
-// ─── stage-1 engine — docs/01-trust-math.md §3-6, §10, §11, §15 ─────────────────────────────────
+/** m+ = 0.25, for the "50.0 x 0.25" display line — imported from the engine's own constants
+ *  rather than a hardcoded 0.25, so this can't drift from the real multiplier either. */
+const DISPLAY_M_POS = M_POS_NUM / M_POS_DEN;
 
-const BASE = 1_000; // 10.00, centi-points
-const ANCHOR = 10_000; // 100.00
-const CAP_POS = 2_000; // 20.00
-const T1 = 3_000; // 30.00
-const T2 = 10_000; // 100.00
-const MAX_DEPTH = 3;
-const MAX_ROUNDS = 8;
-
-/** min(s * num/den, cap), truncated toward zero — the single arithmetic rule (I-15). */
-function w(s: number, num: number, den: number, cap: number): number {
-  return Math.min(Math.trunc((s * num) / den), cap);
-}
-
-/** m+ = 0.25, cap+ = 20 (docs/01-trust-math.md §4). */
-export function positiveWeight(sCenti: number): number {
-  return w(sCenti, 25, 100, CAP_POS);
-}
-
-/** m- = 0.50, cap- = 40 (docs/01-trust-math.md §7.1). */
-export function reportWeight(sCenti: number): number {
-  return w(sCenti, 50, 100, 4_000);
-}
-
-/** Linear decay to zero over 180 days (docs/01-trust-math.md §7.4). */
-export function decayFactor(daysSinceUpheld: number): number {
-  return Math.max(0, 1 - daysSinceUpheld / 180);
-}
-
-interface EngineAccount {
-  id: string; // ensName, graph key
-  isAnchor: boolean;
-}
-interface EngineEdge {
-  src: string; // voucher
-  dst: string; // vouchee
-}
-interface EngineResult {
-  depth: Map<string, number>; // Infinity if unreachable
-  sp: Map<string, number>; // centi-points
-  inboundCount: Map<string, number>;
-  gates: Map<string, { g1: boolean; g2: boolean; g3: boolean }>;
-  tier: Map<string, Tier>;
-}
-
-function bfsDepth(origins: Set<string>, edges: EngineEdge[], accounts: EngineAccount[]): Map<string, number> {
-  const adjacency = new Map<string, string[]>();
-  for (const e of edges) {
-    const list = adjacency.get(e.src) ?? [];
-    list.push(e.dst);
-    adjacency.set(e.src, list);
-  }
-  const depth = new Map<string, number>();
-  const queue: string[] = [];
-  for (const o of origins) {
-    depth.set(o, 0);
-    queue.push(o);
-  }
-  let head = 0;
-  while (head < queue.length) {
-    const u = queue[head];
-    head += 1;
-    const d = depth.get(u ?? "") ?? 0;
-    if (u === undefined || d >= MAX_DEPTH) continue;
-    for (const v of adjacency.get(u) ?? []) {
-      if (!depth.has(v)) {
-        depth.set(v, d + 1);
-        queue.push(v);
-      }
-    }
-  }
-  for (const a of accounts) if (!depth.has(a.id)) depth.set(a.id, Infinity);
-  return depth;
-}
-
-function setsEqual(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const x of a) if (!b.has(x)) return false;
-  return true;
-}
-
-/**
- * Stage 1 (positive human scores) + gates 1-3 + tier, from docs/01-trust-math.md §15.
- * Reports (stage 3-4) are out of scope — none of the mock accounts below carry an upheld report,
- * so `score === positiveScore` for every one of them. The Reports page fixture applies
- * `reportWeight` / `decayFactor` independently, illustratively, without feeding back into this pass
- * (matching the real pipeline's strict stratification, §3).
- */
-function computeStage1(accounts: EngineAccount[], edges: EngineEdge[]): EngineResult {
-  const inbound = new Map<string, EngineEdge[]>();
-  for (const e of edges) {
-    const list = inbound.get(e.dst) ?? [];
-    list.push(e);
-    inbound.set(e.dst, list);
-  }
-
-  let origins = new Set(accounts.filter((a) => a.isAnchor).map((a) => a.id));
-  let depth = new Map<string, number>();
-  let sp = new Map<string, number>();
-
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    depth = bfsDepth(origins, edges, accounts);
-    sp = new Map(accounts.map((a) => [a.id, a.isAnchor ? ANCHOR : BASE]));
-
-    for (let d = 1; d <= MAX_DEPTH; d++) {
-      for (const a of accounts) {
-        if (a.isAnchor || depth.get(a.id) !== d) continue;
-        let sum = 0;
-        for (const e of inbound.get(a.id) ?? []) {
-          const srcDepth = depth.get(e.src) ?? Infinity;
-          if (srcDepth < d) sum += positiveWeight(sp.get(e.src) ?? BASE);
-        }
-        sp.set(a.id, BASE + sum);
-      }
-    }
-
-    const nextOrigins = new Set(origins);
-    for (const a of accounts) {
-      if (a.isAnchor) continue;
-      const g3 = (depth.get(a.id) ?? Infinity) <= MAX_DEPTH;
-      const g2 = (inbound.get(a.id)?.length ?? 0) >= 2;
-      if ((sp.get(a.id) ?? 0) >= T2 && g2 && g3) nextOrigins.add(a.id);
-    }
-    if (setsEqual(nextOrigins, origins)) break;
-    origins = nextOrigins;
-  }
-
-  const gates = new Map<string, { g1: boolean; g2: boolean; g3: boolean }>();
-  const tier = new Map<string, Tier>();
-  const inboundCount = new Map<string, number>();
-
-  for (const a of accounts) {
-    const s = sp.get(a.id) ?? BASE;
-    const inCount = inbound.get(a.id)?.length ?? 0;
-    inboundCount.set(a.id, inCount);
-    const g2 = inCount >= 2;
-    const g3 = a.isAnchor ? true : (depth.get(a.id) ?? Infinity) <= MAX_DEPTH;
-    let t: Tier = 0;
-    let g1 = s >= T1;
-    if (a.isAnchor) {
-      t = 2;
-      g1 = true;
-    } else if (s >= T2 && g2 && g3) {
-      t = 2;
-    } else if (s >= T1 && g2 && g3) {
-      t = 1;
-    }
-    gates.set(a.id, { g1, g2, g3 });
-    tier.set(a.id, t);
-  }
-
-  return { depth, sp, inboundCount, gates, tier };
-}
-
-// ─── the fixture graph ───────────────────────────────────────────────────────────────────────────
+// ─── the fixture graph, in @aval/engine's own input shape ───────────────────────────────────────
 //
 //   anchor1, anchor2          Orb-verified, depth 0
-//   alice, bob                each vouched by both anchors -> 50.00, Tier 1, depth 1
-//                              (docs/01-trust-math.md §12.1 "2 anchors" row)
-//   carol                     "ME" — vouched by alice AND bob -> 35.00, Tier 1, depth 2
+//   alice, bob, henry, iris   each vouched by both anchors -> 50.00, Tier 1, depth 1
+//                              (docs/01-trust-math.md §12.1 "2 anchors" row). henry and iris are
+//                              real, engine-scored Tier-1-mid accounts that the candidates/platform
+//                              fixtures below point at, instead of a hand-typed score constant.
+//   carol.alice.aval.eth     "ME" — vouched by alice AND bob -> 35.00, Tier 1, depth 2
 //                              (§12.1 "2 x T1 @ 50" row; docs/07-app-api.md §2.2's worked example)
-//   dave                      vouched by carol only (depth 3, 18.75, Tier 0) — and vouches carol
+//   dave.carol.aval.eth      vouched by carol only (depth 3, 18.75, Tier 0) — and vouches carol
 //                              BACK. That reciprocal edge is the zero-contribution row: dave's depth
 //                              (3) is not strictly lower than carol's (2), so it contributes +0.0.
-//   erin                      vouched by carol only (depth 3, 18.75, Tier 0) — carol's 2nd used slot,
-//                              used in the vouch-simulation secondary-effect fixture.
-//   grace                     vouched by bob only (depth 2, 35.00 if 2 vouchers — here 1, so blocked)
-//                              used as a Vouch-candidate example.
+//   erin.carol.aval.eth      vouched by carol only (depth 3, 18.75, Tier 0) — carol's 2nd used
+//                              slot, used in the vouch-simulation secondary-effect fixture.
+//   grace.bob.aval.eth       vouched by bob only (depth 2, 22.50) — a Vouch-candidate example.
 //   ring1..ring6               fully mutual (K6) clique, zero path to any anchor
-//                              (§12.1 "6-account mutual ring" row: 10.00, Tier 0, Blocked x2)
+//                              (§12.1 "6-account mutual ring" row: 10.00, Tier 0, blocked x3 under
+//                              the corrected gate 2 — this exact scenario is what R-8 was about)
 
-const ACCOUNTS: EngineAccount[] = [
-  { id: "anchor1.aval.eth", isAnchor: true },
-  { id: "anchor2.aval.eth", isAnchor: true },
-  { id: "alice.aval.eth", isAnchor: false },
-  { id: "bob.aval.eth", isAnchor: false },
-  { id: "carol.alice.aval.eth", isAnchor: false },
-  { id: "dave.carol.aval.eth", isAnchor: false },
-  { id: "erin.carol.aval.eth", isAnchor: false },
-  { id: "grace.bob.aval.eth", isAnchor: false },
+const ME_ID = "carol.alice.aval.eth";
+const HENRY_ID = "henry.aval.eth";
+const IRIS_ID = "iris.aval.eth";
+const PLATFORM_ID = "marketpulse.aval.eth";
+
+const RING_IDS = ["ring1.eth", "ring2.eth", "ring3.eth", "ring4.eth", "ring5.eth", "ring6.eth"];
+
+const ACCOUNTS: Account[] = [
+  { id: "anchor1.aval.eth", kind: "human", isAnchor: true },
+  { id: "anchor2.aval.eth", kind: "human", isAnchor: true },
+  { id: "alice.aval.eth", kind: "human" },
+  { id: "bob.aval.eth", kind: "human" },
+  { id: HENRY_ID, kind: "human" },
+  { id: IRIS_ID, kind: "human" },
+  { id: ME_ID, kind: "human" },
+  { id: "dave.carol.aval.eth", kind: "human" },
+  { id: "erin.carol.aval.eth", kind: "human" },
+  { id: "grace.bob.aval.eth", kind: "human" },
   // docs/04-ens.md §1.2: names like this "resolve to nothing, because none of those labels descend
   // from aval.eth" — the ring is unrepresentable in the real namespace. Kept as flat mock ids here
   // only so the fixture graph has six distinct, clearly-labelled ring accounts to compute over.
-  ...["ring1", "ring2", "ring3", "ring4", "ring5", "ring6"].map((r) => ({
-    id: `${r}.eth`,
-    isAnchor: false,
-  })),
+  ...RING_IDS.map((id): Account => ({ id, kind: "human" })),
+  { id: PLATFORM_ID, kind: "platform" },
 ];
 
-const RING_IDS = ACCOUNTS.filter((a) => a.id.startsWith("ring")).map((a) => a.id);
+function mkVouch(voucher: string, vouchee: string): Vouch {
+  return { voucher, vouchee, active: true };
+}
 
-const CORE_EDGES: EngineEdge[] = [
-  { src: "anchor1.aval.eth", dst: "alice.aval.eth" },
-  { src: "anchor2.aval.eth", dst: "alice.aval.eth" },
-  { src: "anchor1.aval.eth", dst: "bob.aval.eth" },
-  { src: "anchor2.aval.eth", dst: "bob.aval.eth" },
-  { src: "alice.aval.eth", dst: "carol.alice.aval.eth" },
-  { src: "bob.aval.eth", dst: "carol.alice.aval.eth" },
-  { src: "carol.alice.aval.eth", dst: "dave.carol.aval.eth" },
-  { src: "dave.carol.aval.eth", dst: "carol.alice.aval.eth" }, // reciprocal — zero-contribution row
-  { src: "carol.alice.aval.eth", dst: "erin.carol.aval.eth" },
-  { src: "bob.aval.eth", dst: "grace.bob.aval.eth" },
+const CORE_VOUCHES: Vouch[] = [
+  mkVouch("anchor1.aval.eth", "alice.aval.eth"),
+  mkVouch("anchor2.aval.eth", "alice.aval.eth"),
+  mkVouch("anchor1.aval.eth", "bob.aval.eth"),
+  mkVouch("anchor2.aval.eth", "bob.aval.eth"),
+  mkVouch("anchor1.aval.eth", HENRY_ID),
+  mkVouch("anchor2.aval.eth", HENRY_ID),
+  mkVouch("anchor1.aval.eth", IRIS_ID),
+  mkVouch("anchor2.aval.eth", IRIS_ID),
+  mkVouch("alice.aval.eth", ME_ID),
+  mkVouch("bob.aval.eth", ME_ID),
+  mkVouch(ME_ID, "dave.carol.aval.eth"),
+  mkVouch("dave.carol.aval.eth", ME_ID), // reciprocal — zero-contribution row
+  mkVouch(ME_ID, "erin.carol.aval.eth"),
+  mkVouch("bob.aval.eth", "grace.bob.aval.eth"),
 ];
 
-const RING_EDGES: EngineEdge[] = RING_IDS.flatMap((src) => RING_IDS.filter((dst) => dst !== src).map((dst) => ({ src, dst })));
-
-const ALL_EDGES: EngineEdge[] = [...CORE_EDGES, ...RING_EDGES];
-
-const RESULT = computeStage1(ACCOUNTS, ALL_EDGES);
-
-// Same graph, minus bob -> carol, for the weakest-link simulation.
-const EDGES_WITHOUT_BOB: EngineEdge[] = ALL_EDGES.filter(
-  (e) => !(e.src === "bob.aval.eth" && e.dst === "carol.alice.aval.eth"),
+const RING_VOUCHES: Vouch[] = RING_IDS.flatMap((src) =>
+  RING_IDS.filter((dst) => dst !== src).map((dst) => mkVouch(src, dst)),
 );
-const RESULT_WITHOUT_BOB = computeStage1(ACCOUNTS, EDGES_WITHOUT_BOB);
 
-function score(id: string): number {
-  return centiToScore(RESULT.sp.get(id) ?? BASE);
+const ALL_VOUCHES: Vouch[] = [...CORE_VOUCHES, ...RING_VOUCHES];
+
+const PLATFORM_VOUCHES: PlatformVouch[] = ["alice.aval.eth", "bob.aval.eth", HENRY_ID, IRIS_ID].map(
+  (voucher): PlatformVouch => ({ voucher, platform: PLATFORM_ID, active: true }),
+);
+
+const OLD_UPHELD_AGO_DAYS = 185; // past the 180-day decay window (docs/01-trust-math.md §7.4)
+
+// docs/12-reporting.md §3, docs/01-trust-math.md §7 — real reports fed through the real engine, so
+// weight/decay/void-reason are computed the same way a live report would be, not approximated by a
+// standalone formula. `snapshotWeight: CAP_NEG` for all three: none of these illustrative reports
+// are meant to demonstrate the R-1 bonded-snapshot cap itself (that's covered by the engine's own
+// tests), so the snapshot is set to the max, making weight = min(live, cap) exactly as it would be
+// for an ordinary report that hasn't hit its bond ceiling.
+const GRAPH_REPORTS: Report[] = [
+  {
+    id: "rpt_pending_henry",
+    reporter: HENRY_ID,
+    target: ME_ID,
+    state: "pending",
+    snapshotWeight: CAP_NEG,
+  },
+  {
+    id: "rpt_decayed_anchor2",
+    reporter: "anchor2.aval.eth",
+    target: ME_ID,
+    state: "upheld",
+    upheldAt: GRAPH_NOW - OLD_UPHELD_AGO_DAYS * SECONDS_PER_DAY,
+    snapshotWeight: CAP_NEG,
+  },
+  {
+    id: "rpt_upheld_filed_by_me",
+    reporter: ME_ID,
+    target: RING_IDS[0]!,
+    state: "upheld",
+    upheldAt: GRAPH_NOW - 45 * SECONDS_PER_DAY,
+    snapshotWeight: CAP_NEG,
+  },
+];
+
+const ENGINE_INPUT: EngineInput = {
+  now: GRAPH_NOW,
+  accounts: ACCOUNTS,
+  vouches: ALL_VOUCHES,
+  platformVouches: PLATFORM_VOUCHES,
+  reports: GRAPH_REPORTS,
+};
+
+const RESULT: EngineOutput = compute(ENGINE_INPUT);
+
+// Same graph, minus bob -> carol, for the weakest-link / vouch-simulation fixtures.
+const VOUCHES_WITHOUT_BOB: Vouch[] = ALL_VOUCHES.filter(
+  (v) => !(v.voucher === "bob.aval.eth" && v.vouchee === ME_ID),
+);
+const RESULT_WITHOUT_BOB: EngineOutput = compute({ ...ENGINE_INPUT, vouches: VOUCHES_WITHOUT_BOB });
+
+// ─── small helpers over the two computed results ─────────────────────────────────────────────────
+
+function humanScore(id: string): number {
+  return centiToScore(RESULT.score[id] ?? BASE);
 }
-function depth(id: string): number | null {
-  const d = RESULT.depth.get(id) ?? Infinity;
-  return Number.isFinite(d) ? d : null;
+function humanSPlus(id: string): number {
+  return centiToScore(RESULT.sPlus[id] ?? BASE);
 }
-function tier(id: string): Tier {
-  return RESULT.tier.get(id) ?? 0;
+function humanScoreAtRisk(id: string): number {
+  return centiToScore(RESULT.scoreAtRisk[id] ?? BASE);
 }
-function gates(id: string): Gates {
-  const g = RESULT.gates.get(id) ?? { g1: false, g2: false, g3: false };
+function depthOf(id: string): number | null {
+  const d = RESULT.depth[id];
+  return d !== undefined && Number.isFinite(d) ? d : null;
+}
+function tierOf(id: string): Tier {
+  return (RESULT.tier[id] ?? 0) as Tier;
+}
+function platformTierFromEngine(t: number | undefined): "P0" | "P1" | "P2" {
+  return (t ?? 0) >= 2 ? "P2" : (t ?? 0) >= 1 ? "P1" : "P0";
+}
+
+const breakdownCache = new Map<string, ReturnType<typeof breakdown>>();
+function breakdownFor(id: string): ReturnType<typeof breakdown> {
+  let bd = breakdownCache.get(id);
+  if (!bd) {
+    bd = breakdown(id, ENGINE_INPUT, RESULT);
+    breakdownCache.set(id, bd);
+  }
+  return bd;
+}
+
+/** No engine-exposed equivalent: `EngineOutput` publishes tiers, not the individual gate booleans
+ *  that fed them (docs/01-trust-math.md §11). Mirrors the engine's own internal check purely over
+ *  already-public data (`GRAPH_REPORTS` + `GRAPH_NOW`), for display only — it does not influence
+ *  any score or tier, which the real engine already computed correctly. */
+function hasRecentUpheldReportAgainst(id: string): boolean {
+  return GRAPH_REPORTS.some(
+    (r) =>
+      r.target === id &&
+      r.state === "upheld" &&
+      r.upheldAt !== undefined &&
+      GRAPH_NOW - r.upheldAt < GATE4_WINDOW_DAYS * SECONDS_PER_DAY &&
+      GRAPH_NOW - r.upheldAt >= 0,
+  );
+}
+
+/** Gate 2 here is derived from `breakdown()`'s own `counted` flag — the exact same corrected,
+ *  depth-ordered definition the real engine's gate 2 uses (R-8) — not re-counted independently. */
+function gatesFor(id: string): Gates {
+  const bd = breakdownFor(id);
+  const distinctCounted = new Set(bd.vouchers.filter((v) => v.counted).map((v) => v.voucher)).size;
+  const d = RESULT.depth[id];
+  const scoreCenti = RESULT.score[id] ?? BASE;
   return {
-    g1ScoreThreshold: g.g1,
-    g2TwoDistinctVouchers: g.g2,
-    g3PathToOrigin: g.g3,
-    g4NoRecentUpheldReport: true,
+    g1ScoreThreshold: scoreCenti >= T1,
+    g2TwoDistinctVouchers: distinctCounted >= MIN_VOUCHERS,
+    g3PathToOrigin: d !== undefined && Number.isFinite(d) && d <= MAX_DEPTH,
+    g4NoRecentUpheldReport: !hasRecentUpheldReportAgainst(id),
   };
 }
+
 function voucherSummary(id: string): VoucherSummary {
   const acc = ACCOUNTS.find((a) => a.id === id);
   return {
     address: addressFor(id),
     ensName: id,
-    score: score(id),
-    tier: tier(id),
-    depth: depth(id),
+    score: humanScore(id),
+    tier: tierOf(id),
+    depth: depthOf(id),
     isAnchor: acc?.isAnchor ?? false,
   };
 }
@@ -300,6 +276,59 @@ function addressFor(ensName: string): `0x${string}` {
   for (let i = 0; i < ensName.length; i++) h = (h * 31 + ensName.charCodeAt(i)) >>> 0;
   const hex = h.toString(16).padStart(8, "0");
   return `0x${hex.repeat(5).slice(0, 40)}`;
+}
+
+function displayLabel(ensName: string): string {
+  const [first] = ensName.split(".");
+  return first ? first[0]!.toUpperCase() + first.slice(1) : ensName;
+}
+
+type EngineVoucherRow = ReturnType<typeof breakdown>["vouchers"][number];
+
+/** Plain-language reason for a zero-contribution row, from the engine's own machine-readable
+ *  reason code (docs/01-trust-math.md's own E-2 errata example: the zero-contribution rows are
+ *  required UI, not decoration). */
+function voucherReasonText(row: EngineVoucherRow): string | null {
+  if (row.counted) return null;
+  switch (row.reason) {
+    case "anchor_ignores_inbound":
+      return "anchors ignore every inbound vouch — their score is fixed.";
+    case "vouch_inactive":
+      return "this vouch has expired or been revoked.";
+    case "voucher_not_human":
+      return "the source of this vouch is not a human account.";
+    case "voucher_unreachable":
+      return `${displayLabel(row.voucher)} has no path from any anchor, so it doesn't count.`;
+    case "voucher_depth_not_lower":
+      return (
+        `${displayLabel(row.voucher)} is at depth ${row.voucherDepth ?? "∞"}, which is not lower ` +
+        `than yours, so it doesn't count.`
+      );
+    default:
+      return null;
+  }
+}
+
+/** issuedAt/expiresAt/daysUntilExpiry/expiringSoon have NO engine equivalent — `Vouch` only
+ *  carries a caller-resolved `active` boolean (see @aval/engine's own doc comment on that field),
+ *  never timestamps. This is exactly the "no engine equivalent" case R-8's own fix instructions
+ *  call out: derived here, deterministically, from fixture-authored edge metadata, everything else
+ *  on the row taken straight from the engine's `breakdown()`. */
+function contributionRowFromEngine(
+  row: EngineVoucherRow,
+  edge: { issuedAgoDays: number; expiresInDays: number },
+): VouchContribution {
+  return {
+    voucher: voucherSummary(row.voucher),
+    weight: DISPLAY_M_POS,
+    contribution: centiToScore(row.contribution),
+    counted: row.counted,
+    reason: voucherReasonText(row),
+    issuedAt: iso(-edge.issuedAgoDays),
+    expiresAt: iso(edge.expiresInDays),
+    daysUntilExpiry: edge.expiresInDays,
+    expiringSoon: edge.expiresInDays <= 21,
+  };
 }
 
 // ─── meta envelope — docs/07-app-api.md §3, carried on every response ───────────────────────────
@@ -324,53 +353,30 @@ export const HEALTH: HealthResult = {
 
 // ─── carol.alice.aval.eth — "you", the primary demo identity ────────────────────────────────────
 
-const ME_ID = "carol.alice.aval.eth";
-
-function contributionRow(
-  voucherId: string,
-  targetDepth: number,
-  edge: { issuedAgoDays: number; expiresInDays: number },
-): VouchContribution {
-  const voucher = voucherSummary(voucherId);
-  const srcDepth = RESULT.depth.get(voucherId) ?? Infinity;
-  const counted = srcDepth < targetDepth;
-  const raw = positiveWeight(RESULT.sp.get(voucherId) ?? BASE);
-  return {
-    voucher,
-    weight: 0.25,
-    contribution: counted ? centiToScore(raw) : 0,
-    counted,
-    reason: counted
-      ? null
-      : `${displayLabel(voucherId)} is at depth ${Number.isFinite(srcDepth) ? srcDepth : "∞"}, which is not lower ` +
-        `than yours, so it doesn't count.`,
-    issuedAt: iso(-edge.issuedAgoDays),
-    expiresAt: iso(edge.expiresInDays),
-    daysUntilExpiry: edge.expiresInDays,
-    expiringSoon: edge.expiresInDays <= 21,
-  };
-}
-
-function displayLabel(ensName: string): string {
-  const [first] = ensName.split(".");
-  return first ? first[0]!.toUpperCase() + first.slice(1) : ensName;
+const ME_BD = breakdownFor(ME_ID);
+function meRow(voucherId: string, edge: { issuedAgoDays: number; expiresInDays: number }): VouchContribution {
+  const row = ME_BD.vouchers.find((v) => v.voucher === voucherId);
+  if (!row) throw new Error(`mock.ts: no breakdown row for voucher "${voucherId}" -> "${ME_ID}"`);
+  return contributionRowFromEngine(row, edge);
 }
 
 const ME_BREAKDOWN: VouchContribution[] = [
-  contributionRow("alice.aval.eth", 2, { issuedAgoDays: 16, expiresInDays: 74 }),
-  contributionRow("bob.aval.eth", 2, { issuedAgoDays: 72, expiresInDays: 18 }),
-  contributionRow("dave.carol.aval.eth", 2, { issuedAgoDays: 5, expiresInDays: 85 }),
+  meRow("alice.aval.eth", { issuedAgoDays: 16, expiresInDays: 74 }),
+  meRow("bob.aval.eth", { issuedAgoDays: 72, expiresInDays: 18 }),
+  meRow("dave.carol.aval.eth", { issuedAgoDays: 5, expiresInDays: 85 }),
 ];
 
-const ME_SLOTS: Slots = { total: 3, used: 2, free: 1 }; // carol vouched for dave + erin
+const ME_SLOTS: Slots = { total: 3, used: 2, free: 1 }; // no engine equivalent — carol vouched for
+// dave + erin; slot usage bookkeeping is a contract/indexer ledger, not part of scoring.
 
-const meScoreIfBobExpires = centiToScore(RESULT_WITHOUT_BOB.sp.get(ME_ID) ?? BASE);
-const meTierIfBobExpires = RESULT_WITHOUT_BOB.tier.get(ME_ID) ?? 0;
+const meScoreIfBobExpires = centiToScore(RESULT_WITHOUT_BOB.score[ME_ID] ?? BASE);
+const meTierIfBobExpires = (RESULT_WITHOUT_BOB.tier[ME_ID] ?? 0) as Tier;
 
 // docs/16-presence-drip.md §9 — an independent illustrative panel. Carol's own `tenure` field below
 // is 0.00 so that the Home arithmetic line reads exactly "base 10.0 + 25.0 = 35.0"
-// (docs/07-app-api.md §2.2); the drip/tenure panel demonstrates the *mechanism* using the documented
-// formula (src/lib/format.ts `tenureFromDays`) rather than feeding back into this fixture's score.
+// (docs/07-app-api.md §2.2); the drip/tenure panel demonstrates the *mechanism* using the real
+// engine's tenureCenti (via src/lib/format.ts `tenureFromDays`, R-7) rather than feeding back into
+// this fixture's score.
 const ME_PRESENT_DAYS = 214;
 const ME_ACCRUED_AVAL = 14.5;
 const ME_DAILY_RATE = 1.0; // Tier 1 => 100% of drip_nominal (docs/16-presence-drip.md §3)
@@ -392,21 +398,21 @@ export const ME: ScoreResult = {
   kind: "member",
   base: 10.0,
   tenure: 0.0,
-  positiveScore: score(ME_ID),
-  score: score(ME_ID),
-  scoreAtRisk: score(ME_ID),
-  tier: tier(ME_ID),
-  depth: depth(ME_ID),
-  gates: gates(ME_ID),
+  positiveScore: humanSPlus(ME_ID),
+  score: humanScore(ME_ID),
+  scoreAtRisk: humanScoreAtRisk(ME_ID),
+  tier: tierOf(ME_ID),
+  depth: depthOf(ME_ID),
+  gates: gatesFor(ME_ID),
   breakdown: ME_BREAKDOWN,
   slots: ME_SLOTS,
   weakestLink: {
     voucherEnsName: "bob.aval.eth",
     contribution: ME_BREAKDOWN[1]!.contribution,
     scoreIfExpired: meScoreIfBobExpires,
-    currentTier: tier(ME_ID),
+    currentTier: tierOf(ME_ID),
     tierIfExpired: meTierIfBobExpires,
-    losesTier: meTierIfBobExpires < tier(ME_ID),
+    losesTier: meTierIfBobExpires < tierOf(ME_ID),
     daysUntilExpiry: ME_BREAKDOWN[1]!.daysUntilExpiry,
   },
   presence: ME_PRESENCE,
@@ -425,6 +431,12 @@ export const GRACE = voucherSummary("grace.bob.aval.eth");
 
 const HONEST_IDS = ["anchor1.aval.eth", "anchor2.aval.eth", "alice.aval.eth", "bob.aval.eth", ME_ID, "dave.carol.aval.eth"];
 
+function edgeContribution(voucher: string, vouchee: string): { contribution: number; counted: boolean; reason: string | null } {
+  const row = breakdownFor(vouchee).vouchers.find((v) => v.voucher === voucher);
+  if (!row) return { contribution: 0, counted: false, reason: "edge not found" };
+  return { contribution: centiToScore(row.contribution), counted: row.counted, reason: voucherReasonText(row) };
+}
+
 export const EXPLORE_HONEST: ExploreScenario = {
   label: "Honest path",
   exhibit: "EXHIBIT A",
@@ -433,26 +445,24 @@ export const EXPLORE_HONEST: ExploreScenario = {
     ensName: id,
     address: addressFor(id),
     kind: "member" as AccountKind,
-    score: score(id),
-    tier: tier(id),
-    depth: depth(id),
+    score: humanScore(id),
+    tier: tierOf(id),
+    depth: depthOf(id),
     isAnchor: ACCOUNTS.find((a) => a.id === id)?.isAnchor ?? false,
   })),
-  edges: CORE_EDGES.filter((e) => HONEST_IDS.includes(e.src) && HONEST_IDS.includes(e.dst)).map((e) => {
-    const srcDepth = RESULT.depth.get(e.src) ?? Infinity;
-    const dstDepth = RESULT.depth.get(e.dst) ?? Infinity;
-    const counted = srcDepth < dstDepth;
+  edges: CORE_VOUCHES.filter((e) => HONEST_IDS.includes(e.voucher) && HONEST_IDS.includes(e.vouchee)).map((e) => {
+    const info = edgeContribution(e.voucher, e.vouchee);
     return {
-      from: e.src,
-      to: e.dst,
-      contribution: counted ? centiToScore(positiveWeight(RESULT.sp.get(e.src) ?? BASE)) : 0,
-      counted,
-      reason: counted ? null : "same depth or higher — doesn't count",
+      from: e.voucher,
+      to: e.vouchee,
+      contribution: info.contribution,
+      counted: info.counted,
+      reason: info.counted ? null : (info.reason ?? "same depth or higher — doesn't count"),
     };
   }),
-  finalScore: score(ME_ID),
-  finalTier: tier(ME_ID),
-  gates: gates(ME_ID),
+  finalScore: humanScore(ME_ID),
+  finalTier: tierOf(ME_ID),
+  gates: gatesFor(ME_ID),
 };
 
 export const EXPLORE_RING: ExploreScenario = {
@@ -463,87 +473,95 @@ export const EXPLORE_RING: ExploreScenario = {
     ensName: id,
     address: addressFor(id),
     kind: "member" as AccountKind,
-    score: score(id),
-    tier: tier(id),
-    depth: depth(id),
+    score: humanScore(id),
+    tier: tierOf(id),
+    depth: depthOf(id),
     isAnchor: false,
   })),
-  edges: RING_EDGES.map((e) => ({ from: e.src, to: e.dst, contribution: 0, counted: false, reason: "no path to any anchor" })),
-  finalScore: score(RING_IDS[0]!),
-  finalTier: tier(RING_IDS[0]!),
-  gates: gates(RING_IDS[0]!),
+  edges: RING_VOUCHES.map((e) => {
+    const info = edgeContribution(e.voucher, e.vouchee);
+    return {
+      from: e.voucher,
+      to: e.vouchee,
+      contribution: info.contribution,
+      counted: info.counted,
+      reason: info.counted ? null : (info.reason ?? "no path to any anchor"),
+    };
+  }),
+  finalScore: humanScore(RING_IDS[0]!),
+  finalTier: tierOf(RING_IDS[0]!),
+  gates: gatesFor(RING_IDS[0]!),
 };
 
 export const EXPLORE_SCENARIOS: ExploreScenario[] = [EXPLORE_HONEST, EXPLORE_RING];
 
 // ─── reports — docs/12-reporting.md §3, docs/01-trust-math.md §7 ────────────────────────────────
+// filedAt / challenge-window / reasonCode have no engine equivalent (the engine only ever sees
+// `upheldAt`, never a filing time or a dispute-window length — those are indexer/contract facts),
+// so they're supplied here per report, alongside every weight/decay/status number, which all come
+// straight from `RESULT.reportWeights` (R-8/R-1).
+const REPORT_DISPLAY_META: Record<string, { filedAgoDays: number; reasonCode: string; challengeWindowHours: number | null }> = {
+  rpt_pending_henry: { filedAgoDays: 1, reasonCode: "SUSPECTED_SYBIL", challengeWindowHours: 72 },
+  rpt_decayed_anchor2: { filedAgoDays: OLD_UPHELD_AGO_DAYS + 3, reasonCode: "MISREPRESENTED_AFFILIATION", challengeWindowHours: null },
+  rpt_upheld_filed_by_me: { filedAgoDays: 48, reasonCode: "COLLUSION_RING", challengeWindowHours: null },
+};
 
-const henryScore = 5_000; // 50.00, Tier 1 mid
-const oldUpheldAgo = 185; // days — past the 180-day decay window
-const filedAgo = 1;
+function reportStatus(r: Report, decayedWeight: number): ReportStatus {
+  if (r.state === "rejected" || r.state === "withdrawn") return "rejected";
+  if (r.state === "pending") return "pending";
+  return decayedWeight === 0 ? "decayed" : "upheld";
+}
 
-export const REPORTS: ReportEntry[] = [
-  {
-    id: "rpt_pending_henry",
-    direction: "against",
-    reporter: { ensName: "henry.aval.eth", kind: "member", score: centiToScore(henryScore) },
-    target: ME_ID,
-    status: "pending",
-    weight: centiToScore(reportWeight(henryScore)),
-    filedAt: iso(-filedAgo),
-    upheldAt: null,
-    decayRemainingPct: 100,
-    // docs/12-reporting.md §3: "0-72h challenge window", "t=72h resolution"
-    challengeDeadline: new Date(new Date(iso(-filedAgo)).getTime() + 72 * 60 * 60 * 1000).toISOString(),
-    reasonCode: "SUSPECTED_SYBIL",
-  },
-  {
-    id: "rpt_decayed_anchor2",
-    direction: "against",
-    reporter: { ensName: "anchor2.aval.eth", kind: "anchor", score: centiToScore(ANCHOR) },
-    target: ME_ID,
-    status: "decayed",
-    weight: 0,
-    filedAt: iso(-(oldUpheldAgo + 3)),
-    upheldAt: iso(-oldUpheldAgo),
-    decayRemainingPct: Math.round(decayFactor(oldUpheldAgo) * 100),
-    challengeDeadline: null,
-    reasonCode: "MISREPRESENTED_AFFILIATION",
-  },
-  {
-    id: "rpt_upheld_filed_by_me",
-    direction: "filed",
-    reporter: { ensName: ME_ID, kind: "member", score: score(ME_ID) },
-    target: RING_IDS[0]!,
-    status: "upheld",
-    weight: Math.round(centiToScore(reportWeight(Math.round(score(ME_ID) * 100))) * decayFactor(45) * 100) / 100,
-    filedAt: iso(-48),
-    upheldAt: iso(-45),
-    decayRemainingPct: Math.round(decayFactor(45) * 100),
-    challengeDeadline: null,
-    reasonCode: "COLLUSION_RING",
-  },
-];
+function reporterScoreCenti(reporterId: string): number {
+  const acct = ACCOUNTS.find((a) => a.id === reporterId);
+  if (acct?.kind === "platform") return RESULT.sPlatform[reporterId] ?? 0;
+  return RESULT.score[reporterId] ?? BASE;
+}
+
+export const REPORTS: ReportEntry[] = GRAPH_REPORTS.map((r): ReportEntry => {
+  const rw = RESULT.reportWeights[r.id];
+  const meta = REPORT_DISPLAY_META[r.id]!;
+  const reporterAcct = ACCOUNTS.find((a) => a.id === r.reporter);
+  const reporterKind: AccountKind = reporterAcct?.kind === "platform" ? "platform" : reporterAcct?.isAnchor ? "anchor" : "member";
+  const baseWeight = rw?.baseWeight ?? 0;
+  const decayedW = rw?.decayedWeight ?? 0;
+  const filedAtIso = iso(-meta.filedAgoDays);
+
+  return {
+    id: r.id,
+    direction: r.target === ME_ID ? "against" : "filed",
+    reporter: { ensName: r.reporter, kind: reporterKind, score: centiToScore(reporterScoreCenti(r.reporter)) },
+    target: r.target,
+    status: reportStatus(r, decayedW),
+    weight: centiToScore(decayedW),
+    filedAt: filedAtIso,
+    upheldAt: r.state === "upheld" && r.upheldAt !== undefined ? new Date(r.upheldAt * 1000).toISOString() : null,
+    decayRemainingPct: baseWeight > 0 ? Math.round((decayedW / baseWeight) * 100) : 0,
+    challengeDeadline:
+      meta.challengeWindowHours !== null
+        ? new Date(new Date(filedAtIso).getTime() + meta.challengeWindowHours * 60 * 60 * 1000).toISOString()
+        : null,
+    reasonCode: meta.reasonCode,
+  };
+});
 
 // ─── platform — docs/13-platforms.md §3, docs/01-trust-math.md §12.3 "4 x T1 @ 50" row ──────────
 
-const PLATFORM_ID = "marketpulse.aval.eth";
-const platformVoucherScore = 5_000; // 50.00, Tier 1 mid, 4 vouchers
-const platformSpCenti = 4 * positiveWeight(platformVoucherScore);
+const platformSpCenti = RESULT.sPlatform[PLATFORM_ID] ?? 0;
 
 export const PLATFORM: PlatformScoreResult = {
   address: addressFor(PLATFORM_ID),
   ensName: PLATFORM_ID,
   score: centiToScore(platformSpCenti),
-  tier: platformSpCenti >= 15_000 ? "P2" : platformSpCenti >= 4_000 ? "P1" : "P0",
-  voucherCount: 4,
-  bondAval: 5_200,
-  requestsLast30d: 812,
-  upheldRatePct: 82,
+  tier: platformTierFromEngine(RESULT.platformTier[PLATFORM_ID]),
+  voucherCount: PLATFORM_VOUCHES.length,
+  bondAval: 5_200, // no engine equivalent — bond amount is a token-vault fact (docs/11-token-vault.md)
+  requestsLast30d: 812, // no engine equivalent — request volume is a gateway/analytics metric
+  upheldRatePct: 82, // no engine equivalent — historical report-outcome ratio, not a score input
   gates: {
-    g1ScoreThreshold: platformSpCenti >= 4_000,
-    g2TwoDistinctVouchers: true,
-    g3BondPosted: true,
+    g1ScoreThreshold: platformSpCenti >= P1,
+    g2TwoDistinctVouchers: new Set(PLATFORM_VOUCHES.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
+    g3BondPosted: true, // no engine equivalent — bond posting is on-chain registry state
   },
 };
 
@@ -552,14 +570,14 @@ export const PLATFORM: PlatformScoreResult = {
 export const AGENT: AgentRecord = {
   subname: `trader.${ME_ID}`,
   operator: ME_ID,
-  operatorScore: score(ME_ID),
-  inheritedTier: tier(ME_ID),
+  operatorScore: humanScore(ME_ID),
+  inheritedTier: tierOf(ME_ID),
   endpointMcp: `https://mcp.aval.xyz/agent/trader.${ME_ID}`,
   endpointA2a: `https://a2a.aval.xyz/trader.${ME_ID}`,
   ensip26: {
-    "agent-context": `# trader.${ME_ID}\n\nAutonomous trading agent. Operated by ${ME_ID} (Aval tier ${tier(
+    "agent-context": `# trader.${ME_ID}\n\nAutonomous trading agent. Operated by ${ME_ID} (Aval tier ${tierOf(
       ME_ID,
-    )}, score ${score(ME_ID).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${tier(
+    )}, score ${humanScore(ME_ID).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${tierOf(
       ME_ID,
     )}. It CANNOT issue vouches — vouching requires human presence, and ENSIP-26 agents have none.`,
     "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/trader.${ME_ID}`,
@@ -577,40 +595,44 @@ export const CANDIDATES: CandidateVoucher[] = [
     address: GRACE.address,
     score: GRACE.score,
     tier: GRACE.tier,
-    mutualConnections: 1, // both connected via bob
-    slotsFree: 3,
+    mutualConnections: 1, // no engine equivalent — "shared connections" isn't a scoring concept;
+    // both ME and grace are reachable via bob, but this exact count is authored, not computed.
+    slotsFree: 3, // no engine equivalent — see ME_SLOTS comment on slot bookkeeping.
   },
   {
-    ensName: "henry.aval.eth",
-    address: addressFor("henry.aval.eth"),
-    score: centiToScore(henryScore),
-    tier: 1,
+    ensName: HENRY_ID,
+    address: addressFor(HENRY_ID),
+    score: humanScore(HENRY_ID),
+    tier: tierOf(HENRY_ID),
     mutualConnections: 0,
-    slotsFree: 2,
+    slotsFree: 2, // no engine equivalent — see ME_SLOTS comment.
   },
 ];
 
 // ─── vouch simulation — docs/07-app-api.md §2.3 step 2 preview ──────────────────────────────────
 // Reproduces the exact moment bob's vouch lands on carol: 22.5 -> 35.0, Tier 0 -> Tier 1 — and its
-// side effect on erin, whose contribution depends on carol's score, not just her depth.
+// side effects downstream (anyone whose own score depends, even indirectly, on carol's).
 
-const meBeforeBobCenti = RESULT_WITHOUT_BOB.sp.get(ME_ID) ?? BASE;
-const meAfterBobCenti = RESULT.sp.get(ME_ID) ?? BASE;
-const erinBeforeCenti = BASE + positiveWeight(meBeforeBobCenti);
-const erinAfterCenti = BASE + positiveWeight(meAfterBobCenti);
+function secondaryEffectsBetween(before: EngineOutput, after: EngineOutput, exclude: string): SimulateVouchStep[] {
+  return ACCOUNTS.filter((a) => a.kind === "human" && a.id !== exclude)
+    .map((a) => ({
+      ensName: a.id,
+      before: centiToScore(before.score[a.id] ?? BASE),
+      after: centiToScore(after.score[a.id] ?? BASE),
+    }))
+    .filter((s) => s.before !== s.after);
+}
 
 export const VOUCH_SIMULATION: SimulateVouchResult = {
   voucher: "bob.aval.eth",
   target: ME_ID,
-  targetBefore: { score: centiToScore(meBeforeBobCenti), tier: RESULT_WITHOUT_BOB.tier.get(ME_ID) ?? 0 },
-  targetAfter: { score: centiToScore(meAfterBobCenti), tier: RESULT.tier.get(ME_ID) ?? 0 },
-  promotes: (RESULT_WITHOUT_BOB.tier.get(ME_ID) ?? 0) < (RESULT.tier.get(ME_ID) ?? 0),
-  voucherSlotsBefore: 3,
+  targetBefore: { score: meScoreIfBobExpires, tier: meTierIfBobExpires },
+  targetAfter: { score: humanScore(ME_ID), tier: tierOf(ME_ID) },
+  promotes: meTierIfBobExpires < tierOf(ME_ID),
+  voucherSlotsBefore: 3, // no engine equivalent — see ME_SLOTS comment on slot bookkeeping.
   voucherSlotsAfter: 2,
-  nextVouchAvailableInHours: 24,
-  secondaryEffects: [
-    { ensName: "erin.carol.aval.eth", before: centiToScore(erinBeforeCenti), after: centiToScore(erinAfterCenti) },
-  ],
+  nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact.
+  secondaryEffects: secondaryEffectsBetween(RESULT_WITHOUT_BOB, RESULT, ME_ID),
 };
 
 // ─── generic score lookup — powers /api/score/[address] and /api/explain/[address] for accounts
@@ -618,21 +640,19 @@ export const VOUCH_SIMULATION: SimulateVouchResult = {
 // stable function of edge index, not Math.random(), so repeated requests return identical bytes. ──
 
 function genericBreakdown(id: string): VouchContribution[] {
-  const targetDepth = RESULT.depth.get(id) ?? Infinity;
-  return ALL_EDGES.filter((e) => e.dst === id).map((e, i) => {
+  return breakdownFor(id).vouchers.map((row, i) => {
     const issuedAgoDays = 10 + ((i * 17) % 60);
     const expiresInDays = 90 - issuedAgoDays;
-    return contributionRow(e.src, targetDepth, { issuedAgoDays, expiresInDays });
+    return contributionRowFromEngine(row, { issuedAgoDays, expiresInDays });
   });
 }
 
 export function getScoreResult(idOrAddress: string): ScoreResult | undefined {
   if (idOrAddress === ME_ID || idOrAddress === ME.address) return ME;
-  const acc = ACCOUNTS.find((a) => a.id === idOrAddress || addressFor(a.id) === idOrAddress);
+  const acc = ACCOUNTS.find((a) => a.kind === "human" && (a.id === idOrAddress || addressFor(a.id) === idOrAddress));
   if (!acc) return undefined;
   const id = acc.id;
-  const s = score(id);
-  const t = tier(id);
+  const t = tierOf(id);
   return {
     address: addressFor(id),
     ensName: id,
@@ -640,12 +660,12 @@ export function getScoreResult(idOrAddress: string): ScoreResult | undefined {
     ...(acc.isAnchor ? { anchorSource: "orb" as const } : {}),
     base: acc.isAnchor ? 100.0 : 10.0,
     tenure: 0,
-    positiveScore: s,
-    score: s,
-    scoreAtRisk: s,
+    positiveScore: humanSPlus(id),
+    score: humanScore(id),
+    scoreAtRisk: humanScoreAtRisk(id),
     tier: t,
-    depth: depth(id),
-    gates: gates(id),
+    depth: depthOf(id),
+    gates: gatesFor(id),
     breakdown: acc.isAnchor ? [] : genericBreakdown(id),
     slots: acc.isAnchor
       ? { total: 10, used: 0, free: 10 }
@@ -689,13 +709,15 @@ export function explainProse(idOrAddress: string): string | undefined {
   return parts.join(" ");
 }
 
-/** /api/simulate/vouch — docs/07-app-api.md §2.3 step 2. */
+/** /api/simulate/vouch — docs/07-app-api.md §2.3 step 2. Genuinely simulates the hypothetical edge
+ *  by adding it to the graph and calling `compute()` again — not a standalone "voucher.score x
+ *  0.25" approximation, which (unlike the real engine) wouldn't even check depth ordering. */
 export function simulateVouch(voucherId: string, targetId: string): SimulateVouchResult {
   if (voucherId === "bob.aval.eth" && targetId === ME_ID) return VOUCH_SIMULATION;
 
-  const voucher = getScoreResult(voucherId);
-  const target = getScoreResult(targetId);
-  if (!voucher || !target) {
+  const voucherAcc = ACCOUNTS.find((a) => a.id === voucherId && a.kind === "human");
+  const targetAcc = ACCOUNTS.find((a) => a.id === targetId && a.kind === "human");
+  if (!voucherAcc || !targetAcc) {
     return {
       voucher: voucherId,
       target: targetId,
@@ -708,20 +730,27 @@ export function simulateVouch(voucherId: string, targetId: string): SimulateVouc
       secondaryEffects: [],
     };
   }
-  const contributionCenti = positiveWeight(Math.round(voucher.score * 100));
-  const afterCenti = Math.round(target.score * 100) + contributionCenti;
-  const afterScore = centiToScore(afterCenti);
-  const afterTier: Tier = afterCenti >= T2 ? 2 : afterCenti >= T1 ? 1 : 0;
+
+  const alreadyVouches = ALL_VOUCHES.some((v) => v.voucher === voucherId && v.vouchee === targetId && v.active);
+  const afterResult = alreadyVouches
+    ? RESULT
+    : compute({ ...ENGINE_INPUT, vouches: [...ALL_VOUCHES, mkVouch(voucherId, targetId)] });
+
+  const beforeScore = humanScore(targetId);
+  const beforeTier = tierOf(targetId);
+  const afterScore = centiToScore(afterResult.score[targetId] ?? BASE);
+  const afterTier = (afterResult.tier[targetId] ?? 0) as Tier;
+
   return {
     voucher: voucherId,
     target: targetId,
-    targetBefore: { score: target.score, tier: target.tier },
+    targetBefore: { score: beforeScore, tier: beforeTier },
     targetAfter: { score: afterScore, tier: afterTier },
-    promotes: afterTier > target.tier,
-    voucherSlotsBefore: voucher.slots.free,
-    voucherSlotsAfter: Math.max(0, voucher.slots.free - 1),
-    nextVouchAvailableInHours: 24,
-    secondaryEffects: [],
+    promotes: afterTier > beforeTier,
+    voucherSlotsBefore: 3, // no engine equivalent — see ME_SLOTS comment.
+    voucherSlotsAfter: 2,
+    nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact.
+    secondaryEffects: alreadyVouches ? [] : secondaryEffectsBetween(RESULT, afterResult, targetId),
   };
 }
 
@@ -764,8 +793,9 @@ export function checkGate(idOrAddress: string, policy: GatePolicy): GateResult {
   const identity = findIdentity(idOrAddress);
   if (!identity) return { allow: false, reasons: ["identity_not_found"] };
   const reasons: string[] = [];
-  const t = identity.ensName === ME_ID ? tier(ME_ID) : identity.kind === "anchor" ? 2 : tier(identity.ensName);
-  const s = identity.ensName === ME_ID ? score(ME_ID) : identity.kind === "anchor" ? 100 : score(identity.ensName);
+  const isPlatform = identity.kind === "platform";
+  const t = isPlatform ? (RESULT.platformTier[identity.ensName] ?? 0) : tierOf(identity.ensName);
+  const s = isPlatform ? centiToScore(RESULT.sPlatform[identity.ensName] ?? 0) : humanScore(identity.ensName);
   if (policy.minTier !== undefined && t < policy.minTier) reasons.push(`tier ${t} below required tier ${policy.minTier}`);
   if (policy.minScore !== undefined && s < policy.minScore) reasons.push(`score ${s.toFixed(1)} below required score ${policy.minScore.toFixed(1)}`);
   if (policy.requireCredential && identity.credential !== policy.requireCredential) {
@@ -774,28 +804,40 @@ export function checkGate(idOrAddress: string, policy: GatePolicy): GateResult {
   return { allow: reasons.length === 0, reasons };
 }
 
+function parentOf(id: string): string | undefined {
+  const d = RESULT.depth[id];
+  if (d === undefined) return undefined;
+  const edge = ALL_VOUCHES.find((e) => e.vouchee === id && RESULT.depth[e.voucher] === d - 1);
+  return edge?.voucher;
+}
+
 /** Walks from `fromEnsName` back to the literal string "anchor", or to a specific target name. */
 export function findPath(fromEnsName: string, toEnsName: string): PathResult {
-  const parentEdge = (id: string): EngineEdge | undefined => {
-    const d = RESULT.depth.get(id) ?? Infinity;
-    return ALL_EDGES.find((e) => e.dst === id && (RESULT.depth.get(e.src) ?? Infinity) === d - 1);
-  };
+  // R-12 (docs/97-review-engine-app.md): an entirely unknown starting identity must yield zero
+  // hops, so the route's existing `hops.length === 0` check 404s — not a single synthetic hop for
+  // an id that resolves to nothing.
+  const fromKnown = ACCOUNTS.some((a) => a.id === fromEnsName);
+  if (!fromKnown) return { from: fromEnsName, to: toEnsName, found: false, hops: [] };
 
   const hops: PathResult["hops"] = [];
   let cursor: string | undefined = fromEnsName;
+  let previous: string | undefined;
   const visited = new Set<string>();
   while (cursor && !visited.has(cursor)) {
     visited.add(cursor);
+    const contributionCenti =
+      previous === undefined ? 0 : (breakdownFor(previous).vouchers.find((v) => v.voucher === cursor)?.contribution ?? 0);
     hops.push({
       ensName: cursor,
       address: addressFor(cursor),
-      depth: depth(cursor) ?? -1,
-      contribution: cursor === fromEnsName ? 0 : centiToScore(positiveWeight(RESULT.sp.get(cursor) ?? BASE)),
+      depth: depthOf(cursor) ?? -1,
+      contribution: centiToScore(contributionCenti),
     });
-    if ((toEnsName === "anchor" && (RESULT.depth.get(cursor) ?? Infinity) === 0) || cursor === toEnsName) {
+    if ((toEnsName === "anchor" && (RESULT.depth[cursor] ?? Number.POSITIVE_INFINITY) === 0) || cursor === toEnsName) {
       return { from: fromEnsName, to: toEnsName, found: true, hops };
     }
-    cursor = parentEdge(cursor)?.src;
+    previous = cursor;
+    cursor = parentOf(cursor);
   }
   return { from: fromEnsName, to: toEnsName, found: false, hops };
 }

@@ -7,6 +7,7 @@
  * itself never introduces new rounding beyond the spec's own truncation.
  */
 
+import { tenureCenti } from "@aval/engine";
 import type { Tier, PlatformTier } from "./types";
 
 const CENTI = 100;
@@ -125,38 +126,18 @@ export function dropAvalSuffix(name: string): string {
 /**
  * Presence-drip tenure curve — docs/16-presence-drip.md §4.
  *
- *   E        = epochs claimed (6h each), monotone
- *   E_HALF   = 720 epochs = 180 days
- *   T_MAX    = 5.00 points
- *   tenure(E) = T_MAX * (1 - 2^(-E / E_HALF))
- *
- * Deterministic integer halving-band implementation (as specified, §4):
- *   k  = E / E_HALF                 // band index
- *   r  = E % E_HALF                 // position within the band
- *   lo = 500 - (500 >> k)           // centi-points
- *   hi = 500 - (500 >> (k + 1))
- *   tenure_centi = lo + (hi - lo) * r / E_HALF
- *
- * Invariant I-17: base + T_MAX = 15 < T1 = 30 — presence alone can never promote anyone.
+ * R-7 (docs/97-review-engine-app.md): this used to be a hand-rolled port of the halving-band
+ * formula that `@aval/engine`'s own `tenure.ts` documents, by name, as WRONG — truncating
+ * `T_MAX >> k` before subtracting overstates the lower band edge by 1 centi-point at every band
+ * boundary from k >= 3 onward (invariant I-19 requires the two to agree exactly). Fixing the copy
+ * in place would only relocate the drift to the next place someone forgets to update both; the
+ * actual fix is to not have a copy. `tenureCenti` is imported directly from the engine, which is
+ * the single source of truth for this formula.
  */
-const E_HALF_EPOCHS = 720;
-const T_MAX_CENTI = 500;
 const EPOCHS_PER_DAY = 4; // 6h epochs
 
-export function tenureCentiFromEpochs(epochsClaimed: number): number {
-  if (epochsClaimed <= 0) return 0;
-  const k = Math.floor(epochsClaimed / E_HALF_EPOCHS);
-  // 2^-k underflows to 0 in this integer scheme well before k gets here; saturate explicitly
-  // rather than lean on `>>`'s 32-bit wraparound for pathologically large epoch counts.
-  if (k >= 32) return T_MAX_CENTI;
-  const r = epochsClaimed % E_HALF_EPOCHS;
-  const lo = T_MAX_CENTI - (T_MAX_CENTI >> k);
-  const hi = T_MAX_CENTI - (T_MAX_CENTI >> (k + 1));
-  return lo + Math.floor(((hi - lo) * r) / E_HALF_EPOCHS);
-}
-
 export function tenureFromDays(presentDays: number): number {
-  return centiToScore(tenureCentiFromEpochs(Math.floor(presentDays * EPOCHS_PER_DAY)));
+  return centiToScore(tenureCenti(Math.floor(presentDays * EPOCHS_PER_DAY)));
 }
 
 export function daysFromEpochs(epochs: number): number {
