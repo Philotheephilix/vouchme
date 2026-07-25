@@ -19,3 +19,35 @@ export function fail(status: number, code: string, message: string): NextRespons
   const body: ApiErrorBody = { error: { code, message }, meta: MOCK_META };
   return NextResponse.json(body, { status });
 }
+
+/**
+ * R-9 (docs/97-review-engine-app.md): `decodeURIComponent` throws a `URIError` on malformed
+ * percent-encoding (e.g. a bare "%" — verified: `decodeURIComponent("%")` throws). Every dynamic
+ * GET route decodes a path segment as its first move, so an uncaught throw there escapes the route
+ * handler entirely and Next.js turns it into a generic 500 instead of the standard error envelope.
+ * Centralized here — once — instead of a try/catch around `decodeURIComponent` copy-pasted into
+ * every one of the five route files.
+ */
+export type DecodeParamResult = { ok: true; value: string } | { ok: false; response: NextResponse<ApiErrorBody> };
+
+export function decodeParam(raw: string): DecodeParamResult {
+  try {
+    return { ok: true, value: decodeURIComponent(raw) };
+  } catch {
+    return {
+      ok: false,
+      response: fail(400, "invalid_encoding", `"${raw}" is not validly percent-encoded.`),
+    };
+  }
+}
+
+/**
+ * R-10 (docs/97-review-engine-app.md): a POST body of JSON `null` (or an array/primitive) parses
+ * successfully via `req.json()` — only a genuinely malformed JSON *document* throws — so the
+ * try/catch around the parse doesn't catch it, and the very next `body.someField` access throws a
+ * bare `TypeError` that escapes the handler as an uncaught 500. Route handlers call this
+ * immediately after parsing, before touching any property.
+ */
+export function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
