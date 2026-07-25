@@ -84,7 +84,7 @@
       "resultingState": {
         "owner": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
         "resolver": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 (pointer wired; no addr record populated yet)",
-        "subregistry": "0x0000000000000000000000000000000000000000 (none deployed in this pass)",
+        "subregistry": "0x3f04Cac222A9627F9De911b274CdF289bbA008d9 (backfilled later — see `memberRegistries`; it was 0x0 at the time of this mint, which is the defect that made nested vouch names impossible)",
         "expiry": 1816516536,
         "expiryISO": "2027-07-25T11:55:36.000Z",
         "tokenId": "20046778210887091122393997403894044484021514954076855380656162745478507659264",
@@ -93,14 +93,59 @@
       "readbackVerification": [
         "avalRegistry.findOwner('carol') == 0x69827C0FEF274C63Ac4806106F2BA544E6129050",
         "avalRegistry.getResolver('carol') == 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
-        "avalRegistry.getSubregistry('carol') == 0x0 (expected — no subregistry deployed for carol in this pass, see nextSteps)",
+        "avalRegistry.getSubregistry('carol') == 0x0 AT THE TIME (no subregistry deployed for carol in that pass) — since backfilled, see `memberRegistries`",
         "avalRegistry.findExpiry('carol') == 1816516536",
         "resolver.addr(namehash('carol.aval.eth')) == 0x0 (expected — the register() call only wires the resolver POINTER on the registry entry; it does not itself write an address record into the resolver, that is a separate setAddr call, see nextSteps)"
       ],
-      "nextStepsNotDone": {
-        "toMakeCarolAvalEthResolveToAnAddress": "Call PermissionedResolver.setAddr(namehash('carol.aval.eth'), targetAddress) on 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 (one more transaction, gas only; caller needs an EAC role on the resolver's own ROOT_RESOURCE, not yet checked in this pass).",
-        "toGiveCarolHerOwnSubregistry(enablingDepth2Vouches)": "1) VerifiableFactory.deployProxy(proxyLogic=0x917c561a74df398646e06f3ffaa51db8e8330c5a, salt, initData) to clone a new PermissionedRegistry for carol (predictable CREATE2 address, gas only, no fee observed on this alpha), then 2) avalRegistry.setSubregistry(carolTokenId, newCloneAddress) (requires ROLE_SET_SUBREGISTRY on carol's resource — the deployer already holds this via the ALL_ROLES grant above). Both steps are ordinary gas-only Sepolia transactions; on the same infra observed here they should cost roughly the same order of magnitude as the carol registration itself (155,913 gas). Not executed in this pass — out of the explicit one-subname/one-transaction scope."
+      "nextStepsSince": {
+        "status": "BOTH DONE — see `memberRegistries` below.",
+        "carolAvalEthNowResolves": "setAddr(namehash('carol.aval.eth'), 0x23761b08eD8Cd51f43de13CB97F691be7D28ed59) was executed; the deployer's ALL_ROLES on the resolver's own ROOT_RESOURCE turned out to apply to every node, so no per-node grant was needed.",
+        "carolOwnsARegistry": "carol's own PermissionedRegistry clone was deployed through the VerifiableFactory and attached with avalRegistry.setSubregistry(findTokenId('carol'), clone) — the backfill path, because register() on a taken label reverts. carol was never re-registered."
       }
+    },
+    "memberRegistries": {
+      "why": "docs/04-ens.md §7.1 maps 'a member' onto 'a PermissionedRegistry they own' and 'issuing a vouch' onto register(label, vouchee) IN YOUR OWN REGISTRY. Until this pass every aval.eth subname was registered with registry=0x0, so no member owned a registry and `<vouchee>.<voucher>.aval.eth` was structurally impossible. Every member now owns a distinct, real clone.",
+      "implementation": "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917 — the same PermissionedRegistry implementation the aval.eth clone itself runs.",
+      "deployedVia": "VerifiableFactory.deployProxy(implementation, salt, data) at 0xD2a632D8a8b67c2c4398c255CbD7aF8dd7236198, with data = initialize(address owner, uint256 roleBitmap) (selector 0xcd6dc687) = (deployer, ALL_ROLES). Both the initializer signature and the argument shape were read off the real deployProxy calldata that created the aval.eth registry clone itself (tx 0xd30a5d9444a47df6db2d08f59ef74069777b2496a192b263ac0707f25e08131a), not guessed.",
+      "saltDerivation": "salt(label) = uint256(keccak256(utf8('aval.eth/member-registry/v1::' + label))) — a pure function of the label, so any member's registry address can be recomputed offline from their name alone.",
+      "addressDerivation": "outerSalt = keccak256(abi.encode(deployer, salt)); runtime = 0x363d3d373d3d3d363d73 ‖ proxyLogic(0x917c561a…) ‖ 0x5af43d82803e903d91602b57fd5bf3 ‖ outerSalt; creation = 0x3d604d80600a3d3981f3 ‖ runtime; address = CREATE2(verifiableFactory, outerSalt, keccak256(creation)). Reverse-derived from the real aval.eth clone and confirmed to reproduce 0xb8C3d3AD…eF33 exactly; outerSalt also appears verbatim as the clone's appended 32-byte immutable argument on chain, an independent check.",
+      "attachment": "For a NEW label: register(label, deployer, memberRegistry, resolver, ALL_ROLES, expiry) — the clone goes in as the `registry` argument, so Entry.subregistry is correct from the first block. For an EXISTING label (carol, dave): setSubregistry(findTokenId(label), memberRegistry). register() is never called twice on a taken label — it reverts.",
+      "membersProvisioned": 17,
+      "distinctRegistries": 17,
+      "labels": "alice, bob, carol, dave, erin, anchor1-6, ring1-6 — the exact population the app renders on /explore, in search and in the candidate lists. Before this pass 15 of the 17 had never been registered at all and the other 2 (carol, dave) owned no registry.",
+      "perMemberLedger": "deployments/ens-members-sepolia.json — label -> { salt, registry, txs }, written by scripts/dev/ens-provision.mts.",
+      "proofRequired": "A deployProxy receipt is not proof. Every member is accepted only after a FRESH client re-reads getSubregistry(label) != 0, eth_getCode(subregistry).length > 2, and addr(namehash('<label>.aval.eth')) == the intended address.",
+      "codePath": "app/src/lib/ens-core.ts — shared verbatim by /api/ens/mint, /api/vouch/ens and scripts/dev/ens-provision.mts, so the script cannot drift from the app."
+    },
+    "nestedVouchNames": {
+      "shape": "<vouchee>.<voucher>.aval.eth, created by register(voucheeLabel, deployer, voucheeRegistry, resolver, ALL_ROLES, now+90d) INSIDE the voucher's own registry. The 90 days matches AvalRegistry.VOUCH_EXPIRY, so Entry.expiry is the vouch expiry, natively (docs/04-ens.md §7.1).",
+      "trustEdge": "Entry.subregistry of the nested entry is the VOUCHEE's own registry — the same contract that is also the subregistry of <vouchee>.aval.eth. That is what makes the trust path walkable: getSubregistry() repeatedly IS the BFS.",
+      "resolverNote": "The resolver is node-keyed. Registry traversal makes a deeper path like erin.carol.alice.aval.eth structurally valid, but each distinct fully-qualified name still needs its own setAddr to return an address.",
+      "appPath": "POST /api/vouch/ens {voucher, vouchee}, called by the vouch wizard only after the World Chain vouch transaction lands. When the voucher owns no registry the route returns 409 vouch_name_unavailable and the wizard says the name was NOT minted.",
+      "minted": [
+        {
+          "name": "carol.alice.aval.eth",
+          "registeredIn": "0xeB3e71b211B947a7EF4EbC1Cb7d4ae7e97eCf143 (alice's registry)",
+          "registerTx": "0x1421cc503c6e1b36539844b0d426c0597379182008dd61ddb66ba545c8c3333c",
+          "setAddrTx": "0xd2ee93a923e24373d325285239e18d57dd37c50e1b888b27ac1ca6dadc76c3fc",
+          "resolvesTo": "0x23761b08eD8Cd51f43de13CB97F691be7D28ed59",
+          "childRegistry": "0x3f04Cac222A9627F9De911b274CdF289bbA008d9 (carol's registry)"
+        },
+        {
+          "name": "erin.carol.aval.eth",
+          "registeredIn": "0x3f04Cac222A9627F9De911b274CdF289bbA008d9 (carol's registry)",
+          "registerTx": "0xae5f361e73c9e254bdc6dbe15e29424e89ab3202a1dd55f5bc285015dc17547a",
+          "setAddrTx": "0x7879c02799a6a0feb4e5548ccba11ce37c64a1eca7b3102db3dbe651b4fb30f7",
+          "resolvesTo": "0x30F99b23402377BC829e573389c2317f97db8740",
+          "childRegistry": "0xbD0805Db6f42e570FeEC0966A0531762A7472b83 (erin's registry)"
+        },
+        {
+          "name": "erin.carol.alice.aval.eth",
+          "note": "Depth 3. No extra register() — carol's ONE registry is both the subregistry of carol.aval.eth and of carol.alice.aval.eth, so the erin entry inside it is reachable by both paths. Only the leaf's own address record had to be written, because the resolver is node-keyed.",
+          "setAddrTx": "0xdea4291e5571c13b0740905e2b308b5248f6a6d581fa659085c996beb92c32c4",
+          "resolvesTo": "0x30F99b23402377BC829e573389c2317f97db8740"
+        }
+      ]
     }
   },
   "verificationMethodology": "Every address above was either (a) read live from an already-verified contract in the same call chain (e.g. getSubregistry/getResolver/getParent starting from the Sourcify-verified .eth registry), (b) matched against Sourcify's exact_match verified source and compiled ABI, or (c) confirmed functionally by successfully executing multiple real read/write calls against it using an ABI derived from a verified sibling contract. No address was taken on trust from documentation or from another agent's report without independent on-chain corroboration; where a collaborating agent supplied candidate addresses, every one was independently re-derived and cross-checked before being relied upon (including catching and explaining an apparent bytecode-size discrepancy that turned out to be a JS string-length-vs-byte-count reporting convention, not a wrong address).",
