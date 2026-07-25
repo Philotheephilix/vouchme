@@ -7,6 +7,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getAddress } from "viem";
 import type { ApiEnvelope, ApiErrorBody, ApiMeta } from "@/lib/types";
 
 /** Used only when `meta` can't be obtained at all (the live chain read itself failed) — every
@@ -41,7 +42,24 @@ export type DecodeParamResult = { ok: true; value: string } | { ok: false; respo
 
 export function decodeParam(raw: string): DecodeParamResult {
   try {
-    return { ok: true, value: decodeURIComponent(raw) };
+    const value = decodeURIComponent(raw);
+    // Normalise addresses to EIP-55 checksum form. Identity lookup compares address strings with
+    // `===` (mock.ts `getScoreResult` / `findIdentity`), so an all-lowercase address — which is what
+    // every block explorer and most copy-paste sources produce — matched nothing and returned
+    // `identity_not_found` for an account that plainly exists:
+    //   /api/score/0xB23a…2B47  -> 200
+    //   /api/score/0xb23a…2b47  -> 404
+    // Casing is a rendering detail of the same 20 bytes, so it is normalised at the boundary rather
+    // than by loosening each comparison inside.
+    if (/^0x[0-9a-fA-F]{40}$/.test(value)) {
+      try {
+        return { ok: true, value: getAddress(value) };
+      } catch {
+        // Mixed-case string that fails EIP-55 checksum validation — fall through and let the
+        // lookup 404 rather than silently "correcting" what may be a mistyped address.
+      }
+    }
+    return { ok: true, value };
   } catch {
     return {
       ok: false,
