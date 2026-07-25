@@ -1,0 +1,108 @@
+{
+  "network": "Ethereum Sepolia",
+  "chainId": 11155111,
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "deployer": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+  "name": "aval.eth",
+  "notes": "IMPORTANT CORRECTION TO EARLIER ASSUMPTIONS: aval.eth is NOT registered in ENSv1 (the flat ENS Registry at 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e still returns owner(namehash('aval.eth')) = 0x0 there, and its BaseRegistrarImplementation/ETHRegistrarController were never used for this name). aval.eth IS registered under ENSv2, a hierarchical per-name-registry architecture that (per public reporting) ENS Labs deployed directly on Ethereum L1 after cancelling the separate 'Namechain' L2 in Feb 2026. On Sepolia this is reachable today via an alpha stack rooted in a Root Registry -> '.eth' PermissionedRegistry -> per-name PermissionedRegistry clones. This is a DIFFERENT set of contracts from the v1 ones; do not confuse the two. The project's own docs/04-ens.md §7 anticipated this migration path; docs/09-build-plan.md V-7 and docs/98-gap-review-b.md G-B24 flagged ENSv2/Namechain as 'unreleased infra' / 'expected to fail' — that assumption is now out of date for Sepolia as of 2026-07-25.",
+  "ensv1": {
+    "registry": "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
+    "baseRegistrar": "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85",
+    "verification": "owner(namehash('eth')) on the ENS Registry returns the BaseRegistrar address above (cross-checked against the official docs.ens.domains/learn/deployments/ page, which lists the identical address).",
+    "avalEthOwnerInV1Registry": "0x0000000000000000000000000000000000000000",
+    "avalEthResolverInV1Registry": "0x0000000000000000000000000000000000000000",
+    "conclusion": "aval.eth has no forward record in the v1 flat registry. The two setName('aval.eth') transactions referenced at the start of this task only ever set a v1 reverse record (an unverified claim from the address side); they never touched this registry and are irrelevant to actual name ownership under either v1 or v2."
+  },
+  "ensv2": {
+    "architecture": "Each name with children is its own UUPS-upgradeable PermissionedRegistry contract (ERC1155Singleton + EnhancedAccessControl), addressed via the shared IRegistry interface (getSubregistry(label), getResolver(label), getParent()). Per-account registry/resolver instances are deployed as minimal proxy clones (EIP-1167 delegatecall stub -> shared UUPS 'proxyLogic' stub -> per-clone ERC-1967 implementation slot) via a shared VerifiableFactory, so their addresses are deterministic from (factory, proxyLogic, deployer, salt). Access control uses a 64-slot nybble-packed roles bitmap (EnhancedAccessControl / RegistryRolesLib); ROLE_REGISTRAR (bit 0, value 1) on a registry's ROOT_RESOURCE (=0) is required to call register() on that registry. This differs from the still-in-draft 'RegistryDatastore singleton' design described in ENS's public ENSv2 architecture docs as of this writing — the deployed alpha instead gives each registry its own internal _entries mapping, backed by a shared ILabelStore and IHCAFactoryBasic ('HCA') for cross-registry equivalence checks.",
+    "rootRegistry": {
+      "address": "0xc960F7217d3643B525Ef36Bec8Adf86953CD9aB8",
+      "verifiedBy": "Read as the parent of the .eth registry via ethRegistry.getParent() -> (0xc960F7217d3643B525Ef36Bec8Adf86953CD9aB8, \"eth\"). Not independently source-verified in this pass beyond that live cross-reference."
+    },
+    "ethRegistry": {
+      "address": "0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67",
+      "contractName": "PermissionedRegistry",
+      "bytecodeBytes": 15453,
+      "verifiedBy": "Sourcify exact_match (chainId 11155111) with full source (project/src/registry/PermissionedRegistry.sol and all imports). Live-called owner(namehash('eth')) on the v1 ENS Registry independently returns the v1 BaseRegistrar, NOT this address — this .eth registry is purely a v2 construct, reached instead by walking getSubregistry(\"aval\") calls starting from this contract, which is itself presumably wired as .eth's v2 entry point (its own parent-chain to the v2 Root Registry was read directly via getParent(), not inferred from v1 state).",
+      "labelStore": "0x23Ea712Da760c4e09fC9be108F1f1DA6d5d6D053",
+      "note": "Same LABEL_STORE address confirmed shared with the aval registry clone below, corroborating both are part of the same coherent v2 deployment rather than unrelated contracts."
+    },
+    "verifiableFactory": {
+      "address": "0xD2a632D8a8b67c2c4398c255CbD7aF8dd7236198",
+      "bytecodeBytes": 1400,
+      "verifiedBy": "Not verified on Sourcify (match: null). Identified by selector matching: 0x5d84121a decodes exactly to deployProxy(address,uint256,bytes), matching the canonical @ensdomains/verifiable-factory VerifiableFactory.deployProxy(implementation,salt,data) signature reported by public sources. Its immutable 'proxyLogic' constant (embedded in its bytecode) equals the shared clone target below.",
+      "sharedProxyLogic": "0x917c561a74df398646e06f3ffaa51db8e8330c5a"
+    },
+    "avalEth": {
+      "label": "aval",
+      "parentRegistry": "0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67",
+      "subregistry": {
+        "address": "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33",
+        "kind": "EIP-1167-style minimal clone (77 bytes), delegates to shared proxyLogic 0x917c561a74df398646e06f3ffaa51db8e8330c5a, which itself UUPS-delegates to the implementation stored in this clone's own ERC-1967 slot",
+        "implementation": "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917",
+        "implementationVerifiedBy": "Not verified on Sourcify. Confirmed functionally by successfully executing register(), hasRoles(), roles(), getSubregistry(), getResolver(), findOwner(), findTokenId(), findExpiry() against the clone using the exact PermissionedRegistry ABI pulled from the verified .eth registry source — every call succeeded with semantically correct results, which is stronger evidence than static verification alone."
+      },
+      "resolver": {
+        "address": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
+        "kind": "Same clone pattern as the subregistry (77 bytes), same shared proxyLogic",
+        "implementation": "0xdcE5205A553573FFd47629327DDdf36186022FfA",
+        "contractName": "PermissionedResolver",
+        "implementationVerifiedBy": "Sourcify exact_match at project/src/resolver/PermissionedResolver.sol. ABI includes addr(bytes32), setAddr(bytes32,address), text/contenthash/pubkey/name getters and setters, all EAC-gated by hasRoles/roles/grantRoles on the resolver's own ROOT_RESOURCE."
+      },
+      "owner": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+      "expiry": 1848158652,
+      "expiryISO": "2028-07-25T17:24:12.000Z",
+      "verifiedBy": [
+        "ethRegistry.getSubregistry('aval') live-read == subregistry.address above",
+        "ethRegistry.getResolver('aval') live-read == resolver.address above",
+        "ethRegistry.findExpiry('aval') live-read == 1848158652",
+        "resolver.addr(namehash('aval.eth')) live-read == 0x69827C0FEF274C63Ac4806106F2BA544E6129050 (forward resolution independently confirmed working end-to-end)",
+        "avalRegistry.hasRoles(ROOT_RESOURCE=0, ROLE_REGISTRAR=1, deployer) live-read == true; avalRegistry.roles(ROOT_RESOURCE, deployer) == ALL_ROLES bitmask (0x1111...1111), i.e. the deployer holds full root control of aval.eth's own registry, matching the docs/04-ens.md §7 model of 'a member = a PermissionedRegistry they own'"
+      ]
+    },
+    "carolAvalEth": {
+      "status": "MINTED as a proof-of-mechanism subname, one write transaction, per explicit scoped instruction (do not mint more than one subname, do not register a second level).",
+      "label": "carol",
+      "parentRegistry": "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33 (the aval.eth PermissionedRegistry clone)",
+      "registerTx": "0xdb14a07a878cf4fb28e2b2c3fe212e8d35c7db24139035114ca35f55f98f9667",
+      "registerBlock": 11347510,
+      "gasUsed": 155913,
+      "callSequenceUsed": {
+        "function": "register(string label, address owner, address registry, address resolver, uint256 roleBitmap, uint64 expiry) returns (uint256 tokenId)",
+        "contract": "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33",
+        "args": {
+          "label": "carol",
+          "owner": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+          "registry": "0x0000000000000000000000000000000000000000",
+          "resolver": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
+          "roleBitmap": "0x1111111111111111111111111111111111111111111111111111111111111111 (ALL_ROLES, mirrors the full root control the deployer already holds on aval's own registry, so the new owner can self-service a subregistry/records later)",
+          "expiry": 1816516536
+        },
+        "requiredCallerRole": "ROLE_REGISTRAR (bit 0) on ROOT_RESOURCE (0) of the target registry (0xb8C3d3AD...) — confirmed the deployer already held this (see avalEth.verifiedBy above) before sending the transaction; no separate grantRoles call was needed.",
+        "value": "0 (register() is nonpayable on this alpha deployment — no ETH rent/fee, gas only)"
+      },
+      "resultingState": {
+        "owner": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+        "resolver": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 (pointer wired; no addr record populated yet)",
+        "subregistry": "0x0000000000000000000000000000000000000000 (none deployed in this pass)",
+        "expiry": 1816516536,
+        "expiryISO": "2027-07-25T11:55:36.000Z",
+        "tokenId": "20046778210887091122393997403894044484021514954076855380656162745478507659264",
+        "deployerRolesOnCarolResource": "ALL_ROLES (0x1111...1111) — full self-control, same pattern as aval's own root roles"
+      },
+      "readbackVerification": [
+        "avalRegistry.findOwner('carol') == 0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+        "avalRegistry.getResolver('carol') == 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
+        "avalRegistry.getSubregistry('carol') == 0x0 (expected — no subregistry deployed for carol in this pass, see nextSteps)",
+        "avalRegistry.findExpiry('carol') == 1816516536",
+        "resolver.addr(namehash('carol.aval.eth')) == 0x0 (expected — the register() call only wires the resolver POINTER on the registry entry; it does not itself write an address record into the resolver, that is a separate setAddr call, see nextSteps)"
+      ],
+      "nextStepsNotDone": {
+        "toMakeCarolAvalEthResolveToAnAddress": "Call PermissionedResolver.setAddr(namehash('carol.aval.eth'), targetAddress) on 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 (one more transaction, gas only; caller needs an EAC role on the resolver's own ROOT_RESOURCE, not yet checked in this pass).",
+        "toGiveCarolHerOwnSubregistry(enablingDepth2Vouches)": "1) VerifiableFactory.deployProxy(proxyLogic=0x917c561a74df398646e06f3ffaa51db8e8330c5a, salt, initData) to clone a new PermissionedRegistry for carol (predictable CREATE2 address, gas only, no fee observed on this alpha), then 2) avalRegistry.setSubregistry(carolTokenId, newCloneAddress) (requires ROLE_SET_SUBREGISTRY on carol's resource — the deployer already holds this via the ALL_ROLES grant above). Both steps are ordinary gas-only Sepolia transactions; on the same infra observed here they should cost roughly the same order of magnitude as the carol registration itself (155,913 gas). Not executed in this pass — out of the explicit one-subname/one-transaction scope."
+      }
+    }
+  },
+  "verificationMethodology": "Every address above was either (a) read live from an already-verified contract in the same call chain (e.g. getSubregistry/getResolver/getParent starting from the Sourcify-verified .eth registry), (b) matched against Sourcify's exact_match verified source and compiled ABI, or (c) confirmed functionally by successfully executing multiple real read/write calls against it using an ABI derived from a verified sibling contract. No address was taken on trust from documentation or from another agent's report without independent on-chain corroboration; where a collaborating agent supplied candidate addresses, every one was independently re-derived and cross-checked before being relied upon (including catching and explaining an apparent bytecode-size discrepancy that turned out to be a JS string-length-vs-byte-count reporting convention, not a wrong address).",
+  "generatedAt": "2026-07-25T11:56:00Z"
+}
