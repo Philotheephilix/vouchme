@@ -201,10 +201,12 @@ async function buildRecords(
   const paths = findAllPaths(address, namingGraph);
   const canonical = pickCanonicalName(paths);
   const canonicalName = canonical?.name ?? "";
-  const aliases = paths
-    .filter((p) => p.name !== canonicalName)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((p) => p.name);
+  // Multiple anchors can each independently reach the same intermediate handle, producing
+  // distinct path objects that render to the identical name string — dedupe by name, not by path
+  // object (a real thing this live, multi-anchor deployment now exhibits).
+  const aliases = [...new Set(paths.filter((p) => p.name !== canonicalName).map((p) => p.name))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
   const namingAccount = namingGraph.accounts.find((a) => a.id === account.id);
   const outboundCount = namingGraph.edges.filter((e) => e.voucherId === account.id).length;
