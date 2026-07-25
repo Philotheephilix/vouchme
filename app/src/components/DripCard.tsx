@@ -1,14 +1,73 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { encodeFunctionData } from "viem";
+import { MiniKit } from "@worldcoin/minikit-js";
 import { fmtAval, fmtDays, fmtScore } from "@/lib/format";
-import type { PresenceState } from "@/lib/types";
+import type { Address, PresenceState } from "@/lib/types";
+import { useAuth } from "@/lib/session";
+import { PRESENCE_DRIP_ABI, WORLDCHAIN_SEPOLIA_ID, explorerTxUrl, getPresenceDripAddress } from "@/lib/worldchain";
+import { decodeRevertReason, ensureWorldChainSepolia, submitFromInjected } from "@/lib/wallet";
 
 /**
  * A ledger stub, not a widget: the daily rate, the accrued figure, a hairline 30-day countdown
  * with a tick, and the tenure curve flattening toward a dashed ceiling. The flattening is the
  * point — docs/16-presence-drip.md §4.1: presence alone can never promote anyone.
+ *
+ * `Claim` is real: it fetches a tier attestation from `/api/presence/attest`, sends
+ * `PresenceDrip.claim(...)` from the connected wallet, and refreshes the server-rendered accrued
+ * figure once the transaction confirms. Only rendered enabled when `canClaim` — i.e. this card is
+ * showing the signed-in viewer's own presence, not a demo identity's.
  */
-export function DripCard({ presence }: { presence: PresenceState }) {
+export function DripCard({ presence, address, canClaim }: { presence: PresenceState; address: Address; canClaim: boolean }) {
+  const auth = useAuth();
+  const router = useRouter();
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+
   const claimedFraction = Math.min(1, Math.max(0, (presence.maxUnclaimedDays - presence.daysUntilCap) / presence.maxUnclaimedDays));
   const claimedPct = claimedFraction * 100;
+
+  async function handleClaim() {
+    if (!auth.address) return;
+    setClaiming(true);
+    setClaimError(null);
+    setTxHash(null);
+    try {
+      const res = await fetch("/api/presence/attest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: auth.address }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) throw new Error(body?.error?.message ?? "Could not prepare a claim attestation.");
+      const { tier, deadline, nonce, attestation } = body.data as { tier: number; deadline: string; nonce: string; attestation: `0x${string}` };
+
+      const data = encodeFunctionData({
+        abi: PRESENCE_DRIP_ABI,
+        functionName: "claim",
+        args: [tier, BigInt(deadline), BigInt(nonce), attestation],
+      });
+      const dripAddress = getPresenceDripAddress();
+
+      if (auth.via === "minikit" && MiniKit.isInstalled()) {
+        const result = await MiniKit.sendTransaction({ transactions: [{ to: dripAddress, data }], chainId: WORLDCHAIN_SEPOLIA_ID });
+        setTxHash(result.data.userOpHash);
+      } else {
+        await ensureWorldChainSepolia();
+        const outcome = await submitFromInjected(auth.address, dripAddress, data);
+        setTxHash(outcome.hash);
+        if (outcome.status !== "success") throw new Error(outcome.revertReason ?? "Transaction reverted.");
+      }
+      router.refresh(); // re-fetches the server-rendered accrued figure from the now-updated chain state
+    } catch (err) {
+      setClaimError(decodeRevertReason(err));
+    } finally {
+      setClaiming(false);
+    }
+  }
 
   return (
     <div data-testid="drip-card" className="border border-rule p-4">
@@ -30,12 +89,33 @@ export function DripCard({ presence }: { presence: PresenceState }) {
         </div>
         <button
           type="button"
-          className="min-h-[44px] shrink-0 border px-4 font-mono text-xs uppercase tracking-widest"
+          data-testid="drip-claim"
+          onClick={() => void handleClaim()}
+          disabled={!canClaim || claiming || presence.accruedAval <= 0}
+          title={!canClaim ? "Sign in to claim your own drip." : undefined}
+          className="min-h-[44px] shrink-0 border px-4 font-mono text-xs uppercase tracking-widest disabled:opacity-40"
           style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
         >
-          Claim
+          {claiming ? "Claiming…" : "Claim"}
         </button>
       </div>
+
+      {claimError ? (
+        <p className="mt-2 text-2xs" style={{ color: "var(--color-protest)" }} data-testid="drip-claim-error">
+          {claimError}
+        </p>
+      ) : null}
+      {txHash ? (
+        <a
+          href={explorerTxUrl(txHash)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 block truncate-mono font-mono text-2xs underline"
+          style={{ color: "var(--color-seal)" }}
+        >
+          {txHash}
+        </a>
+      ) : null}
 
       <div className="mt-5">
         <div className="mb-1 flex justify-between font-mono text-2xs text-graphite">
