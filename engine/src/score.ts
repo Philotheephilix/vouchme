@@ -97,17 +97,47 @@ import type {
   Report,
   ReportWeightResult,
   Tier,
+  Vouch,
 } from "./types.js";
+
+/**
+ * Deduplicate vouch records to one canonical edge per ordered pair (voucher, vouchee) (R-2,
+ * docs/97-review-engine-app.md). Exported and used by BOTH `compute()` (the s⁺ sum, gate 2, and
+ * the depth BFS) and `breakdown()` in explain.ts, so every consumer of raw `Vouch[]` input agrees
+ * on the same canonical edge set — an indexer replay or duplicated subgraph event must not let one
+ * voucher's edge count twice toward s⁺, nor show up as multiple rows in a score explanation, while
+ * still being correctly deduplicated for gate 2's distinct-voucher count.
+ *
+ * Tie-break for conflicting duplicate records of the same pair (e.g. one marked active, one not):
+ * prefer the active one. `Vouch` carries no timestamp of its own — resolving "latest" already
+ * happened in the caller, per this type's own doc comment on `active` — so "prefer active" is the
+ * only tie-break the engine has enough information to make deterministically (order-independent,
+ * I-5); when duplicates agree, the choice doesn't affect the result either way.
+ */
+export function dedupeVouches(vouches: readonly Vouch[]): Vouch[] {
+  const byPair = new Map<string, Vouch>();
+  for (const v of vouches) {
+    const pairKey = `${v.voucher}::${v.vouchee}`;
+    const existing = byPair.get(pairKey);
+    if (!existing || (!existing.active && v.active)) {
+      byPair.set(pairKey, v);
+    }
+  }
+  return [...byPair.values()];
+}
 
 // ── contribution / report-weight formulas (01-trust-math.md §10) ───────────────────────────────
 
-/** min(s × m⁺, cap⁺), truncated toward zero. `s` is always ≥ 0 in this engine. */
-function weightPos(s: number): number {
+/** min(s × m⁺, cap⁺), truncated toward zero. `s` is always ≥ 0 in this engine. Exported (R-5,
+ *  docs/97-review-engine-app.md) so consumers like explain.ts import the real formula instead of
+ *  duplicating its constants as bare literals that can silently drift from this one. */
+export function weightPos(s: number): number {
   return Math.min(Math.trunc((s * M_POS_NUM) / M_POS_DEN), CAP_POS);
 }
 
-/** min(s × m⁻, cap⁻), truncated toward zero. `s` is always ≥ 0 in this engine. */
-function weightNeg(s: number): number {
+/** min(s × m⁻, cap⁻), truncated toward zero. `s` is always ≥ 0 in this engine. Exported for the
+ *  same reason as `weightPos` above (R-5). */
+export function weightNeg(s: number): number {
   return Math.min(Math.trunc((s * M_NEG_NUM) / M_NEG_DEN), CAP_NEG);
 }
 
@@ -162,6 +192,21 @@ function buildReportResult(
 export function compute(input: EngineInput): EngineOutput {
   const { now } = input;
 
+  // R-6 (docs/97-review-engine-app.md): a malformed `now` or `report.upheldAt` — NaN, ±Infinity,
+  // or a non-integer — must fail loudly, not propagate silently into decay / gate-4-window
+  // arithmetic as NaN-tainted output. `tenureCenti` already guards its own input this way
+  // (tenure.ts); this closes the same gap for the two other caller-supplied time values.
+  if (!Number.isFinite(now) || !Number.isInteger(now)) {
+    throw new RangeError(`compute: input.now must be a finite integer (unix seconds), got ${now}`);
+  }
+  for (const r of input.reports) {
+    if (r.upheldAt !== undefined && (!Number.isFinite(r.upheldAt) || !Number.isInteger(r.upheldAt))) {
+      throw new RangeError(
+        `compute: report "${r.id}" upheldAt must be a finite integer (unix seconds) when present, got ${r.upheldAt}`,
+      );
+    }
+  }
+
   // ── setup: index accounts, filter to active ones, split by kind ────────────────────────────
   const accountsById = new Map<string, Account>();
   for (const a of input.accounts) {
@@ -181,10 +226,14 @@ export function compute(input: EngineInput): EngineOutput {
     return tenureCenti(acct.epochsClaimed ?? 0);
   }
 
+  // R-2 (docs/97-review-engine-app.md): deduplicate by (voucher, vouchee) BEFORE anything
+  // downstream sees the edge list — see `dedupeVouches` above for why and the tie-break rule.
+  const dedupedVouches = dedupeVouches(input.vouches);
+
   // Active vouches: both endpoints must resolve to active human accounts (defensively enforces
   // invariant I-16 — a platform can never be the source of a positive human edge — by
   // construction, regardless of what a caller hands in).
-  const activeVouches = input.vouches.filter(
+  const activeVouches = dedupedVouches.filter(
     (v) =>
       v.active &&
       accountsById.get(v.voucher)?.kind === "human" &&
@@ -292,28 +341,28 @@ export function compute(input: EngineInput): EngineOutput {
   const persistedSp = new Map<string, number>();
   for (const id of anchorIds) persistedSp.set(id, ANCHOR);
 
-  let depth = new Map<string, number>();
-  let sp = new Map<string, number>();
+  // One inner layered pass (depth BFS + per-depth score sum) against a given origin set. Factored
+  // out (R-5-adjacent de-duplication) so the post-loop finalization pass below (R-4) can reuse the
+  // exact same computation instead of a second hand-copy that could drift from the one in the loop.
+  function innerPass(originsForPass: ReadonlySet<string>): { depth: Map<string, number>; sp: Map<string, number> } {
+    const passDepth = bfs(originsForPass);
+    const passSp = new Map<string, number>();
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    depth = bfs(originsSet);
-    sp = new Map<string, number>();
-
-    for (const id of [...originsSet].sort()) {
-      sp.set(id, anchorIds.has(id) ? ANCHOR : persistedSp.get(id)!);
+    for (const id of [...originsForPass].sort()) {
+      passSp.set(id, anchorIds.has(id) ? ANCHOR : persistedSp.get(id)!);
     }
 
     const byDepth = new Map<number, string[]>();
     for (const u of humans) {
-      if (originsSet.has(u.id)) continue;
-      const d = depth.get(u.id);
+      if (originsForPass.has(u.id)) continue;
+      const d = passDepth.get(u.id);
       const key = d === undefined ? -1 : d;
       if (!byDepth.has(key)) byDepth.set(key, []);
       byDepth.get(key)!.push(u.id);
     }
 
     for (const id of byDepth.get(-1) ?? []) {
-      sp.set(id, BASE + tenureOf(accountsById.get(id)!));
+      passSp.set(id, BASE + tenureOf(accountsById.get(id)!));
     }
 
     for (let d = 1; d <= MAX_DEPTH; d++) {
@@ -321,13 +370,30 @@ export function compute(input: EngineInput): EngineOutput {
         const acct = accountsById.get(id)!;
         let sum = 0;
         for (const srcId of inboundVouches.get(id) ?? []) {
-          const srcDepth = depth.get(srcId);
+          const srcDepth = passDepth.get(srcId);
           if (srcDepth === undefined || !(srcDepth < d)) continue;
-          sum += weightPos(sp.get(srcId)!);
+          sum += weightPos(passSp.get(srcId)!);
         }
-        sp.set(id, BASE + tenureOf(acct) + sum);
+        passSp.set(id, BASE + tenureOf(acct) + sum);
       }
     }
+
+    return { depth: passDepth, sp: passSp };
+  }
+
+  let depth = new Map<string, number>();
+  let sp = new Map<string, number>();
+  // R-4 (docs/97-review-engine-app.md): true once the outer loop reaches its natural fixed point
+  // (a round finds no new origins). False if MAX_ROUNDS was exhausted while the last round *did*
+  // still find new origins — in that case `depth`/`sp` are finalized once more below, but the
+  // search itself is not re-run (an adversarial input could make that loop forever), so a further
+  // downstream promotion that depends on this round's newly-admitted origins may be missing.
+  let converged = false;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const pass = innerPass(originsSet);
+    depth = pass.depth;
+    sp = pass.sp;
 
     const newOrigins = humans
       .filter((u) => !originsSet.has(u.id))
@@ -337,11 +403,26 @@ export function compute(input: EngineInput): EngineOutput {
       })
       .map((u) => u.id);
 
-    if (newOrigins.length === 0) break;
+    if (newOrigins.length === 0) {
+      converged = true;
+      break;
+    }
     for (const id of newOrigins) {
       persistedSp.set(id, sp.get(id)!);
       originsSet.add(id);
     }
+  }
+
+  if (!converged) {
+    // The last iteration admitted new origins but the loop then hit MAX_ROUNDS, so `depth`/`sp`
+    // above still reflect the pre-promotion origin set (the just-admitted origins would otherwise
+    // be published at their stale, pre-origin depth instead of depth 0 — see R-4's proof). This
+    // final pass only finalizes bookkeeping for origins already admitted; it does not search for
+    // further new origins, and `converged` stays false so a caller can detect and alert on / retry
+    // the exhaustion.
+    const finalPass = innerPass(originsSet);
+    depth = finalPass.depth;
+    sp = finalPass.sp;
   }
 
   // ── stage 2: platform scores (from s⁺ only) ─────────────────────────────────────────────────
@@ -364,11 +445,23 @@ export function compute(input: EngineInput): EngineOutput {
     if (!reporterAcct || reporterAcct.kind !== "platform") return true; // n/a for human reporters
     return r.queried === true;
   }
+  function isPlatformToPlatform(r: Report): boolean {
+    return (
+      accountsById.get(r.reporter)?.kind === "platform" && accountsById.get(r.target)?.kind === "platform"
+    );
+  }
   function voidReasonFor(r: Report): string | undefined {
     if (!accountsById.has(r.reporter)) return "reporter_unknown";
     if (!accountsById.has(r.target)) return "target_unknown";
     if (r.state === "rejected") return "report_rejected";
     if (r.state === "withdrawn") return "report_withdrawn";
+    // R-3 (docs/97-review-engine-app.md; §17 case 4): a platform can never report another
+    // platform — otherwise two platforms bootstrap each other's report weight, the clique attack
+    // one level up. Checked before any score lookup so voiding never depends on whether the
+    // reporter's own sPlatform has been computed yet in the stage-2 loop below (that dependency
+    // is exactly what made the unfixed bug's effect silently order-dependent on account-id sort
+    // order — voided here, it can never matter which platform stage 2 processes first).
+    if (isPlatformToPlatform(r)) return "platform_cannot_report_platform";
     if (isVoidedReporter(r.reporter)) return "reporter_voided";
     if (isConflictOfInterest(r)) return "platform_conflict_of_interest";
     if (!platformQueryOk(r)) return "platform_did_not_query_subject";
@@ -388,7 +481,12 @@ export function compute(input: EngineInput): EngineOutput {
       // by then stage 2 has already finished populating sPlatform for every platform.
       const sourceScore =
         reporterAcct.kind === "platform" ? (sPlatform.get(r.reporter) ?? 0) : sp.get(r.reporter)!;
-      const baseWeight = weightNeg(sourceScore);
+      // R-1 (docs/97-review-engine-app.md; §7.1): both terms are required — never inflict more
+      // damage than the bond paid for (snapshotWeight, fixed at filing time), and never more than
+      // current standing justifies (the live weight). Using only the live score would let a
+      // reporter who files at low standing and is later promoted inflict full current-score
+      // damage instead of what they actually bonded for.
+      const baseWeight = Math.min(r.snapshotWeight, weightNeg(sourceScore));
       e = { valid: true, baseWeight, decayedWeight: decayedWeight(baseWeight, r, now) };
     }
     reportEval.set(r.id, e);
@@ -555,5 +653,6 @@ export function compute(input: EngineInput): EngineOutput {
     tier: tierOut,
     platformTier: platformTierOut,
     reportWeights,
+    converged,
   };
 }

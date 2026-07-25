@@ -59,6 +59,13 @@ export interface Report {
   /** Platform reporters only: whether a prior attributed ScoreRequest against `target` exists
    *  (13-platforms.md §5). Reporting without one voids the report (01-trust-math.md §7.3). */
   queried?: boolean;
+  /** The `weightPoints` value recorded on-chain when the report was filed, centi-points
+   *  (docs/12-reporting.md §5). The bond the reporter paid is `10 × snapshotWeight`. Required —
+   *  not optional — because report weight is `min(snapshotWeight, live weight, cap⁻)`
+   *  (01-trust-math.md §7.1): "you can never inflict more than you paid for, and never more than
+   *  your current standing justifies." A caller that cannot supply this must fail to construct a
+   *  `Report` at all, not silently fall back to live-only weight. */
+  snapshotWeight: number;
 }
 
 export interface EngineInput {
@@ -112,4 +119,11 @@ export interface EngineOutput {
   platformTier: Record<string, PlatformTier>;
   /** Per-report weight/validity detail, keyed by report id — powers explain.ts. */
   reportWeights: Record<string, ReportWeightResult>;
+  /** False if the stage-1 outer origins loop hit MAX_ROUNDS while a round still produced new
+   *  origins (i.e. it did not exit via the natural `newOrigins.length === 0` fixed point). When
+   *  false, `depth`/`sPlus` for the just-admitted origins have been finalized by one last
+   *  recompute pass (see score.ts), but the search itself was not re-run, so a downstream
+   *  promotion that would only become reachable in a further round may be silently missing.
+   *  Callers should alert on / consider retrying (e.g. with a restructured graph) when false. */
+  converged: boolean;
 }

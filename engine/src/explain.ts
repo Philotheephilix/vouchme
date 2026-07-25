@@ -21,6 +21,11 @@ import type {
 } from "./types.js";
 import { BASE } from "./constants.js";
 import { tenureCenti } from "./tenure.js";
+// R-5 (docs/97-review-engine-app.md): import the real contribution formula instead of duplicating
+// its constants as bare literals here — constants.ts's own header says not to.
+// R-2: import the same canonical-edge dedup compute() uses, so a duplicated (voucher, vouchee)
+// record shows up as exactly one row here too, not one row per duplicate.
+import { dedupeVouches, weightPos } from "./score.js";
 
 export type VoucherNotCountedReason =
   | "anchor_ignores_inbound"
@@ -54,6 +59,7 @@ export type ReportNotCountedReason =
   | "reporter_voided"
   | "platform_conflict_of_interest"
   | "platform_did_not_query_subject"
+  | "platform_cannot_report_platform"
   | "decayed_to_zero"
   | "outside_top_k"
   | "pending_not_upheld";
@@ -132,7 +138,7 @@ export function breakdown(address: string, input: EngineInput, output: EngineOut
   const depth = output.depth[address] ?? Number.POSITIVE_INFINITY;
   const tenure = kind === "human" ? tenureCenti(self?.epochsClaimed ?? 0) : 0;
 
-  const vouchers: VoucherRow[] = input.vouches
+  const vouchers: VoucherRow[] = dedupeVouches(input.vouches)
     .filter((v) => v.vouchee === address)
     .map((v) => {
       const voucherAcct = accountsById.get(v.voucher);
@@ -160,8 +166,7 @@ export function breakdown(address: string, input: EngineInput, output: EngineOut
       }
       const voucherSPlus = output.sPlus[v.voucher];
       const voucherDepth = output.depth[v.voucher];
-      const rawContribution =
-        voucherSPlus === undefined ? 0 : Math.min(Math.trunc((voucherSPlus * 25) / 100), 2_000);
+      const rawContribution = voucherSPlus === undefined ? 0 : weightPos(voucherSPlus);
 
       if (isAnchor) {
         return {
@@ -226,8 +231,7 @@ export function breakdown(address: string, input: EngineInput, output: EngineOut
         };
       }
       const voucherSPlus = output.sPlus[pv.voucher];
-      const rawContribution =
-        voucherSPlus === undefined ? 0 : Math.min(Math.trunc((voucherSPlus * 25) / 100), 2_000);
+      const rawContribution = voucherSPlus === undefined ? 0 : weightPos(voucherSPlus);
       return {
         voucher: pv.voucher,
         voucherSPlus,

@@ -3,6 +3,7 @@
  * suffix), so the node test runner will not try to execute it directly.
  */
 
+import { CAP_NEG } from "./constants.js";
 import type { Account, EngineInput, PlatformVouch, Report, ReportState, Vouch } from "./types.js";
 
 export function human(id: string, opts: Partial<Account> = {}): Account {
@@ -25,6 +26,11 @@ export function platformVouch(voucher: string, platform: string, active = true):
   return { voucher, platform, active };
 }
 
+/** Test convenience: defaults `snapshotWeight` to `CAP_NEG` (the max possible), so
+ *  `min(snapshotWeight, live weight, cap⁻)` collapses to the pre-R-1 "live weight only" behavior
+ *  unless a test explicitly overrides `snapshotWeight` in `opts` to exercise the cap itself. This
+ *  is a deliberate test default, not the production fallback R-1 forbids: `Report.snapshotWeight`
+ *  is a required field, and callers outside tests must supply a real bonded value. */
 export function report(
   id: string,
   reporter: string,
@@ -32,7 +38,7 @@ export function report(
   state: ReportState,
   opts: Partial<Report> = {},
 ): Report {
-  return { id, reporter, target, state, ...opts };
+  return { id, reporter, target, state, snapshotWeight: CAP_NEG, ...opts };
 }
 
 export function makeInput(partial: {

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { compute } from "./score.js";
 import { breakdown, explain } from "./explain.js";
 import {
@@ -129,4 +130,31 @@ test("explain() — produces a non-empty, deterministic prose string for a human
   const platformText = explain("P", out);
   assert.ok(platformText.length > 0);
   assert.ok(platformText.includes("platform"));
+});
+
+// R-5 (docs/97-review-engine-app.md): explain.ts must import the contribution formula
+// (`weightPos`) from score.ts rather than hand-duplicating its constants (`* 25) / 100), 2_000)`)
+// as bare literals — constants.ts's own header says not to duplicate these numbers elsewhere in
+// the engine. A pure value-equality test on breakdown()'s output can't distinguish "imports the
+// real formula" from "happens to have copied the same numbers correctly", so this checks the
+// source directly: it fails on the pre-fix file (which hand-rolls the formula twice) and passes
+// once explain.ts imports and calls the shared function instead.
+test("R-5 — explain.ts imports weightPos from score.ts instead of duplicating its formula", () => {
+  // This test file compiles to dist/explain.test.js; the source tree sits one level up at
+  // ../src relative to dist/, so this resolves to engine/src/explain.ts either way.
+  const src = readFileSync(new URL("../src/explain.ts", import.meta.url), "utf8");
+  assert.match(
+    src,
+    /import\s*\{[^}]*\bweightPos\b[^}]*\}\s*from\s*["']\.\/score\.js["']/,
+    "explain.ts must import weightPos from ./score.js",
+  );
+  assert.doesNotMatch(
+    src,
+    /Math\.trunc\(\(voucherSPlus \* 25\) \/ 100\)/,
+    "explain.ts must not hand-duplicate the M_POS_NUM/M_POS_DEN/CAP_POS contribution formula",
+  );
+  assert.ok(
+    (src.match(/\bweightPos\(voucherSPlus\)/g) ?? []).length >= 2,
+    "both rawContribution sites (vouchers and platformVouchers) should call the shared weightPos",
+  );
 });
