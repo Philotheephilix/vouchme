@@ -67,3 +67,7 @@ coverage/
 # rust build output
 substreams/**/target/
 *.spkg
+
+# Alternate Next.js build outputs (NEXT_DIST_DIR) used to build without disturbing a
+# running server — same artefacts as .next, same reason to never commit them.
+.next-*
