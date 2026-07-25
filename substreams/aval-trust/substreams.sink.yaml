@@ -1,0 +1,51 @@
+specVersion: v0.1.0
+
+package:
+  name: aval_trust_graph_sink
+  version: v0.2.0
+  url: https://github.com/aval-protocol/aval
+  description: |
+    Sink-only wrapper around aval_trust_graph. Exists for exactly one reason,
+    documented below: `substreams run` and `substreams-sink-sql run` cannot
+    read the SAME manifest at the versions pinned here.
+
+# WHY THIS FILE EXISTS — a real, reproducible tool incompatibility, found by running both
+# binaries, not by reading docs:
+#
+#   substreams CLI v1.20.2 bundles `sf/substreams/sink/sql/v1/deprecated.proto` into every
+#   package it builds, which already declares `sf.substreams.sink.sql.v1.Service`.
+#   substreams-sink-sql v4.13.1 does NOT bundle that type and refuses a manifest without it:
+#     ERROR ... parsing sink configuration: sink: type: could not find protobuf message type
+#     "sf.substreams.sink.sql.v1.Service" in bundled protobuf descriptors
+#   But importing the type (protodefs-v1.0.7) to satisfy the sink binary makes `substreams run`
+#   fail before it opens a connection, on every chain:
+#     Error: creating ui: new decoder: new any resolver: get proto files registry:
+#     proto: file "sf/substreams/sink/sql/v1/deprecated.proto" has a name conflict over
+#     sf.substreams.sink.sql.v1.Service
+#
+# So one manifest cannot serve both tools. ./substreams.yaml is the primary artifact and is
+# the one that STREAMS (`substreams run`, `substreams pack`, `substreams info`, `substreams gui`).
+# This file adds the one import the sink binary needs and nothing else — it declares no modules
+# of its own, importing the real ones from the primary package so the two can never drift.
+#
+# Usage:
+#   substreams pack ./substreams.yaml                       # produces the .spkg imported below
+#   substreams-sink-sql setup "$DSN" ./substreams.sink.yaml
+#   substreams-sink-sql run   "$DSN" ./substreams.sink.yaml "<start>:<stop>" -e worldchain \
+#     --undo-buffer-size=1 --development-mode --batch-block-flush-interval=1
+
+imports:
+  main: ./aval-trust-graph-v0.2.0.spkg
+  sql: https://github.com/streamingfast/substreams-sink-sql/releases/download/protodefs-v1.0.7/substreams-sink-sql-protodefs-v1.0.7.spkg
+
+network: worldchain
+
+params:
+  main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain"
+
+sink:
+  module: main:db_out
+  type: sf.substreams.sink.sql.v1.Service
+  config:
+    schema: ./schema.sql
+    engine: clickhouse

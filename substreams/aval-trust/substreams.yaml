@@ -8,9 +8,10 @@ package:
     Composable trust-graph extractor. Emits standardized TrustEvent (VOUCH /
     REVOKE / REAFFIRM / REPORT / REPORT_RESOLVED) for ANY contract that
     follows the trust-graph v0.1.0 event shape (docs/14-substreams.md §2).
-    This deployment's params target AvalRegistry on World Chain Sepolia
-    (chainId 4801); the same .spkg indexes Circles on Gnosis or any
-    platform's registry on any EVM chain with different params only.
+    This deployment's params target AvalRegistry on World Chain MAINNET
+    (chainId 480, 0x6fEfEf2d44203300a6a33d631840C972181b8722); the same .spkg
+    indexes Circles on Gnosis or any platform's registry on any EVM chain with
+    different params only.
 
 imports:
   # Provides sf.substreams.sink.database.v1.DatabaseChanges — map_edge_deltas/db_out's output
@@ -18,15 +19,22 @@ imports:
   # ...DatabaseChanges not found in package proto definitions" (found by actually running
   # `substreams pack`, not by inspection).
   database: https://github.com/streamingfast/substreams-sink-database-changes/releases/download/v4.0.0/substreams-sink-database-changes-v4.0.0.spkg
-  # Provides sf.substreams.sink.sql.v1.Service — the sink.type descriptor below. Without this,
-  # `substreams-sink-sql setup` fails: "could not find protobuf message type
-  # sf.substreams.sink.sql.v1.Service in bundled protobuf descriptors" (found by actually running
-  # `setup`, not by inspection). Note: the substreams-sql skill's own manifest example names this
-  # type `sf.substreams.sink.sql.service.v1.Service` and calls the `.sql.v1.Service` form
-  # "DEPRECATED" — but `substreams inspect` on the actual protodefs-v1.0.7 release shows the
-  # package is `sf.substreams.sink.sql.v1` with message `Service`, and `...service.v1.Service`
-  # doesn't exist in this release at all. Verified against the real downloaded spkg, not the doc.
-  sql: https://github.com/streamingfast/substreams-sink-sql/releases/download/protodefs-v1.0.7/substreams-sink-sql-protodefs-v1.0.7.spkg
+  #
+  # DELIBERATELY NOT IMPORTED — substreams-sink-sql protodefs-v1.0.7
+  # (`sql: https://github.com/streamingfast/substreams-sink-sql/releases/download/protodefs-v1.0.7/substreams-sink-sql-protodefs-v1.0.7.spkg`)
+  # Importing it declares `sf.substreams.sink.sql.v1.Service` a SECOND time: the substreams CLI
+  # (verified on v1.20.2) already bundles that symbol itself, in
+  # `sf/substreams/sink/sql/v1/deprecated.proto`, into every packed spkg. `substreams pack` and
+  # `substreams info` tolerate the duplicate, but `substreams run` builds a full proto registry
+  # for its output decoder and dies before it ever opens a connection:
+  #   Error: creating ui: new decoder: new any resolver: get proto files registry:
+  #   proto: file "sf/substreams/sink/sql/v1/deprecated.proto" has a name conflict over
+  #   sf.substreams.sink.sql.v1.Service
+  # — i.e. with that import present, this package could not be streamed at all, on ANY chain,
+  # including the exact Base command PROOF.md §7.2 records. Removing it fixes `substreams run`
+  # and costs nothing: `substreams info` still resolves `sink.type` below and still loads
+  # schema.sql, because the CLI's own bundled descriptor supplies the type. Found by running the
+  # command, not by inspection.
 
 protobuf:
   files:
@@ -43,29 +51,36 @@ binaries:
     file: ./target/wasm32-unknown-unknown/release/aval_trust_graph.wasm
 
 # NETWORK NOTE (read before running):
-# World Chain Sepolia (chainId 4801) is NOT in StreamingFast's network
-# registry as of 2026-07-25 — verified live against
-# https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json,
-# which lists only `worldchain` (World Chain MAINNET). There is no
-# `worldchain-sepolia` Firehose/Substreams endpoint to point `-e` at.
-# `network:` below is set to the registered mainnet id purely so `substreams
-# info` / `substreams graph` resolve a known network for inspection; it does
-# NOT mean this package indexes mainnet. The actual indexing target — chain,
-# contract, topics — is entirely determined by `params.map_trust_events`
-# below, which says `network=worldchain-sepolia` for the data itself. Running
-# this against real Sepolia data requires either (a) a World Chain Sepolia
-# Firehose endpoint from another provider, or (b) a local Firehose fed by a
-# Sepolia archive node. See ../PROOF.md for exactly what was substituted to
-# still prove decode correctness against real chain data without one.
+# `worldchain` is World Chain MAINNET (chainId 480) and it IS in
+# StreamingFast's network registry:
+#   $ substreams tools default-endpoint worldchain
+#   mainnet.worldchain.streamingfast.io:443
+# Aval's contracts moved from World Chain Sepolia (4801) to mainnet on
+# 2026-07-25, so this manifest now points at the real chain, the real
+# contract, and the block the real contract was created in — no substitution,
+# no fallback chain. World Chain SEPOLIA still has no Firehose/Substreams
+# endpoint from any provider (`substreams tools default-endpoint
+# worldchain-sepolia` -> "no endpoint found for network worldchain-sepolia"),
+# which is exactly why the move to mainnet is what unblocked live streaming.
+# See ../PROOF.md §9 for the live run and the independent eth_getLogs
+# cross-check of the decoded output.
 network: worldchain
 
 params:
-  map_trust_events: "contract=0x1d9955cb9f2a531fa6d4f43e712c9b1fa9a44514&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain-sepolia"
+  # AvalRegistry on World Chain mainnet — deployments/worldchain-mainnet.json's
+  # `contracts.AvalRegistry` is STALE (it names 0x7a294C7C…, an abandoned first
+  # attempt); the live registry the app writes to, and the one that carries the
+  # real Enrolled/Vouched logs, is 0x6fEfEf2d…  (see ../PROOF.md §9.1).
+  map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain"
 
 modules:
   - name: map_trust_events # raw block -> TrustEvents
     kind: map
-    initialBlock: 32216305 # AvalRegistry deployment block, deployments/worldchain-sepolia.json
+    # AvalRegistry's creation block on World Chain mainnet, pinned by eth_getCode
+    # (0 bytes at 32833176, 7645 bytes at 32833177) and by the creation receipt for
+    # 0x8636e08a48a01c5b6a4c200fb7a7039fc11764870ef5830925e762337d712384, which reports
+    # blockNumber 32833177. NOT 32833180 (that block is 3 later and already has code).
+    initialBlock: 32833177
     inputs:
       - params: string
       - source: sf.ethereum.type.v2.Block
@@ -81,7 +96,7 @@ modules:
 
   - name: map_edge_deltas # store deltas -> database changes (CDC)
     kind: map
-    initialBlock: 32216305
+    initialBlock: 32833177
     inputs:
       - store: store_edges
         mode: deltas
@@ -95,7 +110,7 @@ modules:
     # below is a fixed target unaffected by how the CDC transform evolves
     # upstream.
     kind: map
-    initialBlock: 32216305
+    initialBlock: 32833177
     inputs:
       - map: map_edge_deltas
     output:

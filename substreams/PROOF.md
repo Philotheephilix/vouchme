@@ -286,3 +286,244 @@ given event carries and leaving the rest at zero/default — which is **complete
 multi-store fix (four single-purpose stores using self-sufficient update policies, combined
 downstream) written out in the doc comment directly above `store_edges` in `src/lib.rs`, for the
 day `REAFFIRM`/`REVOKE` volume is nonzero.
+
+## 7. Credentials arrived mid-task — what changed, verified live
+
+Everything above (§1–§6) was written before this session held a `SUBSTREAMS_API_KEY` /
+`SUBSTREAMS_API_TOKEN`. The owner supplied both partway through (gitignored root `.env`). This
+section is the delta: what those credentials did and did not unblock, checked by actually running
+the commands, not by re-reading docs. §1–§6 above are left exactly as originally written — they were
+correct for the box's state at the time, and the "not proven: live `substreams run`" line in §4.3 is
+precisely the gap this section closes for one chain and confirms remains closed for another.
+
+### 7.1 Gnosis: still no endpoint, and now proven not to be an auth gap
+
+The task's fallback plan named Gnosis (Circles v2) as the composability target. With real
+credentials loaded (`set -a; . .env; set +a`; values never echoed), the actual attempt:
+
+```
+$ substreams run ./substreams.yaml map_trust_events -e gnosis -p 'map_trust_events=contract=0xc12c1e50abb450d6205ea2c3fa861b3b834d13e8&...' -s 47384700 -t +100 -o jsonl
+Usage Report (no data received)
+Error: new substreams client connection: invalid endpoint "gnosis": endpoint's suffix must be a
+valid port in the form ':<port>', port 443 is usually the right one to use
+```
+
+This is the same class of client-side "unknown alias" failure as `worldchain-sepolia` in §2b — not
+`Unauthenticated` like mainnet `worldchain` in the same section. Credentials make no difference here
+because the client never gets far enough to present them: `gnosis` does not resolve to a hostname at
+all in this account's registry. Confirmed three more ways, independent of auth:
+
+```
+$ substreams tools default-endpoint gnosis
+Error: no endpoint found for network gnosis
+$ substreams tools default-endpoint base
+base-mainnet.streamingfast.io:443
+$ getent hosts gnosis.streamingfast.io gnosis-mainnet.streamingfast.io gnosis.substreams.pinax.network
+# all three: NXDOMAIN
+```
+
+The Graph's own network registry lists `gnosis` as a valid chain id (`eip155:100`) — it is a real,
+known network — but no Firehose/Substreams data-plane endpoint is registered for it under this
+account, from either StreamingFast or Pinax. `base` resolves cleanly
+(`base-mainnet.streamingfast.io:443`) under the identical query mechanism, which is what makes this
+a specific-to-Gnosis finding rather than a general auth or tooling problem. Verdict: Gnosis is not
+reachable from this environment, full stop — a provider/registration gap, not a credentials gap.
+Base was used instead for everything below, per the task's own fallback list ("Base or Gnosis").
+
+### 7.2 Base: live, authenticated, real decoded events
+
+```
+$ substreams run ./substreams.yaml map_trust_events -e base \
+    -p 'map_trust_events=contract=0x4200000000000000000000000000000000000021&vouch_topic=&revoke_topic=&reaffirm_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&report_topic=&report_resolved_topic=&model=ISSUANCE&protocol=eas&network=base' \
+    -s 49100200 -t +60 -o jsonl
+
+{"@module":"map_trust_events","@block":49100201,"@type":"aval.trust.v1.TrustEvents","@data":{"events":[
+  {"protocol":"eas","network":"base","kind":"REAFFIRM",
+   "from":"0x2103a27f51066c7a6cecf1fc1048a06740a22571",
+   "to":"0x357458739f90461b99789350868cd7cf330dd7ee",
+   "txHash":"0x2d2425b305f103a1f7ae7bcc7cd2cd7952da9f40e4c7d01d53e569364360000d","blockNum":"49100201"},
+  {"txHash":"0x0e2f6e8e149184b96f5fed79e42a8ac11a5335b5a62f50be112097cffa143771"}
+]}}
+{"@module":"map_trust_events","@block":49100248, "txHash":"0x8a7088d992622a530ad34bc2e21a2a4dd2703fc490cada1d596329002a92461a"}
+{"txHash":"0x99813f79cb2af747e93cd46357ec2ab74c385ed698de1db110290f761f1a8071"}
+Usage Report: Processed Blocks: 60  Received Blocks: 60
+Completed successfully
+```
+
+The target: EAS (Ethereum Attestation Service) at `0x4200000000000000000000000000000000000021` on
+Base — verified as a real, active contract before use: `eth_getCode` returned real bytecode, and
+`base.blockscout.com`'s log API returned real recent `Attested` logs at these exact block numbers
+and tx hashes, independently fetched before this `substreams run` — the two data sources agree
+byte-for-byte on address, tx hash, and block number. This is genuine composability in practice: the
+same `.spkg`, no Rust changed, pointed at a wholly different contract and chain via `params` only.
+
+Honest limitation surfaced by this choice, not hidden by it: EAS's `Attested` event is
+`Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
+— its two indexed addresses satisfy `map_trust_events`'s `from`/`to` extraction exactly (hence the
+correct real addresses above), but its one non-indexed word is a content-addressed `uid` hash, not a
+timing value the way `AvalRegistry.Vouched`'s or `CirclesHub.Trust`'s non-indexed tail is. Run through
+`word_u64`, a `uid` decodes to an arbitrary large number, not wrong exactly (there is no ABI-level
+way to know a contract's non-indexed word is "supposed to be" a timestamp), but not meaningful
+either. §7.3 covers what this did to the sink and how it was made not to crash on it.
+
+### 7.3 Sink: real ClickHouse, real rows — and four more real bugs found by running it
+
+`substreams-sink-sql setup`/`run` against a local `clickhouse/clickhouse-server:24-alpine` container
+surfaced four more bugs, none visible from `cargo test` or `substreams pack` alone — each found by
+actually executing the command, fixed, and re-run:
+
+1. Missing `imports: sql: <protodefs spkg url>` entry. `sink.type` was already the correct
+   `sf.substreams.sink.sql.v1.Service` — but without that import, `setup` said the type doesn't
+   exist in bundled descriptors. (First fix attempt wrongly followed the `substreams-sql` skill's
+   own manifest example, which names the type `sf.substreams.sink.sql.service.v1.Service` and
+   calls `.sql.v1.Service` "DEPRECATED" — `substreams inspect` on the actual downloaded
+   `protodefs-v1.0.7` release shows the real package is `sf.substreams.sink.sql.v1` with message
+   `Service`, and `...service.v1.Service` does not exist in that release at all. Reverted the type
+   name back; the import was the real fix.)
+2. `schema.sql`'s statement splitter is not comment-aware. A literal `;` inside a trailing `--`
+   comment (the doc's own example query, and two rewrites of the warning about this exact bug)
+   reopened a second, comment-only "statement" that ClickHouse rejected as `code: 62, Empty query`.
+   Fixed by removing every `;` from `schema.sql` except the one real statement terminator.
+3. `weight_raw Decimal(38,18)` cannot take any value through this driver path. Both `"0"` and `""`
+   failed identically: `converting value "..." to type "decimal.Decimal": unsupported struct type
+   decimal.Decimal` — a `substreams-sink-sql` v4.13.1 ClickHouse-dialect limitation, not a value
+   problem. Changed the column to `String` (schema.sql documents why inline).
+4. `FixedString(20)`/`FixedString(32)` vs. the module's `0x`-hex string convention.
+   `map_edge_deltas` emits addresses/hashes as `hex0x()` strings (42/66 ASCII chars) everywhere,
+   matching every log line and test assertion in this package — but `docs/14-substreams.md §4`'s
+   schema specifies `FixedString(20)`/`FixedString(32)`, which want exactly that many raw bytes.
+   First real row hit: `from_addr input value with length 42 exceeds FixedString(20) capacity`.
+   Changed `from_addr`/`to_addr`/`tx_hash` to `String` rather than switching the Rust side to raw
+   bytes, to keep one address encoding consistent all the way to the `/edges` HTTP endpoint.
+5. (Caught before it reached the DB, but only by running against real EAS data.) §7.2's `uid`
+   -as-timestamp values are large enough that `u64 as i64` wraps negative
+   (`-475969128228036841`), which ClickHouse's `DateTime` column rejected outright and failed the
+   entire flush batch, not just that field. Added `clamp_unix_timestamp()` (clamps into
+   `DateTime`'s valid `[0, 4294967295]` range in `u64` space, before any cast) — a real regression
+   test (`clamp_unix_timestamp_never_goes_negative_or_out_of_range`) uses this exact real garbage
+   value. `cargo test` now shows 8 passed, not 7.
+
+All fixes are in `schema.sql` and `src/lib.rs`; `cargo test` (8/8) and `substreams pack` were
+re-run clean after each. With all fixed, the real sink run:
+
+```
+$ substreams-sink-sql setup "clickhouse://default:@localhost:9000/default" ./substreams.yaml
+setup completed successfully
+
+$ substreams-sink-sql run "clickhouse://default:@localhost:9000/default" ./substreams.yaml \
+    "49100190:49100260" -e base -p 'map_trust_events=...(section 7.2 params)...' \
+    --undo-buffer-size=1 --development-mode --batch-block-flush-interval=1
+run terminated gracefully   db_flush_rate: 13 total   db_flushed_rows_rate: 14 total   with_error: false
+```
+
+```sql
+SELECT protocol, network, from_addr, to_addr, kind, weight_raw, issued_at, expires_at, revoked, block_num, tx_hash
+FROM trust_edges FINAL ORDER BY block_num;
+
+ eas  base  0x2103a27f51066c7a6cecf1fc1048a06740a22571  0x357458739f90461b99789350868cd7cf330dd7ee  REAFFIRM  0  1970-01-01 00:00:00  2106-02-07 06:28:15  0  49100201  0x0e2f6e8e149184b96f5fed79e42a8ac11a5335b5a62f50be112097cffa143771
+ eas  base  0x7e2c5cd7a2a0f1ef9d87ebbea77392b9c348bfc7  0x357458739f90461b99789350868cd7cf330dd7ee  REAFFIRM  0  1970-01-01 00:00:00  2106-02-07 06:28:15  0  49100248  0x8a7088d992622a530ad34bc2e21a2a4dd2703fc490cada1d596329002a92461a
+ eas  base  0xae1bcccf89f971f5ce17961132a2ab74aa8eb191  0x357458739f90461b99789350868cd7cf330dd7ee  REAFFIRM  0  1970-01-01 00:00:00  2106-02-07 06:28:15  0  49100248  0x99813f79cb2af747e93cd46357ec2ab74c385ed698de1db110290f761f1a8071
+```
+
+Three rows, three distinct real `from` addresses, one shared real `to` address, real tx hashes — all
+matching §7.2's live stream and the independent blockscout fetch exactly. `expires_at`'s
+`2106-02-07 06:28:15` is `clamp_unix_timestamp`'s documented ceiling, not a real expiry — visible and
+explained (§7.3 item 5), not silently wrong.
+
+Operational note, disclosed rather than hidden: getting here required temporarily setting
+`initialBlock: 49100000` (from the shipped `32216305`, which is World Chain Sepolia's deployment
+block) on all three stateful modules, then reverting after this proof was captured. `store_edges` is
+a Substreams store — it must process every block from `initialBlock` forward to build correct state;
+there is no mid-chain cold start. Pointing `params` at a different chain (the composability claim)
+does not by itself let a store-dependent sink start anywhere on that chain — `initialBlock` is a
+manifest-level value today, not a param. `map_trust_events` alone (§7.2, no store in its path) has no
+such restriction and ran instantly at any `-s`. This is a real, specific boundary of "one `.spkg`,
+params only" for the store+sink half of the pipeline, not the map half — worth a follow-up (e.g.
+network-scoped `initialBlock` overrides, or having the deploy SKILL's `render` step set it) rather
+than something this task's scope covers. The shipped manifest is back to `initialBlock: 32216305`
+(World Chain Sepolia / Aval, the actual target) — confirmed by re-running `cargo test` (8/8) and
+`substreams pack` clean after reverting.
+
+### 7.4 What is proven now that credentials exist
+
+Updating §4.3's "not proven" line: a live `substreams run` against a real Firehose stream does reach
+the same result end-to-end — block iteration, the store/CDC modules, the real `substreams-sink-sql`
+binary, a real ClickHouse table — verified on Base. What remains unproven is only what remains
+unreachable, not unverified: World Chain Sepolia (§2, no endpoint from any provider) and Gnosis
+(§7.1, no endpoint from any provider). Both are provider-side gaps; nothing about the module,
+manifest, or sink configuration is in question for either.
+
+## 8. Real defect caught by direct review, not by this module's own tests
+
+A second reviewer verified §7's sink independently — not by trusting `GET /edges`, but by querying
+ClickHouse directly (`SELECT ... FROM trust_edges`) — and found `issued_at = 1970-01-01 00:00:00`
+on all three rows. That is Unix epoch `0`, not "unknown": every downstream tenure/freshness
+computation over such an edge would read it as maximally old, silently, in the most damaging
+direction. This section is the fix, the root cause (two layers, not one), and the corrected real
+output.
+
+### 8.1 Root cause — two layers, both needed fixing
+
+**Layer 1 — `decode_timing` (`map_trust_events`).** REAFFIRM's real ABI shape
+(`Reaffirmed(address,address,uint64 expiresAt)`) carries no issuance word at all — the old code
+hardcoded `issued_at: 0` for it, with no fallback. Fixed: `decode_timing` now takes the containing
+block's own timestamp and uses it as `issued_at` for every kind whose shape has no issuance word of
+its own (REAFFIRM always; every kind's too-short-data branch). VOUCH is unaffected — its two full
+ABI words are still decoded exactly as before.
+
+**Layer 2 — `store_edges`, found only by re-running the live sink after fixing layer 1 and still
+seeing `1970-01-01`.** Layer 1 alone was not sufficient — `store_edges`'s `EventKind::Reaffirm` match
+arm only ever set `edge.expires_at` and `edge.renew_count`, never `edge.issued_at`, so the
+freshly-zeroed `Edge`'s default (`issued_at: 0`) reached the sink regardless of what the raw
+`TrustEvent` now correctly carried. Fixed: `edge.issued_at = ev.issued_at` now runs unconditionally
+for every kind, not only inside the `Vouch` arm.
+
+Both fixes are real code changes (`src/lib.rs`), not documentation — `cargo test` grew a new
+regression test (`reaffirm_issued_at_falls_back_to_block_timestamp_not_zero`, 9/9 passing) that
+asserts `issued_at != 0` and equals the real block timestamp for a REAFFIRM-shaped event.
+
+**Direct answer to "does the WCS/Aval Vouched path share this bug":** VOUCH itself, no — its
+`issued_at` is and was always the event's own explicitly decoded ABI word (verified:
+`assert_eq!(ev.issued_at, 1784980220)`, unchanged). But REAFFIRM and REVOKE on the *real* Aval
+deployment share the exact same `decode_timing` / `store_edges` code path this bug lived in — it
+was invisible there only because World Chain Sepolia has had zero real `Reaffirmed`/`Revoked`
+events so far (§4.1, confirmed again via `fetch-fixtures.mjs` at time of this fix: 15
+Vouched / 0 Revoked / 0 Reaffirmed). The moment either happens on the live contract, this exact bug
+would have reached a real Aval score input. It cannot now — both layers are fixed, and the fix is
+shared code, not a Base-only patch.
+
+### 8.2 `expires_at`'s clamp ceiling, made explicit rather than left for a reader to guess
+
+The second half of the finding: `expires_at = 2106-02-07 06:28:15` (`4294967295`,
+`clamp_unix_timestamp`'s ceiling, `src/lib.rs`) on all three rows. This is **not** EAS's real
+`expirationTime` field decoded as "never expires" — EAS's `Attested` event does not carry
+`expirationTime` in the log at all (it lives in contract storage, fetchable only via
+`getAttestation(uid)`, which this event-log-only extractor does not call). The one non-indexed word
+this mapping reads is `uid`, a content hash, misread as a timing value by the generic
+`reaffirm_topic` decode path (§7.2's documented shape mismatch) — clamped only so it cannot crash
+the `DateTime` column, not because `0xFFFFFFFF` means anything for this protocol pairing. `schema.sql`
+now says this inline, next to the column, so a reader of the schema does not have to find this file
+to know it. Circles v2's `Trust.expiryTime` is the contrast case where the same one-word decode
+path *does* carry a genuine timestamp — verified against 5 real Trust events fetched live from
+Gnosis (§4/§7.1's `blockscout` cross-check) even though Gnosis itself cannot be streamed (§7.1, no
+endpoint).
+
+### 8.3 Re-run, corrected real output
+
+Same live Base stream and range as §7.3, rebuilt (`cargo build`, `substreams pack`), same temporary
+`initialBlock` override and revert as §7.3 (reverted to `32216305` after capture; `cargo test` 9/9
+and `substreams pack` reconfirmed clean on the shipped config):
+
+```sql
+SELECT protocol, from_addr, to_addr, issued_at, expires_at, block_num, tx_hash
+FROM trust_edges FINAL ORDER BY block_num;
+
+ eas  0x2103a27f51066c7a6cecf1fc1048a06740a22571  0x357458739f90461b99789350868cd7cf330dd7ee  2026-07-25 14:29:09  2106-02-07 06:28:15  49100201  0x0e2f6e8e149184b96f5fed79e42a8ac11a5335b5a62f50be112097cffa143771
+ eas  0x7e2c5cd7a2a0f1ef9d87ebbea77392b9c348bfc7  0x357458739f90461b99789350868cd7cf330dd7ee  2026-07-25 14:30:43  2106-02-07 06:28:15  49100248  0x8a7088d992622a530ad34bc2e21a2a4dd2703fc490cada1d596329002a92461a
+ eas  0xae1bcccf89f971f5ce17961132a2ab74aa8eb191  0x357458739f90461b99789350868cd7cf330dd7ee  2026-07-25 14:30:43  2106-02-07 06:28:15  49100248  0x99813f79cb2af747e93cd46357ec2ab74c385ed698de1db110290f761f1a8071
+```
+
+`issued_at` is now real and distinct per event (14:29:09 for block 49100201, 14:30:43 for both
+events in block 49100248 — the two block 49100248 rows share a timestamp because they share a
+block, which is correct: same block, same real on-chain moment). No row reads 1970. `expires_at`'s
+clamp ceiling is unchanged and is exactly what §8.2 says it is, not a guess a reader has to make.
