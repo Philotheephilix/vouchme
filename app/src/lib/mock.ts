@@ -307,6 +307,10 @@ interface GraphContext {
    *  closest to real expiry — both flow through the same generic recompute in `deriveAvalData`. */
   weakestLinkVoucherId: (countedVoucherIds: string[]) => string | null;
   slotsFor: (id: string, tier: Tier) => Slots;
+  /** Unix seconds of `id`'s last `vouch()`, or 0 if never / unknown. `AvalRegistry` reverts with
+   *  `RateLimited()` inside 24h of it, so the vouch preview needs it to refuse a doomed vouch
+   *  instead of walking the user into one. Fixture mode has no such state and returns 0. */
+  lastVouchAtFor: (id: string) => number;
   credentialFor: (id: string) => { status: CredentialStatus; expiresAt: string; credential: Credential };
   /** Prospective vouchers for `id`: real enrolled humans, tier >= 1, not `id` itself, not already
    *  vouching `id`, sorted best-first. Generalized off any id (task correction: "Home ... signed
@@ -373,6 +377,8 @@ function buildFixtureContext(): GraphContext {
       const used = Math.min(total, FIXTURE_VOUCHES.filter((v) => v.voucher === id && v.active).length);
       return { total, used, free: total - used };
     },
+    // The fixture graph has no rate-limit state — it is an authored narrative, not chain history.
+    lastVouchAtFor: () => 0,
     credentialFor: () => ({ status: "active", expiresAt: fixtureIso(60), credential: "selfie" }),
     candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.aval.eth", HENRY_ID] : []),
     platformId: FIXTURE_PLATFORM_ID,
@@ -538,6 +544,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     edgeTiming,
     weakestLinkVoucherId,
     slotsFor,
+    lastVouchAtFor: (id) => graph.members.get(id as Address)?.lastVouchAt ?? 0,
     credentialFor,
     candidatesFor,
     platformId: null, // no platform is registered on this deployment (PlatformRegistry untouched)
@@ -1094,9 +1101,18 @@ function deriveAvalData(ctx: GraphContext): AvalData {
       .filter((s) => s.before !== s.after);
   }
 
-  function simulateVouchGeneric(voucherId: string, targetId: string): SimulateVouchResult {
-    const voucherAcc = ctx.accounts.find((a) => a.id === voucherId && a.kind === "human");
-    const targetAcc = ctx.accounts.find((a) => a.id === targetId && a.kind === "human");
+  function simulateVouchGeneric(rawVoucherId: string, rawTargetId: string): SimulateVouchResult {
+    // Case-insensitive id resolution. Live account ids ARE addresses, and address casing is a
+    // rendering detail of the same 20 bytes — but a strict `===` here silently missed, dropping
+    // into the "unknown account" branch and reporting `0 slots -> 0` with no blockers for two
+    // accounts that plainly exist. That branch looks like a real answer, which is what made it
+    // dangerous: the vouch preview showed nothing wrong for a vouch that would revert.
+    const findHuman = (id: string) =>
+      ctx.accounts.find((a) => a.kind === "human" && (a.id === id || a.id.toLowerCase() === id.toLowerCase()));
+    const voucherAcc = findHuman(rawVoucherId);
+    const targetAcc = findHuman(rawTargetId);
+    const voucherId = voucherAcc?.id ?? rawVoucherId;
+    const targetId = targetAcc?.id ?? rawTargetId;
     if (!voucherAcc || !targetAcc) {
       return {
         voucher: ctx.ensNameFor(voucherId),
@@ -1108,12 +1124,29 @@ function deriveAvalData(ctx: GraphContext): AvalData {
         promotes: false,
         voucherSlotsBefore: 0,
         voucherSlotsAfter: 0,
-        nextVouchAvailableInHours: 24,
+        nextVouchAvailableInHours: 0,
         secondaryEffects: [],
+        blockers: [],
       };
     }
     const alreadyVouches = ctx.vouches.some((v) => v.voucher === voucherId && v.vouchee === targetId && v.active);
     const afterResult = alreadyVouches ? result : compute({ ...engineInput, vouches: [...ctx.vouches, mkVouch(voucherId, targetId)] });
+
+    // Both revert conditions in `AvalRegistry.vouch()`, read from live `members()` state rather
+    // than assumed. Checking these BEFORE the wizard starts is the difference between refusing a
+    // vouch and walking someone through a face scan into a transaction that cannot land.
+    const lastVouchAt = ctx.lastVouchAtFor(voucherId);
+    const nowSeconds = Math.floor(ctx.now.getTime() / 1000);
+    const secondsSinceVouch = lastVouchAt > 0 ? nowSeconds - lastVouchAt : Number.POSITIVE_INFINITY;
+    const rateLimited = secondsSinceVouch < 86_400;
+    const hoursUntilNextVouch = rateLimited ? Math.max(0, Math.ceil((86_400 - secondsSinceVouch) / 3600)) : 0;
+    const blockers: string[] = [];
+    if (alreadyVouches) blockers.push("You already vouch for this account — a second vouch would revert.");
+    if (rateLimited) {
+      blockers.push(
+        `You vouched for someone in the last 24 hours. You can vouch again in ${hoursUntilNextVouch}h.`,
+      );
+    }
 
     const beforeScore = humanScore(targetId);
     const beforeTier = tierOf(targetId);
@@ -1129,8 +1162,9 @@ function deriveAvalData(ctx: GraphContext): AvalData {
       promotes: afterTier > beforeTier,
       voucherSlotsBefore: voucherSlots.free,
       voucherSlotsAfter: Math.max(0, voucherSlots.free - 1),
-      nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact
+      nextVouchAvailableInHours: hoursUntilNextVouch,
       secondaryEffects: alreadyVouches ? [] : secondaryEffectsBetween(result, afterResult, targetId),
+      blockers,
     };
   }
 
@@ -1153,6 +1187,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
             voucherSlotsAfter: 2,
             nextVouchAvailableInHours: 24,
             secondaryEffects: secondaryEffectsBetween(resultWithoutBob, result, ctx.meId),
+            blockers: [],
           };
         })()
       : defaultVoucherId
@@ -1167,6 +1202,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
             voucherSlotsAfter: 0,
             nextVouchAvailableInHours: 24,
             secondaryEffects: [],
+            blockers: [],
           };
 
   function simulateVouch(voucherId: string, targetId: string): SimulateVouchResult {

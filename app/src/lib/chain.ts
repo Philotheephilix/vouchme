@@ -569,6 +569,11 @@ export interface MemberInfo {
   enrolledAt: number;
   credentialExpiresAt: number;
   activeOutbound: number;
+  /** Unix seconds of this account's last `vouch()`. `AvalRegistry` reverts with `RateLimited()`
+   *  within 24h of it, so the UI needs it to refuse a vouch that cannot succeed — it was read from
+   *  the contract and then discarded, which is why "next vouch in 24h" was a hardcoded literal
+   *  rendered in the grammar of a live countdown. */
+  lastVouchAt: number;
   enrolled: boolean;
   fraudulent: boolean;
 }
@@ -672,13 +677,15 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
   );
   const members = new Map<Address, MemberInfo>(
     addresses.map((addr, i) => {
-      const [enrolledAt, credentialExpiresAt, activeOutbound, , , , enrolled, fraudulent] = memberTuples[i]!;
+      const [enrolledAt, credentialExpiresAt, activeOutbound, lastVouchAt, , , enrolled, fraudulent] =
+        memberTuples[i]!;
       return [
         addr,
         {
           enrolledAt: Number(enrolledAt),
           credentialExpiresAt: Number(credentialExpiresAt),
           activeOutbound: Number(activeOutbound),
+          lastVouchAt: Number(lastVouchAt),
           enrolled,
           fraudulent,
         },

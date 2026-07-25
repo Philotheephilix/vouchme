@@ -176,6 +176,13 @@ export interface SimulateVouchResult {
   voucherSlotsAfter: number;
   nextVouchAvailableInHours: number;
   secondaryEffects: SimulateVouchStep[];
+  /** Reasons this vouch would REVERT on chain, in the user's words. Empty means it can proceed.
+   *
+   *  `AvalRegistry.vouch()` reverts with `VouchExists()` if the edge is already active and
+   *  `RateLimited()` within 24h of the voucher's last vouch. Neither was checked, so the wizard
+   *  happily walked a user through a ~20s Selfie Check into a transaction that could not succeed
+   *  (docs/94-acceptance.md P0-2). Computed from live `members()` state, never assumed. */
+  blockers: string[];
 }
 
 export interface PathHop {
