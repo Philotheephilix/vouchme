@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { tenureCenti } from "./tenure.js";
 import { E_HALF, T_MAX_CENTI, BASE, T1 } from "./constants.js";
 
-// docs/16-presence-drip.md §4 worked table, corrected (the printed table is authoritative; the
-// doc's own halving-band pseudocode had a truncate-before-subtract bug — see tenure.ts).
+// docs/16-presence-drip.md §4 worked table, which is the authoritative statement of the curve
+// (see tenure.ts for the single-truncation integer form that reproduces it).
 test("tenureCenti — exact table (16-presence-drip.md §4)", () => {
   assert.equal(tenureCenti(0), 0);
   assert.equal(tenureCenti(120), 41);

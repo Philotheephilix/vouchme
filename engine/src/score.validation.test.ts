@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { compute } from "./score.js";
 import { anchorAccount, human, makeInput, report, vouch } from "./test-helpers.js";
 
-// R-6 (docs/97-review-engine-app.md): a NaN/Infinity/non-integer `now` or `report.upheldAt` must
-// fail loudly (RangeError), not propagate silently into decay/gate-4-window arithmetic and taint
-// the output with NaN — matching `tenureCenti`'s own guard on its input (tenure.ts).
+// A NaN/Infinity/non-integer `now` or `report.upheldAt` must fail loudly (RangeError), not
+// propagate silently into decay/gate-4-window arithmetic and taint the output with NaN — matching
+// `tenureCenti`'s own guard on its input (tenure.ts).
 
 test("R-6 — compute() rejects a non-finite `now`", () => {
   assert.throws(

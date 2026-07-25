@@ -146,12 +146,9 @@ export function parseName(nameBytes: Uint8Array): ParsedName | null {
  * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
  * off-chain" — i.e. a bare label like "alice" — but this live deployment's actual enrollment
  * script (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL
- * name on-chain instead, e.g. "alice.aval.eth". Live chain data caught this: without stripping
- * the suffix, every `carol.alice.aval.eth`-style resolution failed with "does not resolve" even
- * though the underlying vouch edges were exactly right — matching a bare label against
- * "carol.aval.eth" is never equal to "carol". Tolerating both conventions here (bare label
- * unchanged; "<label>.aval.eth" stripped to its first segment) resolves this deployment's actual
- * data without assuming every future enrollment repeats the same (spec-deviating) convention.
+ * name on-chain instead, e.g. "alice.aval.eth". Both conventions are tolerated here (bare label
+ * unchanged; "<label>.aval.eth" stripped to its first segment) so this deployment's data resolves
+ * without assuming every future enrollment repeats the same spec deviation.
  */
 export function bareLabel(handle: string): string {
   const suffix = ".aval.eth";

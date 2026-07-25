@@ -1,40 +1,36 @@
 // scripts/live-scenario.mjs
 //
-// Runs the live scenario from the deployment task against AvalRegistry on World Chain Sepolia:
-// real transactions, real EIP-712 attestations, real gas. Re-runnable: every step checks on-chain
-// state first and skips work that already landed.
+// Runs the live scenario against AvalRegistry on World Chain Sepolia: real transactions, real
+// EIP-712 attestations, real gas. Re-runnable: every step checks on-chain state first and skips
+// work that already landed.
 //
 // ── Attestor model ──────────────────────────────────────────────────────────────────────────
-// ATTESTOR_ADDRESS was set to the deployer for this testnet deployment (contracts/.env), so all
+// ATTESTOR_ADDRESS is the deployer for this testnet deployment (contracts/.env), so all
 // attestations here are signed with the deployer's own PRIVATE_KEY, not the separate
-// ATTESTOR_PRIVATE_KEY in .env (that key is provisioned for other services outside this task's
-// scope; using it here would sign attestations AvalRegistry does not recognize, since only
-// ATTESTOR_ADDRESS is in the on-chain `attestors` allowlist).
+// ATTESTOR_PRIVATE_KEY in .env — only ATTESTOR_ADDRESS is in the on-chain `attestors` allowlist,
+// so that key would sign attestations AvalRegistry does not recognize.
 //
 // This script's attestor does not query a real-time computed tier before signing a vouch
 // attestation — it asserts a nominal tier from the account's *kind* (2 for anchors, matching
 // the "Anchor: 10 slots" row of docs/01-trust-math.md §1; 1 for every other enrolled member,
-// matching "Member: can vouch if tier ≥ 1" / 3 slots) and nothing more. That is deliberate, not
-// sloppy: AvalRegistry.sol's own doc comment says outright that "a forged attestation buys an
-// edge the Subgraph recompute simply will not credit" — the contract's job is to record a fact
-// (an edge was attested and issued), not to arbitrate merit. The ring1..ring6 leg of this
-// scenario only makes sense under this model: those accounts have no anchor path and a true
-// engine-computed tier of 0, yet the point of the exercise is to show their vouches land on
-// chain and still net a base score. Section 5 of the task's own report explains this divergence
-// between "attested tier" (on-chain, asserted) and "computed tier" (off-chain, earned).
+// matching "Member: can vouch if tier ≥ 1" / 3 slots) and nothing more. That is deliberate:
+// AvalRegistry.sol's own doc comment says outright that "a forged attestation buys an edge the
+// Subgraph recompute simply will not credit" — the contract's job is to record a fact (an edge
+// was attested and issued), not to arbitrate merit. The ring1..ring6 leg of this scenario only
+// makes sense under this model: those accounts have no anchor path and a true engine-computed
+// tier of 0, yet the point is to show their vouches land on chain and still net a base score.
+// "Attested tier" (on-chain, asserted) and "computed tier" (off-chain, earned) are distinct.
 //
 // ── The anchor rate-limit collision (bob) ───────────────────────────────────────────────────
-// The task's step (b) has anchor1+anchor2 vouch alice; step (c) has anchor1+anchor3 vouch bob.
 // AvalRegistry's vouch rate limit is 1 vouch / 24h *per voucher*, not per (voucher, vouchee)
-// pair — so anchor1, having just spent its one vouch for the day on alice, cannot also vouch bob
-// in the same session. With exactly 3 anchors and 2 anchor-vouches required for each of 2
-// targets, that is 4 vouch-slots of demand against 3 anchors' worth of daily capacity: by
-// pigeonhole, *no* assignment of anchor1/2/3 across alice and bob avoids one anchor being asked
-// to vouch twice in one day. This script attempts anchor1→bob exactly as specified, expects and
-// captures the real on-chain revert, and then completes bob's promotion with anchor3 — the only
-// anchor with capacity left. Bob ends up with one anchor vouch, not two. That is a real,
-// diagnosed consequence of the rate limit interacting with a finite anchor pool in one session,
-// not a bug — see the task's final report for the resulting score.
+// pair — so anchor1, having spent its one vouch for the day on alice, cannot also vouch bob in
+// the same session. With exactly 3 anchors and 2 anchor-vouches required for each of 2 targets,
+// that is 4 vouch-slots of demand against 3 anchors' worth of daily capacity: by pigeonhole,
+// *no* assignment of anchor1/2/3 across alice and bob avoids one anchor being asked to vouch
+// twice in one day. This script attempts anchor1→bob anyway, captures the real on-chain revert,
+// and then completes bob's promotion with anchor3 — the only anchor with capacity left. Bob ends
+// up with one anchor vouch, not two: a consequence of the rate limit meeting a finite anchor
+// pool in one session, not a bug.
 
 import { createWalletClient, createPublicClient, http, keccak256, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";

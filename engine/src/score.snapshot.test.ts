@@ -3,21 +3,16 @@ import assert from "node:assert/strict";
 import { compute } from "./score.js";
 import { anchorAccount, human, makeInput, report, vouch } from "./test-helpers.js";
 
-// R-1 (docs/97-review-engine-app.md; §7.1): d(r -> u) = min(snapshotWeight, score(r) * m-, cap-).
-// "Both terms are required, and taking the minimum is the point... a reporter could pay for 15
-// points of damage and inflict 40 after being promoted, or pay for 40 and inflict 15 after being
-// demoted." Two scenarios, one per direction.
+// docs/01-trust-math.md §7.1: d(r -> u) = min(snapshotWeight, score(r) * m-, cap-). Both terms
+// are required and taking the minimum is the point — otherwise a reporter could pay for 15 points
+// of damage and inflict 40 after being promoted, or pay for 40 and inflict 15 after being
+// demoted. Two scenarios, one per direction.
 
 // Reporter R files at low standing (2-anchor Tier 1, s+ = 60.00, live weight = 27.50 at filing
 // time, bonded that much) but is promoted to Tier 2 (s+ = 140.00, live weight would be the capped
 // 40.00) by the time the graph is scored. The bonded snapshot must still cap the damage at what
-// was paid for: 27.50, not 40.00.
-//
-// At base=20/T2=140, six anchors is the clean Tier-2 threshold for R (errata E-16; five anchors
-// is only 120.00, Tier 1). The narrative "Tier 1 fresh" from the old base=10 version doesn't
-// carry over cleanly: a single anchor no longer reaches T1 at all (base + cap+ = 40 < T1 = 55),
-// so the illustrative low-standing weight here is simply "a 2-anchor Tier 1 account's live
-// weight" rather than "the weight at the T1 threshold."
+// was paid for: 27.50, not 40.00. Six anchors is the clean Tier-2 threshold for R; five is only
+// 120.00, still Tier 1.
 test("R-1 — a promoted reporter cannot inflict more damage than their bonded snapshot", () => {
   const reporterAnchors = ["RA1", "RA2", "RA3", "RA4", "RA5", "RA6"]; // promotes R to Tier 2 (140.00)
   const targetAnchors = ["A1", "A2"]; // target U at Tier 1 (60.00)

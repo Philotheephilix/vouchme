@@ -6,10 +6,9 @@ import {IAddressBook} from "../src/interfaces/IAddressBook.sol";
 /// @title GenesisAnchorBook — TESTNET ONLY. NOT the World ID Address Book.
 ///
 /// @notice World ID's Address Book is deployed at 0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D on
-///         World Chain **mainnet**. It does not exist on World Chain Sepolia — verified by probing
-///         that address on chain 4801 and finding no bytecode, and by the absence of any Sepolia
-///         value in World's own documentation. This contract stands in for it so the protocol can
-///         be exercised on a testnet.
+///         World Chain **mainnet**. There is no bytecode at that address on World Chain Sepolia and
+///         World publishes no Sepolia deployment, so this contract stands in for it and lets the
+///         protocol be exercised on a testnet.
 ///
 /// @dev    THIS IS THE ONE PLACE WHERE A TESTNET DEPLOYMENT DIFFERS FROM THE REAL PROTOCOL, AND
 ///         IT IS THE MOST IMPORTANT PLACE TO BE HONEST ABOUT.
@@ -58,15 +57,8 @@ contract GenesisAnchorBook is IAddressBook {
     /// @notice Same selector and semantics as the real Address Book, so AvalRegistry needs no
     ///         testnet-specific code path. The difference is in who is asserting, not in the shape.
     ///
-    /// @dev    This claim used to be FALSE, and that is errata E-18. The stand-in exposed
-    ///         `getIsUserVerified(address) returns (bool)`, which the real Address Book does not
-    ///         have at all — it exposes `addressVerifiedUntil(address) returns (uint256)`. Because
-    ///         the Address Book is mainnet-only, every test ran against this contract, so the
-    ///         mismatch could not surface until `isAnchor()` reverted on real mainnet. A mock that
-    ///         is shaped to fit the assumption tests the assumption against itself.
-    ///
-    ///         Now matching the real shape: an expiry, not a flag. A genesis anchor is returned as
-    ///         "verified far into the future" so the same `> block.timestamp` comparison in
+    /// @dev    An expiry, not a flag, matching the real Address Book. A genesis anchor is returned
+    ///         as "verified far into the future" so the same `> block.timestamp` comparison in
     ///         `AvalRegistry.isAnchor` works identically against either contract.
     function addressVerifiedUntil(address user) external view returns (uint256) {
         return verified[user] ? type(uint256).max : 0;

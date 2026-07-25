@@ -75,9 +75,7 @@ async function main() {
   console.log("GenesisAnchorBook deployed at:", receipt.contractAddress);
   console.log("Block:", receipt.blockNumber.toString());
 
-  // Verify on chain: bytecode present + all three anchors read back true. Wrapped in a short
-  // retry — the public RPC gateway load-balances across nodes without strict read-after-write
-  // consistency, so a read issued immediately after the receipt can land on a stale node.
+  // Verify on chain: bytecode present + all three anchors read back true.
   const code = await withRetry(() => publicClient.getCode({ address: receipt.contractAddress }));
   if (!code || code === "0x") throw new Error("No bytecode at deployed address — deploy did not take");
   for (const [label, addr] of Object.entries(addrs).filter(([l]) => ANCHOR_LABELS.includes(l))) {

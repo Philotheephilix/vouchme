@@ -9,11 +9,10 @@
 export * from "./constants.js";
 export * from "./types.js";
 export { tenureCenti } from "./tenure.js";
-// `weightNeg` is exported alongside `compute` for the same R-5 reason `score.ts` exports it to
-// `explain.ts`: a consumer that needs "how much damage can this account's report do" must import
-// the real formula (min(s × m⁻, cap⁻), truncated) rather than re-implement it from the constants.
-// `app/src/app/api/report/attest` signs exactly this number as `weightPoints`, so a second copy of
-// the formula there could drift from the one the engine then scores against.
+// `weightNeg` is exported so a consumer needing "how much damage can this account's report do"
+// imports the real formula (min(s × m⁻, cap⁻), truncated) rather than re-implementing it from the
+// constants. `app/src/app/api/report/attest` signs exactly this number as `weightPoints`, so a
+// second copy of the formula there could drift from the one the engine then scores against.
 export { compute, weightNeg } from "./score.js";
 export { explain, breakdown } from "./explain.js";
 export type {

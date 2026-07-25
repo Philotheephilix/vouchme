@@ -1,21 +1,18 @@
 // @aval/mcp — src/chain.ts
 //
 // Live World Chain Sepolia reads — the trust graph's actual data source for this deployment.
-// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes;
-// scripts/live-verify.mjs proves this exact approach against the live chain and its output is
-// this module's ground truth — matches docs/01-trust-math.md §12.1's worked table). Every number
-// this module produces is read directly off `AvalRegistry` events / view functions and
+// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes). Every
+// number this module produces is read directly off `AvalRegistry` events / view functions and
 // `GenesisAnchorBook.getIsUserVerified` — no indexer, no cache-as-source-of-truth, no fabricated
 // deployment id (`meta.deploymentId` is the honest literal string `direct-chain-read:4801`, never
-// a guessed IPFS hash).
+// a guessed IPFS hash). Matches docs/01-trust-math.md §12.1's worked table.
 //
 // Mirrors app/src/lib/chain.ts's approach closely (same event ABI fragments, same Multicall3
 // batching, same chunked getLogs, same chronological Vouched/Reaffirmed/Revoked replay per
 // (voucher, vouchee) pair — docs/01-trust-math.md §18: an indexer/log-replay can legitimately
 // emit more than one record for the same pair, and summing duplicates is a real Sybil hole, not a
-// tidiness concern). Kept self-contained here (not imported from app/) because this package must
-// not depend on app/, per the task's directory boundaries, and because @aval/mcp's TrustGraph
-// shape (engine.ts, predating this rewrite) differs from app's LiveGraph shape.
+// tidiness concern). Kept self-contained here rather than imported from app/: this package must
+// not depend on app/, and @aval/mcp's TrustGraph shape differs from app's LiveGraph shape.
 //
 // Contract addresses and the deployment block are READ from deployments/worldchain-sepolia.json
 // at runtime — the authoritative record — never retyped as literals here.
@@ -71,18 +68,17 @@ export function getDeploymentBlock(): bigint {
 }
 
 /** What `meta.deploymentId` reports everywhere in this server — honest about there being no
- *  subgraph, per the task brief ("be honest in whatever provenance field you expose; do not
- *  fabricate a deployment ID"). */
+ *  subgraph rather than a fabricated deployment ID. */
 export const CHAIN_PROVENANCE = "direct-chain-read:4801";
 
 // ── chain + transport ────────────────────────────────────────────────────────────────────────
 
 const WORLDCHAIN_SEPOLIA_ID = 4801;
 const DEFAULT_PRIMARY_RPC = "https://worldchain-sepolia.gateway.tenderly.co";
-// Alchemy's public endpoint rate-limits hard — fallback only, never primary (task brief).
+// Alchemy's public endpoint rate-limits hard — fallback only, never primary.
 const DEFAULT_FALLBACK_RPC = "https://worldchain-sepolia.g.alchemy.com/public";
 
-// Canonical Multicall3 address; verified deployed on World Chain Sepolia (task brief).
+// Canonical Multicall3 address; verified deployed on World Chain Sepolia.
 const MULTICALL3_ADDRESS: Address = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 function worldChainSepolia(): Chain {
@@ -97,9 +93,9 @@ function worldChainSepolia(): Chain {
   };
 }
 
-/** Tenderly primary, Alchemy public fallback ONLY (task brief: "Alchemy's public endpoint
- *  rate-limits hard — use it only as fallback"). `WORLDCHAIN_SEPOLIA_RPC` overrides the primary
- *  for local testing; `WORLDCHAIN_SEPOLIA_RPC_FALLBACK` overrides the fallback. */
+/** Tenderly primary, Alchemy public fallback ONLY — Alchemy's public endpoint rate-limits hard.
+ *  `WORLDCHAIN_SEPOLIA_RPC` overrides the primary for local testing;
+ *  `WORLDCHAIN_SEPOLIA_RPC_FALLBACK` overrides the fallback. */
 function buildTransport(env: NodeJS.ProcessEnv): Transport {
   const primary = env.WORLDCHAIN_SEPOLIA_RPC ?? DEFAULT_PRIMARY_RPC;
   const secondary = env.WORLDCHAIN_SEPOLIA_RPC_FALLBACK ?? DEFAULT_FALLBACK_RPC;
@@ -116,7 +112,7 @@ function getClient(): PublicClient {
     transport: buildTransport(process.env),
     // Aggregate concurrent eth_calls (getIsUserVerified / members, once per account) into
     // Multicall3 instead of firing one HTTP request per account — a naive per-account fan-out
-    // trips the public RPC's rate limit immediately (task brief; already happened once in app/).
+    // trips the public RPC's rate limit immediately.
     batch: { multicall: { batchSize: 1024, wait: 16 } },
   });
   return cachedClient;

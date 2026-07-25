@@ -27,10 +27,10 @@ export function platformVouch(voucher: string, platform: string, active = true):
 }
 
 /** Test convenience: defaults `snapshotWeight` to `CAP_NEG` (the max possible), so
- *  `min(snapshotWeight, live weight, cap⁻)` collapses to the pre-R-1 "live weight only" behavior
- *  unless a test explicitly overrides `snapshotWeight` in `opts` to exercise the cap itself. This
- *  is a deliberate test default, not the production fallback R-1 forbids: `Report.snapshotWeight`
- *  is a required field, and callers outside tests must supply a real bonded value. */
+ *  `min(snapshotWeight, live weight, cap⁻)` collapses to "live weight only" unless a test
+ *  explicitly overrides `snapshotWeight` in `opts` to exercise the snapshot cap itself. A test
+ *  default only — `Report.snapshotWeight` is required, and callers outside tests must supply a
+ *  real bonded value. */
 export function report(
   id: string,
   reporter: string,

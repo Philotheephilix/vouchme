@@ -11,9 +11,9 @@
 //
 // Also refuses with NotConfigured when SUBSTREAMS_API_TOKEN / _ENDPOINT
 // aren't set (mcp/.env.example) — there is no Substreams backend to submit
-// a manifest to without them, and the previous behaviour (always returning
-// a `sinkStatus: "PENDING"` STUB regardless of configuration) was
-// indistinguishable from a real deploy's initial response, i.e. fake data.
+// a manifest to without them, and returning a `sinkStatus: "PENDING"` stub
+// regardless of configuration would be indistinguishable from a real
+// deploy's initial response, i.e. fake data.
 
 import { z } from "zod";
 import { getPreview } from "../pipelines.js";

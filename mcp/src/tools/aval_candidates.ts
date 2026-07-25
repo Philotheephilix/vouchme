@@ -6,7 +6,7 @@
 // response to carry subgraphDeployment + computedAtBlock, which a bare
 // array cannot do — resolved by wrapping the array as `candidates` inside
 // an envelope object alongside those two fields (see mcp/README.md's
-// "resolved ambiguities" note, and the final report for this task).
+// "resolved ambiguities" note).
 
 import { z } from "zod";
 import { findCandidates, getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";

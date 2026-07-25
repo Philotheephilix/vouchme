@@ -25,9 +25,9 @@ import {PresenceDrip} from "../src/PresenceDrip.sol";
 ///         contract's own doc comments for the constructor-order reasoning):
 ///           AvalRegistry.setReportRegistry(ReportRegistry)          — UPHELD slot penalty
 ///           AvalRegistry.setPresenceDrip(PresenceDrip)              — confirmed-fraud tenure zero
-///           AvalRegistry.setPlatformRegistry(PlatformRegistry)      — dual-role guard, G-B5
+///           AvalRegistry.setPlatformRegistry(PlatformRegistry)      — dual-role guard
 ///           PlatformRegistry.setReportRegistry(ReportRegistry)      — open-report bond lock
-///           PlatformRegistry.setAvalRegistry(AvalRegistry)          — dual-role guard, G-B5
+///           PlatformRegistry.setAvalRegistry(AvalRegistry)          — dual-role guard
 ///           CredibilityVault.setReportRegistry(ReportRegistry)      — lockForReport/Rebuttal/settle
 ///           ReportRegistry.setPresenceDrip(PresenceDrip)            — UPHELD accrual pause
 ///           AvalToken.setMinter(PresenceDrip, true)                 — PresenceDrip mints the drip

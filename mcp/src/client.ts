@@ -210,17 +210,14 @@ export function loadGraphClientConfigFromEnv(env: NodeJS.ProcessEnv = process.en
 /**
  * `createGraphClient(loadGraphClientConfigFromEnv(env))`, except construction never throws.
  *
- * No Aval Subgraph is deployed for this task (deployments/worldchain-sepolia.json's own notes) —
- * the 8 tools that must work regardless (docs/06 §2.1-§2.7, §2.9) get their data from
- * src/chain.ts's live World Chain Sepolia reads and never touch this client at all. But
- * `loadToolContext()` (index.ts) used to build a `GraphClient` unconditionally at server startup,
- * which meant a missing `AVAL_SUBGRAPH_ID` failed the ENTIRE server, including the tools that
- * don't need it. This constructs the client lazily instead: if subgraph config is genuinely
- * absent, every tool that still depends on it (aval_report / aval_report_status / aval_platform /
- * aval_request_score / aval_query / aval_cross_protocol_trust's Aval leg's ReportRegistry /
- * PlatformRegistry reads) gets the same named `GraphClientConfigError` the moment it actually
- * tries to query — refusing with a named error rather than fabricating data, per the task brief —
- * instead of the whole process refusing to start.
+ * No Aval Subgraph is deployed (deployments/worldchain-sepolia.json's own notes) — the 8 tools
+ * that must work regardless (docs/06 §2.1-§2.7, §2.9) get their data from src/chain.ts's live
+ * World Chain Sepolia reads and never touch this client at all. Constructing it lazily keeps a
+ * missing `AVAL_SUBGRAPH_ID` from failing the ENTIRE server at startup: if subgraph config is
+ * genuinely absent, every tool that still depends on it (aval_report / aval_report_status /
+ * aval_platform / aval_request_score / aval_query / aval_cross_protocol_trust's Aval leg's
+ * ReportRegistry / PlatformRegistry reads) gets the same named `GraphClientConfigError` the moment
+ * it actually tries to query — refusing with a named error rather than fabricating data.
  */
 export function createGraphClientSafe(env: NodeJS.ProcessEnv = process.env): GraphClient {
   try {

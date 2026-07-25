@@ -12,7 +12,7 @@
 /** Everyone's floor before tenure and vouches: 20.00 points. */
 export const BASE = 2_000;
 
-/** An anchor's score is fixed here and ignores all inbound edges (E-6): 100.00 points. */
+/** An anchor's score is fixed here and ignores all inbound edges: 100.00 points. */
 export const ANCHOR = 10_000;
 
 /** Cap on a single positive contribution (a vouch): 20.00 points. */
@@ -37,8 +37,8 @@ export const CAP_NEG_BINDING_THRESHOLD = 8_000;
 
 // ── §2 Tiers (01-trust-math.md §11; 10-constants.md §2) ─────────────────────────────────────────
 
-/** Tier 1 threshold: 55.00 points. Moves in lockstep with `base` — see errata E-16. Never lower
- *  this relative to base (01-trust-math.md §13). */
+/** Tier 1 threshold: 55.00 points. Moves in lockstep with `base`; never lower it relative to base
+ *  (01-trust-math.md §13). */
 export const T1 = 5_500;
 
 /** Tier 2 threshold: 140.00 points. */

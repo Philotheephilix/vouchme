@@ -10,7 +10,7 @@ interface IPresenceDripZero {
 }
 
 /// @dev Minimal local interface mirroring `PlatformRegistry.isRegistered`, used only for the
-///      dual-role guard in `enroll` (docs/02-contracts.md §0, gap review G-B5). Avoids a circular
+///      dual-role guard in `enroll` (docs/02-contracts.md §0). Avoids a circular
 ///      concrete import: `PlatformRegistry` has no compile-time dependency on `AvalRegistry`, but
 ///      wiring both directions through a concrete import would still force a deployment order.
 ///      Settable post-deploy by governor, same pattern as `reportRegistry` / `presenceDrip`.
@@ -85,7 +85,7 @@ contract AvalRegistry {
     ///      needs this contract's address, so this contract cannot also require `PresenceDrip`'s
     ///      address at construction. Settable by governor; `confirmFraud` no-ops the hook while unset.
     address public presenceDrip;
-    /// @dev Dual-role guard counterpart (docs/02-contracts.md §0, G-B5): `enroll` reverts if this
+    /// @dev Dual-role guard counterpart (docs/02-contracts.md §0): `enroll` reverts if this
     ///      address reports the caller as an active platform. Settable post-deploy by governor —
     ///      `PlatformRegistry` is deployed independently and neither constructor can require the
     ///      other's address without a circular dependency. No-ops (permits enrollment) while unset,
@@ -107,7 +107,7 @@ contract AvalRegistry {
     event GovernorTransferred(address indexed previousGovernor, address indexed newGovernor);
     event ReportRegistrySet(address indexed reportRegistry);
     event PlatformRegistrySet(address indexed platformRegistry);
-    /// @notice One event per outbound edge voided by `confirmFraud` (FR-7, G-B13) — "the fraudulent
+    /// @notice One event per outbound edge voided by `confirmFraud` (FR-7) — "the fraudulent
     ///         account's own outbound vouches", distinct from the `SlotPenaltyApplied` events fired
     ///         for its *vouchers*. The Subgraph follows this the same way it follows `Revoked`.
     event OutboundVouchVoided(address indexed account, address indexed vouchee, uint64 at);
@@ -119,7 +119,7 @@ contract AvalRegistry {
     error VouchExists(); error NoSuchVouch(); error CredentialExpired();
     error InsufficientTier(); error Suspended();
     error NotGovernor(); error ZeroAddress(); error NotReportRegistry();
-    /// @notice Dual-role guard (G-B5): raised by `enroll` when `msg.sender` is already an active
+    /// @notice Dual-role guard: raised by `enroll` when `msg.sender` is already an active
     ///         platform in the wired `PlatformRegistry`.
     error AlreadyPlatform();
 
@@ -176,7 +176,7 @@ contract AvalRegistry {
     }
 
     /// @notice Wires the `PlatformRegistry` address for the dual-role guard in `enroll`
-    ///         (docs/02-contracts.md §0, G-B5). Governor-only, post-deploy, same reasoning as
+    ///         (docs/02-contracts.md §0). Governor-only, post-deploy, same reasoning as
     ///         `setReportRegistry` / `setPresenceDrip`.
     function setPlatformRegistry(address _platformRegistry) external onlyGovernor {
         platformRegistry = _platformRegistry;
@@ -200,7 +200,7 @@ contract AvalRegistry {
     ) external {
         if (members[msg.sender].enrolled) revert AlreadyEnrolled();
         if (usedNullifier[nullifierHash]) revert NullifierUsed();   // ← one account per World ID
-        // Dual-role guard (G-B5): an address must not stack a human report weight AND a platform
+        // Dual-role guard: an address must not stack a human report weight AND a platform
         // report weight against the same target. No-ops (permits enrollment) until governor wires
         // `platformRegistry` post-deploy.
         if (platformRegistry != address(0) && IPlatformRegistryCheck(platformRegistry).isRegistered(msg.sender)) {
@@ -313,8 +313,7 @@ contract AvalRegistry {
     // ─── 3.5 anchors ─────────────────────────────────────────────────────────
     /// @dev Live, never cached on-chain. The Address Book returns an EXPIRY, not a flag — Orb
     ///      verification lapses unless renewed — so anchor status is "verified until a moment
-    ///      still ahead of this block", not "was verified once". See errata E-18 and
-    ///      `interfaces/IAddressBook.sol` for how the previous boolean interface was wrong.
+    ///      still ahead of this block", not "was verified once". See `interfaces/IAddressBook.sol`.
     function isAnchor(address a) public view returns (bool) {
         return addressBook.addressVerifiedUntil(a) > block.timestamp;
     }
@@ -350,7 +349,7 @@ contract AvalRegistry {
     // ─── 3.6 fraud ───────────────────────────────────────────────────────────
     /// @notice Confirms `account` as fraudulent: penalises its inbound vouchers' slots for 30 days,
     ///         zeroes its tenure (if `PresenceDrip` is wired), and **voids its own outbound vouches**
-    ///         (FR-7; gap review G-B13 found this last step missing).
+    ///         (FR-7).
     /// @param vouchers Accounts that vouched *for* `account` — penalised per the existing rule.
     /// @param vouchees Accounts `account` itself vouched *for* — voided here. The registry keeps no
     ///        reverse index by design ("the contract stores facts", docs/02-contracts.md §1), so this

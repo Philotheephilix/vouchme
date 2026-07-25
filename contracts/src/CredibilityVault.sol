@@ -24,17 +24,16 @@ import {AvalToken} from "./AvalToken.sol";
 ///        4. `applyDemurrage` decays *idle-but-bonded* balance (`bonded - locked`) held inside this
 ///           vault, not raw wallet balance. The literal text ("idle unbonded balances... bonded AVAL
 ///           is exempt") reads as wallet balances, which would require granting this vault a
-///           privileged forced-transfer hook on `AvalToken` beyond the single `minter` role the task
+///           privileged forced-transfer hook on `AvalToken` beyond the single `minter` role the
 ///           spec calls for. Decaying the vault's own custodied-but-unlocked balance needs no new
 ///           privilege (the vault already holds the tokens) and preserves "money at risk is exempt,
 ///           money doing nothing decays" exactly. Decay itself is exact continuous compounding via
 ///           `_wadPow` — see `DEMURRAGE_RATE_PER_SECOND_WAD`'s doc comment for the derivation.
 ///        5. `settle`'s UPHELD insurance slash (docs/12-reporting.md §4 "+0.5 I") is split into a
 ///           separate `slashInsurance(reportId, insuredVouchers)` call rather than being inline in
-///           `settle` — see that function's doc comment for why (no on-chain reverse index of "who
-///           insured `target`", and inlining it only for rebutters silently missed the "nobody
-///           defends" row of the payoff matrix, where the reporter is still owed 50% of the target's
-///           insurance despite there being no rebutters to iterate over).
+///           `settle`: there is no on-chain reverse index of "who insured `target`", and the payoff
+///           matrix owes the reporter 50% of the target's insurance even in the "nobody defends"
+///           row, where there are no rebutters to iterate over.
 contract CredibilityVault {
     // ─── types ──────────────────────────────────────────────────────────────
     struct Position {
@@ -265,12 +264,11 @@ contract CredibilityVault {
     /// @dev Insurance slashing for UPHELD is handled entirely by the separate `slashInsurance` call
     ///      below, not inline here — see that function's doc comment for why: the vault has no
     ///      reverse index of "every voucher who insured `target`", so the set is always
-    ///      keeper/governor-supplied, whether or not anyone rebutted. Folding rebutter-only insurance
-    ///      handling into `settle` itself (an earlier version of this function did) silently missed
-    ///      the "UPHELD, nobody defends" case — rebutters are empty there by definition, so the
-    ///      reporter never received their 50% of the target's insurance bonds even though the payoff
-    ///      matrix guarantees it unconditionally. Unifying both cases into one post-settle call fixes
-    ///      that without special-casing "did anyone rebut".
+    ///      keeper/governor-supplied, whether or not anyone rebutted. Handling it inline for
+    ///      rebutters only would miss the "UPHELD, nobody defends" case — rebutters are empty there
+    ///      by definition, yet the payoff matrix still owes the reporter 50% of the target's
+    ///      insurance bonds. One post-settle call covers both without special-casing "did anyone
+    ///      rebut".
     function settle(bytes32 reportId, Outcome outcome, address target) external onlyReportRegistry {
         Claim storage c = claims[reportId];
         if (!c.open) revert ClaimNotOpen();

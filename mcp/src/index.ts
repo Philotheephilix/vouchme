@@ -76,15 +76,13 @@ function registerTool<Shape extends z.ZodRawShape>(server: McpServer, t: ToolDef
     const result = await t.handler(args, ctx);
     return { content: result.content, isError: result.isError };
   };
-  // `callback`'s parameter is typed with zod's own `objectOutputType<Shape, ZodTypeAny>`, which
-  // is provably (and has been verified directly, for every concrete Shape) mutually assignable
-  // with the SDK's own `ShapeOutput<Shape>` that `server.tool`'s overloads expect — but that
-  // equivalence runs through `BaseToolCallback`'s *conditional* type on `Shape`, and TypeScript
-  // cannot resolve a conditional type against a still-generic, unresolved type parameter (a known
-  // TS limitation, not a real type mismatch — the two sides only diverge in how each is *spelled*,
-  // never in what values they admit). This is the single, centralized seam where that's asserted,
-  // via `unknown` per the compiler's own suggested escape hatch, so none of the 17 call sites below
-  // have to cast.
+  // `callback`'s parameter is typed with zod's own `objectOutputType<Shape, ZodTypeAny>`, which is
+  // mutually assignable with the SDK's own `ShapeOutput<Shape>` that `server.tool`'s overloads
+  // expect — but that equivalence runs through `BaseToolCallback`'s *conditional* type on `Shape`,
+  // and TypeScript cannot resolve a conditional type against a still-generic, unresolved type
+  // parameter (a known TS limitation, not a real type mismatch — the two sides only diverge in how
+  // each is *spelled*, never in what values they admit). This is the single, centralized seam where
+  // that's asserted, via `unknown`, so none of the 17 call sites below have to cast.
   server.tool(t.name, t.description, t.inputSchema, callback as unknown as ToolCallback<Shape>);
 }
 

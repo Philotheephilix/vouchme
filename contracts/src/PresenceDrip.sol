@@ -9,15 +9,13 @@ import {AvalRegistry} from "./AvalRegistry.sol";
 /// @notice "Claiming is how the protocol observes that you are still here." docs/16-presence-drip.md.
 ///         Lazy per-6h-epoch accrual, capped at 30 days unclaimed, feeding a hard-capped tenure
 ///         bonus that can never by itself promote anyone (`base + T_MAX = 25 < T1 = 55`, invariant
-///         I-17; base and T1 both scale with the errata E-16 base-score change, tenure math (E_HALF,
-///         T_MAX_CENTI) is untouched).
+///         I-17).
 /// @dev Deviations from the doc's §6 `contract sketch`, documented inline with `NOTE(deviation)`:
 ///        1. `claim()` / `claimAndBond()` gain `(tier, deadline, nonce, attestation)` parameters.
 ///           The doc's own rate table (§3) makes the *actual minted amount* depend on tier
 ///           (25% at Tier 0, 100% at Tier 1/2) — tier is a whole-graph fact the EVM cannot compute
-///           (same reasoning as `voucherTier` on `AvalRegistry.vouch`, which the task brief calls
-///           out by name as the pattern to follow), so it is attested and checked against
-///           `attestors`, exactly like every other whole-graph fact in this repo.
+///           (same reasoning as `voucherTier` on `AvalRegistry.vouch`), so it is attested and
+///           checked against `attestors`, exactly like every other whole-graph fact in this repo.
 ///        2. `accrued(address)` stays parameterless and returns the *nominal*, tier-blind amount
 ///           (capped epochs × 0.25 AVAL) — it is the epoch-counting primitive `claim` builds on, not
 ///           the final payable amount. The tier discount is applied only where it can be attested,

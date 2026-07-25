@@ -11,8 +11,6 @@ import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 
 /// @notice Covers the challenge game (docs/12-reporting.md §3, §5) end to end: filing, the 72h
 ///         window (silence ⇒ UPHELD, rebuttal ⇒ ARBITRATION), withdrawal, and arbitration verdicts.
-///         There was no test file for `ReportRegistry` before this one — every test here exercises
-///         code that compiled but was previously unverified.
 contract ReportRegistryTest is Test {
     AvalToken internal token;
     AvalRegistry internal avalRegistry;
@@ -148,7 +146,7 @@ contract ReportRegistryTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════════════
-    // item 6 / R-3: platform reporter needs a prior ScoreRequest
+    // R-3: platform reporter needs a prior ScoreRequest
     // ═══════════════════════════════════════════════════════════════════════════════════════
 
     function _registerPlatform() internal {

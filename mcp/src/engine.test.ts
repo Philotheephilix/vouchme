@@ -3,11 +3,9 @@
 // Smoke tests for scoreGraph()/deriveBreakdown() (engine.ts's thin wrapper over the real
 // @aval/engine compute()/breakdown() — see that file's module comment). Assertions below compute
 // their expected values from the live BASE/CAP_POS/M_POS/T1 constants imported from engine.ts
-// (themselves derived from @aval/engine, never hardcoded) rather than pinning literals, precisely
-// because docs/10-constants.md's thresholds are expected to change during this task (task brief:
-// "if your assertions suddenly shift, that is why; re-read the engine's constants rather than
-// pinning numbers") — and they did: BASE/T1/T2 moved from 10/30/100 to 20/55/140 partway through
-// this build. Run with `npm test` after `npm run build`.
+// (themselves derived from @aval/engine, never hardcoded) rather than pinning literals, so a
+// docs/10-constants.md threshold change does not require editing this file. Run with `npm test`
+// after `npm run build`.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

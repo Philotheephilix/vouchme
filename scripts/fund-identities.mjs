@@ -1,6 +1,6 @@
 // scripts/fund-identities.mjs
 //
-// Funds the 13 deterministic test identities (scripts/identities.mjs) with enough World Chain
+// Funds the deterministic test identities (scripts/identities.mjs) with enough World Chain
 // Sepolia ETH to cover their enroll/vouch transactions. Sends from the deployer (PRIVATE_KEY in
 // contracts/.env). Idempotent: tops up only accounts under TARGET_BALANCE, skips the rest.
 

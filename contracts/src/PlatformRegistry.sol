@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {AvalToken} from "./AvalToken.sol";
 
 /// @dev Minimal local interface mirroring `AvalRegistry.isEnrolled`, used only for the dual-role
-///      guard in `registerPlatform` (docs/02-contracts.md §0, gap review G-B5). Settable post-deploy
+///      guard in `registerPlatform` (docs/02-contracts.md §0). Settable post-deploy
 ///      by governor — see `AvalRegistry.platformRegistry` for the matching reasoning in reverse.
 interface IAvalRegistryCheck {
     function isEnrolled(address account) external view returns (bool);
@@ -13,7 +13,7 @@ interface IAvalRegistryCheck {
 /// @title PlatformRegistry
 /// @notice "Humans add trust. Platforms only subtract it." (docs/13-platforms.md §1). A platform is
 ///         a first-class account with its own score, granted by humans who vouch for it, starting
-///         at base 0 rather than a human's base 20 (errata E-16). There is, by construction, **no function
+///         at base 0 rather than a human's base 20. There is, by construction, **no function
 ///         anywhere in this contract that lets a platform vouch for a human** — that absence is a
 ///         spec requirement (docs/13-platforms.md §1, test P-3; docs/10-constants.md §10 "can vouch
 ///         humans: never — no such function"). Platforms live in an entirely separate contract from
@@ -26,8 +26,7 @@ interface IAvalRegistryCheck {
 ///           lock/settle machinery is built around `ReportRegistry` claims; reusing it here would
 ///           require a third `onlyPlatformRegistry` lock path with none of the report/rebuttal
 ///           semantics it exists for. Keeping bond custody local keeps this contract independently
-///           deployable and testable, which is what `PlatformRegistry.t.sol` (task requirement)
-///           exercises. A v2 could unify custody.
+///           deployable and testable. A v2 could unify custody.
 ///        2. `ensName` resolution-to-caller and `voucherTier` are whole-graph / off-chain facts
 ///           (ENS resolution *could* be checked live via the ENS registry, but this repo stays
 ///           dependency-free beyond forge-std, so it is attested like everything else off-chain —
@@ -84,7 +83,7 @@ contract PlatformRegistry {
     address   public governor;
     address   public treasury;
     address   public reportRegistry;
-    /// @dev Dual-role guard counterpart (G-B5): `registerPlatform` reverts if this address reports
+    /// @dev Dual-role guard counterpart: `registerPlatform` reverts if this address reports
     ///      the caller as an enrolled human. No-ops (permits registration) while unset.
     address   public avalRegistry;
 
@@ -118,7 +117,7 @@ contract PlatformRegistry {
     error NoSlots(); error RateLimited(); error VouchExists(); error NoSuchVouch();
     error InsufficientTier(); error OpenReportsExist(); error UnbondNotMatured();
     error NotDeregistering();
-    /// @notice Dual-role guard (G-B5): raised by `registerPlatform` when `msg.sender` is already
+    /// @notice Dual-role guard: raised by `registerPlatform` when `msg.sender` is already
     ///         enrolled as a human in the wired `AvalRegistry`.
     error AlreadyEnrolledHuman();
 
@@ -162,7 +161,7 @@ contract PlatformRegistry {
     }
 
     /// @notice Wires the `AvalRegistry` address for the dual-role guard in `registerPlatform`
-    ///         (docs/02-contracts.md §0, G-B5). Governor-only, post-deploy, same reasoning as
+    ///         (docs/02-contracts.md §0). Governor-only, post-deploy, same reasoning as
     ///         `setReportRegistry`.
     function setAvalRegistry(address _avalRegistry) external onlyGovernor {
         avalRegistry = _avalRegistry;
@@ -193,7 +192,7 @@ contract PlatformRegistry {
     ) external {
         if (platforms[msg.sender].active) revert AlreadyRegistered();
         if (bond < MIN_REGISTRATION_BOND) revert InsufficientBond();
-        // Dual-role guard (G-B5): no-ops (permits registration) until governor wires `avalRegistry`
+        // Dual-role guard: no-ops (permits registration) until governor wires `avalRegistry`
         // post-deploy — same convention as `AvalRegistry.enroll`'s mirror-image check.
         if (avalRegistry != address(0) && IAvalRegistryCheck(avalRegistry).isEnrolled(msg.sender)) {
             revert AlreadyEnrolledHuman();

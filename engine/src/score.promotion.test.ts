@@ -32,9 +32,8 @@ test("12.1 — 2 anchors => 60, Tier 1", () => {
 
 test("12.1 — 2 × T1@60 => 50, blocked (gate 1: below T1) — two is never enough", () => {
   // "T1@60": a voucher whose own s+ is exactly 60 (a 2-anchor-vouched account — see the previous
-  // row). Two such vouchers land U at 50.00, strictly below the new T1 = 55.00: at base = 20 the
-  // published property "two vouches is never enough from ordinary members, three is" now bites
-  // one level in, not just at depth 3 (see docs/01-trust-math.md §13 sensitivity / errata E-16).
+  // row). Two such vouchers land U at 50.00, strictly below T1 = 55.00 — the published property
+  // "two vouches is never enough from ordinary members, three is" (docs/01-trust-math.md §13).
   const out = compute(
     makeInput({
       accounts: [
@@ -104,14 +103,10 @@ test("12.1 — 1 anchor + 1 non-contributing peer => 40.00, Tier 0, BLOCKED (bot
   // strictly lower than U's depth 1, and contributes 0.
   // s+ = 20 + 20 + 0 = 40.00.
   //
-  // Under the OLD constants (base=10, T1=30) this exact shape landed exactly ON the threshold
-  // (10 + 20 + 0 = 30 = T1) — a single real anchor plus one worthless edge was *just* enough to
-  // clear gate 1, and only the corrected gate 2 (counting contributing vouchers, not raw inbound
-  // edges) blocked it. At base=20 / T1=55, base + cap+ = 20 + 20 = 40 < 55 — a single contributing
-  // voucher, however strong (capped at 20 regardless), can NEVER reach T1 alone anymore, so this
-  // row now fails gate 1 too, not only gate 2. Gate 2 remains the general, base-independent rule
-  // (errata E-16): the exact-threshold coincidence was an artifact of the old numbers, not
-  // something gate 2's correctness ever depended on.
+  // This row fails gate 1 and gate 2 independently: base + cap+ = 20 + 20 = 40 < T1 = 55, so a
+  // single contributing voucher (capped at 20 however strong) can never reach T1 alone; and gate 2
+  // counts contributing vouchers, not raw inbound edges, so the same-depth edge does not count as
+  // a second voucher. Gate 2 is the general, base-independent rule.
   const out = compute(
     makeInput({
       accounts: [anchorAccount("A1"), anchorAccount("A2"), human("V1"), human("U")],
@@ -167,13 +162,11 @@ test("12.1 — 12 × 1-anchor@40 => 140, Tier 2 (also required test-list item #1
 });
 
 test("12.1 — 7-account mutual ring (complete graph, no anchor path) => 20.00, blocked ×3", () => {
-  // §5.1: at base=20, the smallest complete-graph clique that would self-certify Tier 2
-  // (S = 20 + 20n >= 140) if depth ordering did not exclude it is n=6 contributing peers, i.e. a
-  // 7-account ring (up from 6 accounts at the old base=10/T2=100 — see errata E-16). With the
-  // corrected gate 2 (contributing vouchers only), this row is blocked by all THREE gates: every
-  // ring member has 6 raw inbound edges, but zero are *contributing* (nothing has depth < an
-  // unreachable/undefined depth), so gate 1 (score < T1), gate 2 (0 contributing vouchers < 2)
-  // and gate 3 (unreachable) all fail independently.
+  // §5.1: the smallest complete-graph clique that would self-certify Tier 2 (S = 20 + 20n >= 140)
+  // if depth ordering did not exclude it is n=6 contributing peers, i.e. a 7-account ring. This
+  // row is blocked by all THREE gates: every ring member has 6 raw inbound edges, but zero are
+  // *contributing* (nothing has depth < an unreachable/undefined depth), so gate 1 (score < T1),
+  // gate 2 (0 contributing vouchers < 2) and gate 3 (unreachable) all fail independently.
   const ids = ["R0", "R1", "R2", "R3", "R4", "R5", "R6"];
   const accounts = ids.map((id) => human(id));
   const vouches = [];
@@ -195,12 +188,7 @@ test("12.1 — 7-account mutual ring (complete graph, no anchor path) => 20.00, 
 
 test("9.1 — depth 2, 2 × d1@60 => 50, blocked (the ladder shifts one level in — errata E-16)", () => {
   // depth 1: 2 anchors => 60.00 each. depth 2: 2 × d1@60 => 50.00 — below T1 (55.00), blocked.
-  // Under the OLD constants (base=10, T1=30) this exact shape (2 × d1@50) gave 35.00, comfortably
-  // Tier 1 — "two is never enough" didn't bite until depth 3 (see the next test below). At
-  // base=20 / T1=55 it now bites one level earlier, at depth 2, because base doubled (10 -> 20,
-  // a full extra +20 flat) while a depth-1 voucher's capped contribution only grew from 12.5 to
-  // 15.00 per source (m+/cap+ unchanged) — T1 had to move for the "two is never enough" property
-  // to survive at all, and moving it shifted exactly where the property first bites.
+  // "Two vouches is never enough" first bites here, at depth 2.
   const accounts = [
     anchorAccount("A1"),
     anchorAccount("A2"),

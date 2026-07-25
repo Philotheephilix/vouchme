@@ -135,7 +135,7 @@ contract CredibilityVaultTest is Test {
         assertApproxEqAbs(bondedAfter, 930e18, 1e18);
     }
 
-    // ─── item 4: demurrage is exact continuous decay, not the old linear approximation ──────
+    // ─── demurrage: exact continuous decay ──────────────────────────────────────────────────
 
     function test_ApplyDemurrage_ContinuousDecay_MatchesGeometricHalfYear() public {
         _bond(1_000e18);
@@ -145,11 +145,10 @@ contract CredibilityVaultTest is Test {
         vault.applyDemurrage(alice);
         (uint128 bondedAfter, , , , ) = vault.positions(alice);
 
-        // Continuous decay over half a year is `sqrt(0.93) * 1000 AVAL` ≈ 964.365 AVAL — distinctly
-        // different from the old linear approximation's `1000 * (1 - 0.035) = 965 AVAL`. Pin the
-        // exact integer the fixed-point `_wadPow` implementation produces (deterministic, derived in
-        // the accompanying design notes) rather than only bounding it, so a regression to the linear
-        // formula — which would land at 965e18, outside this tolerance — fails loudly.
+        // Continuous decay over half a year is `sqrt(0.93) * 1000 AVAL` ≈ 964.365 AVAL, distinct
+        // from a linear approximation's `1000 * (1 - 0.035) = 965 AVAL`. Pin the exact integer the
+        // fixed-point `_wadPow` implementation produces rather than only bounding it, so a linear
+        // formula — landing at 965e18, outside this tolerance — fails loudly.
         assertEq(bondedAfter, 964365076097496600000, "continuous decay must match sqrt(0.93) exactly");
         assertLt(bondedAfter, 965e18 - 0.5e18, "must not match the old linear approximation (965 AVAL)");
     }
@@ -171,7 +170,7 @@ contract CredibilityVaultTest is Test {
         assertApproxEqAbs(bondedAfter, 972e18, 1e18);
     }
 
-    // ─── item 3: the four terminal settlement outcomes route funds correctly ────────────────
+    // ─── the four terminal settlement outcomes route funds correctly ────────────────────────
 
     function test_Settle_Upheld_NoRebutters_ReporterGetsInsuranceViaSlashInsurance() public {
         // "UPHELD, nobody defends": the reporter must still receive 50% of the target's insurance

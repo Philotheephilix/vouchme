@@ -8,7 +8,7 @@
  *
  * The five stages, in order (01-trust-math.md §3):
  *
- *   0  anchors                    fixed at ANCHOR, ignore every inbound edge (E-6)
+ *   0  anchors                    fixed at ANCHOR, ignore every inbound edge
  *   1  s⁺  positive human scores  BFS least fixed point; outer origins loop; reports IGNORED
  *   2  s_P platform scores        from s⁺ only
  *   3  d   report weights         from s⁺ / s_P only; voiding is a boolean, not a weight
@@ -17,54 +17,37 @@
  *
  * Stratified evaluation is what keeps this a single deterministic pass: negative weights are
  * computed from positive-only scores in a strictly later stage, so there is no feedback edge and
- * therefore no cycle (E-9).
+ * therefore no cycle.
  *
- * SPEC AMBIGUITIES resolved here (see the engine package report for the full list):
+ * Where this engine resolves an ambiguity in the reference spec:
  *
- * 1. **A Tier-2 origin's own s⁺ across outer rounds.** The reference pseudocode
- *    (01-trust-math.md §15) resets `sp` to `BASE` for every account at the start of each outer
- *    round, then only recomputes accounts at depth 1..MAX_DEPTH — silently leaving newly-depth-0
- *    Tier-2 origins (non-anchors) parked at `BASE` instead of the score that qualified them,
- *    because the inner d-loop never visits depth 0. Taken literally this would make a Tier-2
- *    origin contribute only `w(BASE)` to its own vouchees in the very next round, drop the
- *    contributing accounts below promotion, remove them from the origin set, and violate the
- *    stated monotonicity invariants (I-4: `O_k ⊆ O_{k+1}`) the very next iteration. Resolution:
- *    each origin's qualifying s⁺ is *persisted* across rounds once established (anchors are
- *    always `ANCHOR`; a promoted Tier-2 member keeps the s⁺ that proved it crossed `T2`, computed
- *    in the round *before* it became an origin, when it was still an ordinary depth ≥ 1 node).
- *    This is order-independent and does not change any published table value — a qualifying
- *    Tier-2 score is always ≥ `T2` (14 000 centi), safely above the 8 000-centi threshold where
- *    the positive cap starts binding (`CAP_POS_BINDING_THRESHOLD` — this bound is a pure `cap⁺/m⁺`
- *    ratio and does not move with `base`/`T1`/`T2`, see errata E-16), so the exact persisted
- *    number never changes what it contributes to a vouchee (always the capped 2 000). It only
- *    fixes what would otherwise be silent, monotonicity-breaking data loss across rounds.
- * 2. **Report `state` filtering.** The reference `valid()` helper does not filter by `state` at
- *    all, which read literally would let a `rejected` or `withdrawn` report still show up in
- *    `scoreAtRisk`'s "any valid report" set. Resolution: only `pending` and `upheld` reports are
- *    ever valid; `rejected`/`withdrawn` are void with reason `report_rejected` /
- *    `report_withdrawn`, and contribute to neither published number. This matches
- *    docs/12-reporting.md's contract `State` enum, where those states mean the accusation did not
- *    stand.
- * 3. **The "under an upheld report" (voided-reporter) window.** Resolution: 180 days
+ * 1. **A Tier-2 origin's own s⁺ across outer rounds** is *persisted* once established (anchors
+ *    are always `ANCHOR`; a promoted Tier-2 member keeps the s⁺ that proved it crossed `T2`).
+ *    The reference pseudocode (01-trust-math.md §15) resets every account to `BASE` at the start
+ *    of each outer round and only recomputes depth 1..MAX_DEPTH, which would park newly-depth-0
+ *    origins at `BASE` and break the stated monotonicity invariant I-4 (`O_k ⊆ O_{k+1}`).
+ *    Persisting is order-independent and changes no published value: a qualifying Tier-2 score is
+ *    always ≥ `T2` (14 000 centi), above the threshold where the positive cap starts binding
+ *    (`CAP_POS_BINDING_THRESHOLD`, 8 000 centi), so the contribution to a vouchee is the capped
+ *    2 000 either way.
+ * 2. **Report `state` filtering.** Only `pending` and `upheld` reports are ever valid;
+ *    `rejected`/`withdrawn` are void with reason `report_rejected` / `report_withdrawn` and
+ *    contribute to neither published number. This matches docs/12-reporting.md's contract `State`
+ *    enum, where those states mean the accusation did not stand.
+ * 3. **The "under an upheld report" (voided-reporter) window** is 180 days
  *    (`REPORT_DECAY_DAYS`) — the same clock that zeroes the report's own weight
  *    (docs/01-trust-math.md §7.4), so a voided reporter is rehabilitated exactly when the report
  *    against them stops mattering. This is distinct from gate 4's 90-day window, which is a
  *    narrower, Tier-2-only origin-eligibility rule (docs/01-trust-math.md §11).
- * 4. **Gate 4 uses raw report state, not stage-3 validity.** The reference `gates()` helper is
- *    called from inside the stage-1 origin loop, before stage 3 (report validity/voiding) is
- *    computable in general (voiding of a *reporter* does not depend on the *target*'s score, but
- *    structuring it as a fully separate, raw check keeps the stratification strict and matches
- *    the reference signature `gates(u, sp, depth, av, reports, now)`, which receives the raw
- *    report list rather than a pre-validated one).
+ * 4. **Gate 4 uses raw report state, not stage-3 validity.** The gate runs inside the stage-1
+ *    origin loop, before stage 3 (report validity/voiding) is computable in general; keeping it a
+ *    fully separate raw check keeps the stratification strict.
  *
- * SPEC CORRECTION (confirmed and fixed upstream in docs/01-trust-math.md §11/§12.1 — not an
- * open ambiguity, recorded here for context): gate 2 ("≥ 2 distinct active inbound vouches")
- * counts *contributing* vouchers — distinct active inbound vouches from strictly lower depth —
- * not raw inbound edges. Counting raw edges let an account reach Tier 1 on one anchor plus one
- * same-depth, zero-weight edge (e.g. a direct anchor vouch fixes the target at depth 1; a second
- * depth-1 voucher is not strictly lower and contributes 0, yet still counted as a "second
- * voucher"), defeating gate 2's purpose of killing single points of trust. See
- * `distinctContributingVoucherCount` below.
+ * Gate 2 ("≥ 2 distinct active inbound vouches") counts *contributing* vouchers — distinct active
+ * inbound vouches from strictly lower depth — not raw inbound edges (docs/01-trust-math.md §11,
+ * §12.1). A same-depth voucher contributes 0 to the score, so counting it would let an account
+ * reach Tier 1 on what is really a single point of trust, which is exactly what gate 2 exists to
+ * prevent. See `distinctContributingVoucherCount` below.
  */
 
 import {
@@ -102,12 +85,11 @@ import type {
 } from "./types.js";
 
 /**
- * Deduplicate vouch records to one canonical edge per ordered pair (voucher, vouchee) (R-2,
- * docs/97-review-engine-app.md). Exported and used by BOTH `compute()` (the s⁺ sum, gate 2, and
- * the depth BFS) and `breakdown()` in explain.ts, so every consumer of raw `Vouch[]` input agrees
- * on the same canonical edge set — an indexer replay or duplicated subgraph event must not let one
- * voucher's edge count twice toward s⁺, nor show up as multiple rows in a score explanation, while
- * still being correctly deduplicated for gate 2's distinct-voucher count.
+ * Deduplicate vouch records to one canonical edge per ordered pair (voucher, vouchee). Used by
+ * BOTH `compute()` (the s⁺ sum, gate 2, and the depth BFS) and `breakdown()` in explain.ts, so
+ * every consumer of raw `Vouch[]` input agrees on the same canonical edge set — an indexer replay
+ * or duplicated subgraph event must not let one voucher's edge count twice toward s⁺, nor show up
+ * as multiple rows in a score explanation.
  *
  * Tie-break for conflicting duplicate records of the same pair (e.g. one marked active, one not):
  * prefer the active one. `Vouch` carries no timestamp of its own — resolving "latest" already
@@ -129,15 +111,15 @@ export function dedupeVouches(vouches: readonly Vouch[]): Vouch[] {
 
 // ── contribution / report-weight formulas (01-trust-math.md §10) ───────────────────────────────
 
-/** min(s × m⁺, cap⁺), truncated toward zero. `s` is always ≥ 0 in this engine. Exported (R-5,
- *  docs/97-review-engine-app.md) so consumers like explain.ts import the real formula instead of
- *  duplicating its constants as bare literals that can silently drift from this one. */
+/** min(s × m⁺, cap⁺), truncated toward zero. `s` is always ≥ 0 in this engine. Exported so
+ *  consumers like explain.ts import the real formula instead of duplicating its constants as bare
+ *  literals that can silently drift from this one. */
 export function weightPos(s: number): number {
   return Math.min(Math.trunc((s * M_POS_NUM) / M_POS_DEN), CAP_POS);
 }
 
 /** min(s × m⁻, cap⁻), truncated toward zero. `s` is always ≥ 0 in this engine. Exported for the
- *  same reason as `weightPos` above (R-5). */
+ *  same reason as `weightPos` above. */
 export function weightNeg(s: number): number {
   return Math.min(Math.trunc((s * M_NEG_NUM) / M_NEG_DEN), CAP_NEG);
 }
@@ -193,10 +175,9 @@ function buildReportResult(
 export function compute(input: EngineInput): EngineOutput {
   const { now } = input;
 
-  // R-6 (docs/97-review-engine-app.md): a malformed `now` or `report.upheldAt` — NaN, ±Infinity,
-  // or a non-integer — must fail loudly, not propagate silently into decay / gate-4-window
-  // arithmetic as NaN-tainted output. `tenureCenti` already guards its own input this way
-  // (tenure.ts); this closes the same gap for the two other caller-supplied time values.
+  // A malformed `now` or `report.upheldAt` — NaN, ±Infinity, or a non-integer — must fail loudly,
+  // not propagate silently into decay / gate-4-window arithmetic as NaN-tainted output.
+  // `tenureCenti` guards its own input the same way (tenure.ts).
   if (!Number.isFinite(now) || !Number.isInteger(now)) {
     throw new RangeError(`compute: input.now must be a finite integer (unix seconds), got ${now}`);
   }
@@ -206,9 +187,8 @@ export function compute(input: EngineInput): EngineOutput {
         `compute: report "${r.id}" upheldAt must be a finite integer (unix seconds) when present, got ${r.upheldAt}`,
       );
     }
-    // `upheldAt` is documented as required when state is "upheld" (types.ts), but only its FORMAT
-    // was checked, never its presence — so an upheld report could arrive without one and be
-    // silently privileged twice over:
+    // `upheldAt` is required when state is "upheld" (types.ts). An upheld report without one would
+    // be privileged twice over:
     //   - §7.4 decay is a function of age, so with no timestamp the report never decays and
     //     inflicts maximum damage forever;
     //   - the 180-day `isVoidedReporter` window is measured from the same field, so its reporter is
@@ -221,11 +201,9 @@ export function compute(input: EngineInput): EngineOutput {
           `and the 180-day reporter-voiding window, so it cannot be defaulted.`,
       );
     }
-    // `snapshotWeight` is typed as required, and its own doc comment says a caller that cannot
-    // supply it "must fail to construct a `Report` at all, not silently fall back to live-only
-    // weight". TypeScript enforces that at compile time for TS callers — but the engine is consumed
-    // from plain JS (scripts/) and from data assembled at runtime out of chain logs, where a missing
-    // or malformed value arrives as `undefined`/`NaN` and propagates through `min(...)` into every
+    // `snapshotWeight` is typed as required, but the engine is also consumed from plain JS
+    // (scripts/) and from data assembled at runtime out of chain logs, where a missing or
+    // malformed value arrives as `undefined`/`NaN` and propagates through `min(...)` into every
     // score in the graph. A NaN score is not a wrong number, it is an unnoticed one: it compares
     // false against every threshold, so tiers silently collapse rather than erroring.
     if (!Number.isFinite(r.snapshotWeight) || !Number.isInteger(r.snapshotWeight) || r.snapshotWeight < 0) {
@@ -256,8 +234,8 @@ export function compute(input: EngineInput): EngineOutput {
     return tenureCenti(acct.epochsClaimed ?? 0);
   }
 
-  // R-2 (docs/97-review-engine-app.md): deduplicate by (voucher, vouchee) BEFORE anything
-  // downstream sees the edge list — see `dedupeVouches` above for why and the tie-break rule.
+  // Deduplicate by (voucher, vouchee) BEFORE anything downstream sees the edge list — see
+  // `dedupeVouches` above for why and for the tie-break rule.
   const dedupedVouches = dedupeVouches(input.vouches);
 
   // Active vouches: both endpoints must resolve to active human accounts (defensively enforces
@@ -297,14 +275,11 @@ export function compute(input: EngineInput): EngineOutput {
     reportsByTarget.get(r.target)!.push(r);
   }
 
-  // SPEC CORRECTION (gate 2): counts *contributing* vouchers — distinct active inbound vouches
-  // from strictly lower depth — not raw inbound edges. Counting raw edges let an account reach
-  // Tier 1 on one anchor plus one same-depth "worthless" edge (e.g. a direct anchor vouch, which
-  // fixes the target at depth 1, plus a second depth-1 voucher whose own depth is not strictly
-  // lower and so contributes 0 to the score) — defeating gate 2's entire purpose (no single point
-  // of trust). A target with undefined/unreachable depth has zero contributing vouchers by
-  // definition (docs/01-trust-math.md §11; §12.1's corrected "1 anchor + 1 T1@55" row — the
-  // voucher score at the T1 threshold moved from 30 to 55 at base=20, errata E-16).
+  // Gate 2 counts *contributing* vouchers — distinct active inbound vouches from strictly lower
+  // depth — not raw inbound edges: a same-depth voucher contributes 0 to the score, so counting it
+  // would let an account reach Tier 1 on what is really a single point of trust. A target with
+  // undefined/unreachable depth has zero contributing vouchers by definition
+  // (docs/01-trust-math.md §11, §12.1).
   function distinctContributingVoucherCount(id: string, depthMap: Map<string, number>): number {
     const vs = inboundVouches.get(id);
     if (!vs) return 0;
@@ -373,8 +348,8 @@ export function compute(input: EngineInput): EngineOutput {
   for (const id of anchorIds) persistedSp.set(id, ANCHOR);
 
   // One inner layered pass (depth BFS + per-depth score sum) against a given origin set. Factored
-  // out (R-5-adjacent de-duplication) so the post-loop finalization pass below (R-4) can reuse the
-  // exact same computation instead of a second hand-copy that could drift from the one in the loop.
+  // out so the post-loop finalization pass below reuses the exact same computation rather than a
+  // hand-copy that could drift from it.
   function innerPass(originsForPass: ReadonlySet<string>): { depth: Map<string, number>; sp: Map<string, number> } {
     const passDepth = bfs(originsForPass);
     const passSp = new Map<string, number>();
@@ -414,11 +389,11 @@ export function compute(input: EngineInput): EngineOutput {
 
   let depth = new Map<string, number>();
   let sp = new Map<string, number>();
-  // R-4 (docs/97-review-engine-app.md): true once the outer loop reaches its natural fixed point
-  // (a round finds no new origins). False if MAX_ROUNDS was exhausted while the last round *did*
-  // still find new origins — in that case `depth`/`sp` are finalized once more below, but the
-  // search itself is not re-run (an adversarial input could make that loop forever), so a further
-  // downstream promotion that depends on this round's newly-admitted origins may be missing.
+  // True once the outer loop reaches its natural fixed point (a round finds no new origins).
+  // False if MAX_ROUNDS was exhausted while the last round *did* still find new origins — in that
+  // case `depth`/`sp` are finalized once more below, but the search itself is not re-run (an
+  // adversarial input could make that loop forever), so a further downstream promotion that
+  // depends on this round's newly-admitted origins may be missing.
   let converged = false;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -446,11 +421,11 @@ export function compute(input: EngineInput): EngineOutput {
 
   if (!converged) {
     // The last iteration admitted new origins but the loop then hit MAX_ROUNDS, so `depth`/`sp`
-    // above still reflect the pre-promotion origin set (the just-admitted origins would otherwise
-    // be published at their stale, pre-origin depth instead of depth 0 — see R-4's proof). This
-    // final pass only finalizes bookkeeping for origins already admitted; it does not search for
-    // further new origins, and `converged` stays false so a caller can detect and alert on / retry
-    // the exhaustion.
+    // above still reflect the pre-promotion origin set — the just-admitted origins would be
+    // published at their stale, pre-origin depth instead of depth 0. This final pass only
+    // finalizes bookkeeping for origins already admitted; it does not search for further new
+    // origins, and `converged` stays false so a caller can detect and alert on / retry the
+    // exhaustion.
     const finalPass = innerPass(originsSet);
     depth = finalPass.depth;
     sp = finalPass.sp;
@@ -486,12 +461,11 @@ export function compute(input: EngineInput): EngineOutput {
     if (!accountsById.has(r.target)) return "target_unknown";
     if (r.state === "rejected") return "report_rejected";
     if (r.state === "withdrawn") return "report_withdrawn";
-    // R-3 (docs/97-review-engine-app.md; §17 case 4): a platform can never report another
-    // platform — otherwise two platforms bootstrap each other's report weight, the clique attack
-    // one level up. Checked before any score lookup so voiding never depends on whether the
-    // reporter's own sPlatform has been computed yet in the stage-2 loop below (that dependency
-    // is exactly what made the unfixed bug's effect silently order-dependent on account-id sort
-    // order — voided here, it can never matter which platform stage 2 processes first).
+    // A platform can never report another platform (docs/01-trust-math.md §17 case 4) — otherwise
+    // two platforms bootstrap each other's report weight, the clique attack one level up. Checked
+    // before any score lookup so voiding never depends on whether the reporter's own sPlatform has
+    // been computed yet in the stage-2 loop below, which would make the result order-dependent on
+    // account-id sort order.
     if (isPlatformToPlatform(r)) return "platform_cannot_report_platform";
     if (isVoidedReporter(r.reporter)) return "reporter_voided";
     if (isConflictOfInterest(r)) return "platform_conflict_of_interest";
@@ -512,11 +486,11 @@ export function compute(input: EngineInput): EngineOutput {
       // by then stage 2 has already finished populating sPlatform for every platform.
       const sourceScore =
         reporterAcct.kind === "platform" ? (sPlatform.get(r.reporter) ?? 0) : sp.get(r.reporter)!;
-      // R-1 (docs/97-review-engine-app.md; §7.1): both terms are required — never inflict more
-      // damage than the bond paid for (snapshotWeight, fixed at filing time), and never more than
-      // current standing justifies (the live weight). Using only the live score would let a
-      // reporter who files at low standing and is later promoted inflict full current-score
-      // damage instead of what they actually bonded for.
+      // Both terms are required (docs/01-trust-math.md §7.1): never inflict more damage than the
+      // bond paid for (snapshotWeight, fixed at filing time), and never more than current standing
+      // justifies (the live weight). Using only the live score would let a reporter who files at
+      // low standing and is later promoted inflict full current-score damage instead of what they
+      // actually bonded for.
       const baseWeight = Math.min(r.snapshotWeight, weightNeg(sourceScore));
       e = { valid: true, baseWeight, decayedWeight: decayedWeight(baseWeight, r, now) };
     }
@@ -562,9 +536,9 @@ export function compute(input: EngineInput): EngineOutput {
     const evaluated = (reportsByTarget.get(u.id) ?? []).map((r) => ({ r, e: getEval(r) }));
 
     if (anchorIds.has(u.id)) {
-      // E-6: an anchor's score is fixed and ignores every inbound edge — including reports
-      // (01-trust-math.md §2: "it does not move the anchor's score, because the score isn't
-      // computed"). Reports against an anchor are still recorded/valid/visible, just inert.
+      // An anchor's score is fixed and ignores every inbound edge — including reports
+      // (01-trust-math.md §2). Reports against an anchor are still recorded/valid/visible, just
+      // inert.
       score.set(u.id, ANCHOR);
       scoreAtRisk.set(u.id, ANCHOR);
       for (const { r, e } of evaluated) {
@@ -612,14 +586,14 @@ export function compute(input: EngineInput): EngineOutput {
   //      Tier-2 status are the same fact, not two facts that could disagree.
   //   2. Re-checking would be actively wrong: once promoted, an origin is depth 0 in the final
   //      BFS, and gate 2's contributing-voucher count requires depth(voucher) < depth(target) —
-  //      nothing has depth < 0, so a naive re-check would vacuously fail gate 2 for every
-  //      non-anchor origin. The gates were already proven, using valid depth data, in the very
-  //      round the origin loop admitted this account (and the loop only *adds* origins, so that
-  //      proof is never invalidated by a later round).
-  // Every other human is classified fresh against the final depth map, using the corrected gate 2
-  // (contributing vouchers only — see distinctContributingVoucherCount) and the *published*
-  // score (post-report), so a recent upheld report can still cap a high-scoring non-origin at
-  // Tier 1 via gate 4, even though gate 4 only ever applies to the Tier-2 decision.
+  //      nothing has depth < 0, so a re-check would vacuously fail gate 2 for every non-anchor
+  //      origin. The gates were already proven, using valid depth data, in the round the origin
+  //      loop admitted this account, and the loop only *adds* origins, so that proof is never
+  //      invalidated by a later round.
+  // Every other human is classified fresh against the final depth map, using gate 2's contributing
+  // vouchers (see distinctContributingVoucherCount) and the *published* score (post-report), so a
+  // recent upheld report can still cap a high-scoring non-origin at Tier 1 via gate 4, even though
+  // gate 4 only ever applies to the Tier-2 decision.
   const tier = new Map<string, Tier>();
   for (const u of humans) {
     if (originsSet.has(u.id)) {

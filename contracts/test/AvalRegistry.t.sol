@@ -239,7 +239,7 @@ contract AvalRegistryTest is Test {
         registry.enroll(nullifier, CRED, "handle", deadline, nonce, sig);
     }
 
-    // ─── FR-7 / G-B13: confirmFraud voids the fraudulent account's own outbound vouches ──────
+    // ─── FR-7: confirmFraud voids the fraudulent account's own outbound vouches ─────────────
 
     function test_ConfirmFraud_VoidsOutboundVouches() public {
         _enroll(alice, 1);
@@ -305,7 +305,7 @@ contract AvalRegistryTest is Test {
         assertEq(activeAfter, 0, "activeOutbound must be unaffected by non-vouchee entries");
     }
 
-    // ─── G-B5: an address must not be both a human and a platform ──────────────────────────
+    // ─── dual-role guard: an address must not be both a human and a platform ───────────────
 
     function test_Enroll_RevertsIfRegisteredPlatform() public {
         AvalToken token = new AvalToken(governor);

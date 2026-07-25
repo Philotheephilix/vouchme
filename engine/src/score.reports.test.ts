@@ -15,8 +15,8 @@ import {
 const DAY = SECONDS_PER_DAY;
 
 // docs/01-trust-math.md §12.2 — reports applied. One test per row, all against a base scenario
-// of "U vouched by 2 anchors" (s+ = 60.00 at base=20 / T1=55), except the Tier-2 rows which use
-// 6 anchors (140.00 — see errata E-16: 5 anchors, the old Tier-2 example, is now only 120.00).
+// of "U vouched by 2 anchors" (s+ = 60.00), except the Tier-2 rows, which need 6 anchors
+// (140.00).
 
 function twoAnchorScenario(now: number, reports: ReturnType<typeof report>[]) {
   return makeInput({
@@ -45,10 +45,8 @@ test("12.2 — that report upheld: score drops to 20, Tier 0 (one maximal report
 });
 
 test("12.2 — upheld report, 90 days later: score 40, Tier 0 still (linear decay, half gone, but T1 moved further away than the report scale did — errata E-16)", () => {
-  // At the old base=10/T1=30, half-decay landed exactly back on T1 (30). At base=20/T1=55, the
-  // report mechanics (m-, cap-) are unchanged while base and T1 both moved, so half-decay (60.00
-  // - 20.00 = 40.00) no longer coincides with the new, higher T1 (55.00). Full rehabilitation
-  // (below) still clears it.
+  // Half-decay leaves U at 60.00 - 20.00 = 40.00, still below T1 (55.00). Only full
+  // rehabilitation (below) clears it.
   const now = 90 * DAY;
   const out = compute(
     twoAnchorScenario(now, [report("r1", "A3", "U", "upheld", { upheldAt: 0 })]),
@@ -67,8 +65,7 @@ test("12.2 — upheld report, 180 days later: score 60, Tier 1 (fully rehabilita
 });
 
 function sixAnchorScenario(reports: ReturnType<typeof report>[]) {
-  // 6, not 5: at base=20/T2=140, six anchors is the clean Tier-2 threshold (20 + 6x20 = 140);
-  // five anchors is now only Tier 1 (120.00) — see errata E-16.
+  // Six anchors is the clean Tier-2 threshold (20 + 6x20 = 140); five is only Tier 1 (120.00).
   const anchors = ["A1", "A2", "A3", "A4", "A5", "A6"];
   return makeInput({
     now: 0,
@@ -79,8 +76,7 @@ function sixAnchorScenario(reports: ReturnType<typeof report>[]) {
 }
 
 test("12.2 — Tier 2 (140): 1 upheld from a P2 platform => 100, Tier 1", () => {
-  // A P2 platform: vouched by 8 anchors => s_P = 160.00 (P2 >= 150, unaffected by the base
-  // change — platform thresholds and anchor contributions are constant regardless of base).
+  // A P2 platform: vouched by 8 anchors => s_P = 160.00 (P2 >= 150).
   const platformAnchors = Array.from({ length: 8 }, (_, i) => `PA${i}`);
   const humanAnchors = ["A1", "A2", "A3", "A4", "A5", "A6"];
   const out = compute(

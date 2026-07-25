@@ -4,15 +4,12 @@ import { compute } from "./score.js";
 import { breakdown } from "./explain.js";
 import { anchorAccount, human, makeInput } from "./test-helpers.js";
 
-// R-2 (docs/97-review-engine-app.md): duplicate (voucher, vouchee) vouch records must be
-// deduplicated to a single canonical edge BEFORE the s⁺ sum, gate 2, and the depth BFS all see
-// the edge list — not just deduplicated for gate 2 (which already used a Set internally) while
-// still being summed once per record. Reproduces the reviewer's own repro
-// (scratchpad/prove_dup_tier2.mjs): 2 REAL distinct anchors vouch for carol; one anchor's single
-// vouch is replayed as 4 duplicate edge records (an indexer replay / re-indexed event, not a
-// contract-level double-vouch). The spec requires 6 distinct anchors for Tier 2 at base=20
-// (§12.1, errata E-16) — 2 anchors must never be enough, regardless of how many times one of
-// their edges is repeated in the input array.
+// Duplicate (voucher, vouchee) vouch records must be deduplicated to a single canonical edge
+// before the s⁺ sum, gate 2, and the depth BFS see the edge list. Here 2 distinct anchors vouch
+// for carol and one anchor's single vouch is replayed as 4 duplicate records (an indexer replay,
+// not a contract-level double-vouch). Tier 2 requires 6 distinct anchors at base=20
+// (docs/01-trust-math.md §12.1), so 2 anchors must never be enough however often one of their
+// edges is repeated in the input array.
 test("R-2 — a duplicated vouch edge does not inflate s+ beyond what its distinct source contributes once", () => {
   const out = compute(
     makeInput({
@@ -35,8 +32,7 @@ test("R-2 — a duplicated vouch edge does not inflate s+ beyond what its distin
 });
 
 // The same duplication must not change which accounts count toward gate 2's distinct-voucher
-// requirement either — this was already correct before R-2 (gate 2 used a Set), so this is a
-// non-regression check that the fix didn't disturb it.
+// requirement either.
 test("R-2 — gate 2's distinct-voucher count is unaffected by duplicate edges (already correct; must stay correct)", () => {
   const out = compute(
     makeInput({
@@ -90,10 +86,10 @@ test("R-2 — conflicting duplicate records for the same pair: the active one wi
   assert.equal(JSON.stringify(activeFirst), JSON.stringify(inactiveFirst));
 });
 
-// R-2 (breakdown() gap): breakdown() reads the raw EngineInput.vouches directly, independent of
-// compute()'s internal edge list — a duplicated (voucher, vouchee) record must not show up as
-// multiple rows in the UI's "why is my score what it is" explanation either, or a user auditing
-// their own score would see phantom duplicate endorsements from the same person.
+// breakdown() reads the raw EngineInput.vouches directly, independent of compute()'s internal
+// edge list — a duplicated (voucher, vouchee) record must not show up as multiple rows in the
+// UI's "why is my score what it is" explanation either, or a user auditing their own score would
+// see phantom duplicate endorsements from the same person.
 test("R-2 — breakdown() shows a duplicated vouch edge as exactly one row, not one per duplicate", () => {
   const input = makeInput({
     now: 1000,

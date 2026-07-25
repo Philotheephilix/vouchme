@@ -53,9 +53,9 @@ export { checkAnchorStatusLive };
 export type { GraphAccount, GraphVouch, TrustGraph };
 
 // ── constants — DERIVED from @aval/engine's own exports, never a second, independently-hardcoded
-// number (task requirement: "Never hardcode score thresholds — always call @aval/engine's
-// compute() and read constants from the engine"). Decimal-point scale (score, not centi-points) —
-// the scale every tool JSON response and docs/06's own examples (e.g. "62.5") use.
+// number: score thresholds are always read from the engine, never retyped. Decimal-point scale
+// (score, not centi-points) — the scale every tool JSON response and docs/06's own examples
+// (e.g. "62.5") use.
 // `centiToDecimal()` below is the one seam where @aval/engine's centi-point output crosses into
 // this scale. If docs/10-constants.md's thresholds change, every one of these follows
 // automatically because each reads the same @aval/engine import, not a retyped literal. ──────────
@@ -222,12 +222,10 @@ export function isLikelyEnsName(identifier: string): boolean {
  * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
  * off-chain" — a bare label like "alice" — but this live deployment's actual enrollment script
  * (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL name
- * on-chain instead, e.g. "alice.aval.eth". Live chain data caught this: without stripping the
- * suffix, "carol.aval.eth" (an identifier) never equals "carol.aval.eth" (a handle already
- * containing the suffix) compared the naive way once the label is re-extracted, and everything
- * downstream of a name lookup failed. Tolerating both conventions here (bare label unchanged;
- * "<label>.aval.eth" stripped to its first segment) resolves this deployment's actual data
- * without assuming every future enrollment repeats the same (spec-deviating) convention.
+ * on-chain instead, e.g. "alice.aval.eth". Both conventions are tolerated here (bare label
+ * unchanged; "<label>.aval.eth" stripped to its first segment) so name lookups resolve against
+ * this deployment's actual data without assuming every future enrollment repeats the same
+ * (spec-deviating) convention.
  */
 function bareLabel(handle: string): string {
   const suffix = ".aval.eth";
@@ -250,14 +248,12 @@ export function resolveIdentifierToAddress(identifier: string, graph: TrustGraph
 
 // ── edge index + engine-backed scores — path-finding / candidate-discovery / naming support. ────
 //
-// This used to be a SEPARATE local BFS re-scoring pass with its own hardcoded BASE/T1/T2/M_POS/
-// CAP_POS constants (in DISPLAY units, while @aval/engine works in centi-points — a units bug on
-// top of being a second implementation of the trust math). That's gone: `scoreGraph()` now only
-// builds the inbound/outbound edge index (pure graph structure — @aval/engine has no notion of
-// "the edge from X to Y", only aggregate scores) and borrows every score/tier/depth number
-// straight from a real `computeEngine()` call. There is exactly one implementation of the scoring
-// math in this server, in @aval/engine, and it is never re-derived — including for the numbers
-// findPath/findCandidates/aval_platform/aval_report use to rank or gate on.
+// `scoreGraph()` only builds the inbound/outbound edge index (pure graph structure — @aval/engine
+// has no notion of "the edge from X to Y", only aggregate scores) and borrows every
+// score/tier/depth number straight from a real `computeEngine()` call. There is exactly one
+// implementation of the scoring math in this server, in @aval/engine, and it is never re-derived —
+// including for the numbers findPath/findCandidates/aval_platform/aval_report use to rank or gate
+// on.
 
 export interface ScoreResult {
   score: number; // decimal points, from the real engine

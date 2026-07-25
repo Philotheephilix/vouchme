@@ -13,7 +13,7 @@
 //
 // docs shows this as a bare array; wrapped as `{ points, subgraphDeployment,
 // computedAtBlock }` for the same reason as aval_candidates (see that
-// file's comment and the final report's "resolved ambiguities" section).
+// file's comment).
 
 import { z } from "zod";
 import { BASE, computeEngine, engineScoreResult, fetchGraph, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";

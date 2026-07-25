@@ -3,19 +3,14 @@
 //
 // WHY THIS SCRIPT EXISTS
 // ----------------------
-// The original live scenario asked 3 anchors to supply 4 anchor-vouch-slots in one
-// session (anchor1+anchor2 -> alice, anchor1+anchor3 -> bob). AvalRegistry enforces
-// 1 new vouch per voucher per 24h, so by pigeonhole one of those four must fail —
-// and anchor1 -> bob duly reverted on chain with RateLimited() (0x3f7b7a68).
+// AvalRegistry enforces 1 new vouch per voucher per 24h, so 3 anchors cannot supply
+// the 4 anchor-vouch-slots alice and bob need in one session (anchor1+anchor2 -> alice,
+// anchor1+anchor3 -> bob): by pigeonhole one of the four must fail with RateLimited().
+// With only one anchor vouch bob scores 30 and is blocked by gate 2 — the "1 anchor ->
+// 30 -> Blocked" row of docs/01-trust-math.md §12.1 — which cascades into carol, since
+// bob then contributes min(30*0.25,20)=7.5 instead of 12.5.
 //
-// Bob therefore ended with ONE anchor vouch: score 30, blocked by gate 2. That is a
-// letter-perfect live instance of the first row of docs/01-trust-math.md §12.1
-// ("1 anchor -> 30 -> Blocked"), and it cascaded into carol scoring 30 rather than 35
-// because bob contributes min(30*0.25,20)=7.5 instead of 12.5.
-//
-// Nothing was wrong with the engine, the contracts or the spec. The demo plan was
-// wrong. The fix is arithmetic, not a code change: a live session cannot skip the
-// rate limit, so it needs a fourth anchor.
+// A live session cannot skip the rate limit, so it needs a fourth anchor.
 //
 // Idempotent: every step checks chain state first and skips if already done.
 

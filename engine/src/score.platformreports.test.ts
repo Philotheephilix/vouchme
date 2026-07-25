@@ -3,13 +3,11 @@ import assert from "node:assert/strict";
 import { compute } from "./score.js";
 import { anchorAccount, human, makeInput, platformAccount, platformVouch, report } from "./test-helpers.js";
 
-// R-3 (docs/97-review-engine-app.md; §17 case 4): "A platform vouches for, or reports, another
-// platform" is forbidden — otherwise two platforms can bootstrap each other's report weight, the
-// clique attack one level up. Reproduces the reviewer's prove2.mjs: platformAAA (P1, id sorts
-// BEFORE the target) files an upheld report directly against platformZZZ (P2, id sorts after).
-// Before the fix, this reporter-sorts-first ordering let the report actually take effect (real,
-// nonzero demotion), because by the time platformZZZ's report deduction ran in the stage-2 loop,
-// platformAAA's sPlatform had already been computed.
+// docs/01-trust-math.md §17 case 4: a platform vouching for, or reporting, another platform is
+// forbidden — otherwise two platforms can bootstrap each other's report weight, the clique attack
+// one level up. Here platformAAA (P1, id sorts BEFORE the target) files an upheld report directly
+// against platformZZZ (P2, id sorts after), so the reporter's own sPlatform is already computed
+// when the target's deduction runs in the stage-2 loop; the report must still be void.
 test("R-3 — a platform cannot demote another platform via a report, reporter id sorting first", () => {
   const anchors = Array.from({ length: 8 }, (_, i) => `anchor${i}`);
   const accounts = [
@@ -41,13 +39,10 @@ test("R-3 — a platform cannot demote another platform via a report, reporter i
   assert.equal(out.reportWeights["r1"]!.voidReason, "platform_cannot_report_platform");
 });
 
-// The opposite id-sort ordering (reporter sorts AFTER the target) is the other half of the
-// reviewer's proof (prove_platform_report_platform.mjs): before the fix, this ordering made the
-// report look voided ONLY because platformB's own score hadn't been computed yet when
-// platformA's report deduction ran (`sPlatform.get(r.reporter) ?? 0` -> weight 0) — a false
-// negative that happened to look safe, not an actual voiding. Both orderings must produce the
-// exact same outcome (order-independence, I-5) now that the check no longer depends on score
-// lookup order at all.
+// The opposite id-sort ordering (reporter sorts AFTER the target), where the reporter's own score
+// has not been computed yet when the target's deduction runs. Both orderings must produce the
+// exact same outcome (order-independence, I-5): the platform-to-platform check is made before any
+// score lookup, so it never depends on lookup order.
 test("R-3 — same result with reporter id sorting after the target (order-independence)", () => {
   const anchors = Array.from({ length: 8 }, (_, i) => `anchor${i}`);
   const accounts = [

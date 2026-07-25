@@ -44,9 +44,7 @@ test("12.3 — 2 anchors vouch: s_P = 40, P1, reports at weight 20", () => {
 });
 
 test("12.3 — 4 × T1@60 vouch: s_P = 60, P1, reports at weight 30", () => {
-  // At base=20, a 2-anchor voucher scores 60.00 (not 50.00 — see errata E-16), so each
-  // contributes 15.00 to the platform instead of 12.5. P1/P2 thresholds are unaffected (platform
-  // scoring depends only on human s+ and the unchanged m+/cap+/m-/cap-).
+  // A 2-anchor voucher scores 60.00, so each contributes 15.00 to the platform.
   const anchors = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"];
   const vouchers = ["V0", "V1", "V2", "V3"];
   const out = compute(
@@ -107,8 +105,8 @@ test("12.3 — 8 anchors, then 3 humans report it: s_P = 160-120 = 40, P1 (demot
   assert.equal(out.platformTier["P"], 1);
 });
 
-// P-1 / P-3-adjacent: platforms never appear as the source of a positive human edge (I-16),
-// even if a caller hands the engine a malformed "vouch" whose voucher is a platform id.
+// Invariant I-16: platforms never appear as the source of a positive human edge, even if a caller
+// hands the engine a malformed "vouch" whose voucher is a platform id.
 test("I-16 — a platform can never be the source of a positive human edge", () => {
   const out = compute(
     makeInput({

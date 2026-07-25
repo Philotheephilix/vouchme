@@ -11,10 +11,9 @@ declare -a FAILED
 step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 ok()   { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); FAILED+=("$1"); printf '  \033[31mFAIL\033[0m  %s\n' "$1"; }
-# Run each check in a SUBSHELL. Without it, a `cd` inside one check leaks into
-# every later one — the contracts and subgraph steps left the shell parked
-# outside the workspace root and the npm steps after them failed with
-# "No workspaces found", which looks like a broken package and is not.
+# Run each check in a SUBSHELL: without it a `cd` inside one check (contracts,
+# subgraph) leaks into every later one, and the npm workspace steps then run from
+# outside the workspace root and fail in a way that looks like a broken package.
 check(){ if ( cd "$ROOT" && eval "$2" ) >/tmp/smoke.$$ 2>&1; then ok "$1"; else bad "$1"; tail -6 /tmp/smoke.$$ | sed 's/^/        /'; fi; }
 
 # ── 1. static ────────────────────────────────────────────────────────────────
@@ -60,9 +59,9 @@ fi
 pkill -f "node gateway/dist/server.js" 2>/dev/null
 
 # ── 6. mcp speaks stdio ──────────────────────────────────────────────────────
-# A raw two-line pipe does NOT work: the SDK requires the initialized
-# notification before it will answer tools/list, and it closes on EOF. Use the
-# package's own test, which drives a real SDK client over a real transport.
+# The SDK requires the `initialized` notification before it will answer tools/list,
+# and it closes on EOF, so a raw stdio pipe cannot drive it. Use the package's own
+# test, which drives a real SDK client over a real transport.
 step "6. MCP server"
 if ( cd "$ROOT" && npm test --workspace=@aval/mcp ) >/tmp/smoke-mcp.$$ 2>&1; then
   grep -qE '# (pass|tests) [1-9]' /tmp/smoke-mcp.$$ \

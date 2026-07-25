@@ -75,7 +75,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const afterTarget = engineScoreResult(after.output, targetAddr)!;
 
     // Slot-cost bookkeeping (rate limit, existing outbound edges) is structural graph metadata,
-    // not score math — reads the raw graph.vouches directly, same as before.
+    // not score math — reads the raw graph.vouches directly.
     const scoredForNaming = scoreGraph(graph); // naming only — see engine.ts's module comment
     const outboundByVoucher = graph.vouches.filter((v) => v.voucherId === voucherAddr);
     const lastIssuedAt = outboundByVoucher.reduce<bigint>((max, e) => (e.issuedAt > max ? e.issuedAt : max), 0n);

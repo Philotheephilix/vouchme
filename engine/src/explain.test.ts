@@ -13,10 +13,9 @@ import {
   vouch,
 } from "./test-helpers.js";
 
-// docs/99-errata.md E-2: a legal voucher (Dave, depth 3, score 57.50 at base=20 — errata E-16)
-// whose vouch is excluded from Carol's (depth 2) score purely because his depth is not strictly
-// lower than hers — the raw contribution (14.37) is still shown, marked not-counted, with the
-// specific reason.
+// A legal voucher (Dave, depth 3, score 57.50) whose vouch is excluded from Carol's (depth 2)
+// score purely because his depth is not strictly lower than hers — the raw contribution (14.37)
+// is still shown, marked not-counted, with the specific reason.
 test("breakdown() — E-2: excluded voucher shows its raw contribution and the depth reason", () => {
   const accounts = [
     anchorAccount("A1"),
@@ -133,13 +132,11 @@ test("explain() — produces a non-empty, deterministic prose string for a human
   assert.ok(platformText.includes("platform"));
 });
 
-// R-5 (docs/97-review-engine-app.md): explain.ts must import the contribution formula
-// (`weightPos`) from score.ts rather than hand-duplicating its constants (`* 25) / 100), 2_000)`)
-// as bare literals — constants.ts's own header says not to duplicate these numbers elsewhere in
-// the engine. A pure value-equality test on breakdown()'s output can't distinguish "imports the
-// real formula" from "happens to have copied the same numbers correctly", so this checks the
-// source directly: it fails on the pre-fix file (which hand-rolls the formula twice) and passes
-// once explain.ts imports and calls the shared function instead.
+// explain.ts must import the contribution formula (`weightPos`) from score.ts rather than
+// hand-duplicating its constants as bare literals — constants.ts's own header says not to
+// duplicate these numbers elsewhere in the engine. A value-equality test on breakdown()'s output
+// cannot distinguish "imports the real formula" from "happens to have copied the same numbers
+// correctly", so this checks the source text directly.
 test("R-5 — explain.ts imports weightPos from score.ts instead of duplicating its formula", () => {
   // This test file compiles to dist/explain.test.js; the source tree sits one level up at
   // ../src relative to dist/, so this resolves to engine/src/explain.ts either way.

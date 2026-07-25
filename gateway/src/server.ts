@@ -29,7 +29,7 @@ import {
 } from "./sign.js";
 
 /**
- * No required env var here: there is no deployed Aval Subgraph for this task
+ * No required env var here: there is no deployed Aval Subgraph
  * (deployments/worldchain-sepolia.json's own notes), so `chain.rpcUrl` is an OPTIONAL override —
  * chain.ts's own default (Tenderly primary, Alchemy public fallback) is fine for a fresh checkout.
  * Contract addresses and the deployment block come from deployments/worldchain-sepolia.json

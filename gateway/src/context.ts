@@ -7,10 +7,10 @@
 // build checklist: "Engine imported as a library — the same code the
 // gateway runs, so the MCP and ENS never disagree").
 //
-// There is no deployed Aval Subgraph for this task (deployments/worldchain-sepolia.json's own
-// notes) — `getTrustGraph`/`getNamingGraph` below read World Chain Sepolia directly (src/chain.ts)
-// instead of querying one. Every text record this module computes still traces back to real chain
-// events and a real `compute()` call; only the transport underneath changed.
+// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes) —
+// `getTrustGraph`/`getNamingGraph` below read World Chain Sepolia directly (src/chain.ts) instead
+// of querying one, so every text record this module computes traces back to real chain events and
+// a real `compute()` call.
 
 import type { Address } from "viem";
 import {
@@ -27,9 +27,7 @@ import {
 } from "@aval/engine";
 
 /** Display-point (÷100) mirror of @aval/engine's own BASE — never a second, independently-
- *  hardcoded fallback number. Task requirement: "Never hardcode score thresholds — always call
- *  @aval/engine's compute() and read constants from the engine." If docs/10-constants.md's BASE
- *  changes, this follows automatically. */
+ *  hardcoded fallback number, so a change to docs/10-constants.md's BASE follows automatically. */
 const BASE_DISPLAY = BASE_CENTI / 100;
 
 function slotsFor(tier: 0 | 1 | 2): number {
@@ -146,7 +144,7 @@ function readEngineAccountResult(output: EngineOutput, address: string): { score
     // Not present in this computation — shouldn't happen, since `address` was already confirmed
     // to be in trustGraph.accounts, which is exactly what built engineInput.accounts. BASE_DISPLAY
     // (derived from @aval/engine's own BASE, docs/10-constants.md §1) rather than a hardcoded
-    // literal — this fallback tracks a constants change automatically.
+    // literal, so this fallback tracks a constants change automatically.
     return { score: BASE_DISPLAY, tier: 0, depth: 0 };
   }
   return {
@@ -203,7 +201,7 @@ async function buildRecords(
   const canonicalName = canonical?.name ?? "";
   // Multiple anchors can each independently reach the same intermediate handle, producing
   // distinct path objects that render to the identical name string — dedupe by name, not by path
-  // object (a real thing this live, multi-anchor deployment now exhibits).
+  // object.
   const aliases = [...new Set(paths.filter((p) => p.name !== canonicalName).map((p) => p.name))].sort((a, b) =>
     a.localeCompare(b),
   );
@@ -232,9 +230,9 @@ async function buildRecords(
     "aval.score": score.toFixed(2),
     "aval.tier": String(tier),
     // Depth 0 means "origin" (an anchor, or a promoted Tier-2 account) in this protocol — the MOST
-    // trusted position in the graph. Falling back to 0 for an unreachable account (as this line
-    // used to) would render a ring member indistinguishable from an anchor. "unreachable" is the
-    // honest value, matching @aval/mcp's depthForJson() convention.
+    // trusted position in the graph — so an unreachable account must never fall back to 0, which
+    // would render a ring member indistinguishable from an anchor. "unreachable" matches
+    // @aval/mcp's depthForJson() convention.
     "aval.depth": Number.isFinite(depth) ? String(depth) : "unreachable",
     "aval.path": canonicalName,
     "aval.vouches.in": String(account.inbound.length),

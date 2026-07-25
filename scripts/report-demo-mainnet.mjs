@@ -4,30 +4,27 @@
 // 0x4570b517c75a90F85C9fED321113Fb80FC777bCc, and prints the before/after engine output read from
 // the same chain.
 //
-// ── What this script is honest about ────────────────────────────────────────────────────────────
+// ── Constraints this script runs under ──────────────────────────────────────────────────────────
 //
 // 1. **The demo accounts are not people.** `reportdemo-a/b/target` are keys derived from the public
 //    seed in scripts/identities.mjs. They enroll with an attestation this repo's attestor key signs
 //    for itself and a nullifier derived from a printed string — NOT a World ID nullifier, because
-//    no World ID proof exists for them. They are therefore NOT Orb-verified, which is the entire
-//    point: they are the only kind of account on this chain whose score is computed rather than
-//    fixed at 100 (errata E-6).
+//    no World ID proof exists for them. They are therefore NOT Orb-verified, which is the point:
+//    they are the only kind of account on this chain whose score is computed rather than fixed
+//    at 100.
 //
 // 2. **The reporter is tier 0, and docs/12-reporting.md §2 says a reporter must be tier ≥ 1.**
 //    `app/src/app/api/report/attest` enforces that rule and refuses these accounts — run
 //    `--check-route` to see it refuse. This script signs the same EIP-712 attestation directly,
 //    with the honest weight (`weightNeg(score)`, the exact number the engine will re-derive), and
-//    that single policy check is the only thing it skips. It is skipped because it CANNOT be
-//    satisfied here: tier ≥ 1 needs two vouches from accounts closer to an anchor, the only anchors
-//    on chain 480 are World ID Orb accounts, and the only two enrolled Orb accounts
-//    (philoo, romariokavin) are World App smart-contract wallets whose keys are not in this repo.
-//    Nothing is faked to get around it — the report is filed by an account that really is tier 0,
-//    and the engine really does credit it 10.00 points of weight.
+//    that single policy check is the only thing it skips. It CANNOT be satisfied here: tier ≥ 1
+//    needs two vouches from accounts closer to an anchor, the only anchors on chain 480 are World
+//    ID Orb accounts, and the only two enrolled Orb accounts (philoo, romariokavin) are World App
+//    smart-contract wallets whose keys are not in this repo.
 //
-// 3. **No score can move on this chain, and this script proves that rather than hiding it.**
-//    A non-anchor with no anchor vouch has s⁺ = base exactly, and `score = max(base + tenure,
-//    s⁺ − Σd)` (errata E-8), so the floor is already where the score is. The report is real, valid,
-//    and weighs 10.00 points, and the target's score is 20.00 before and 20.00 after.
+// 3. **No score can move on this chain.** A non-anchor with no anchor vouch has s⁺ = base exactly,
+//    and `score = max(base + tenure, s⁺ − Σd)`, so the floor is already where the score is. The
+//    report is real and valid and carries real weight, but the target's score is unchanged by it.
 //
 // Usage:
 //   node scripts/report-demo-mainnet.mjs --wire        governor: setAttestor + setMinter
@@ -329,13 +326,13 @@ async function wire() {
 
 /** Gas for three demo accounts, plus the AVAL bond each reporter needs in CredibilityVault.
  *  `BOND_PER_WEIGHT` is 10 AVAL per weight POINT and `weightPoints` is centi-points, so a 10.00-point
- *  report bonds 10 000 AVAL — see the note in the final report about that unit. */
+ *  report bonds 10 000 AVAL. */
 async function fund(bondPerReporter) {
   console.log("── funding ──");
   // 0.00005 ETH. Gas on World Chain is ~0.0015 gwei, so this is far more than the ~5 transactions
-  // these accounts send — but `eth_estimateGas` fails outright ("out of gas: gas required exceeds")
-  // when the sender's balance cannot cover gasLimit × gasPrice at the estimator's own price, and
-  // `file()` is the heaviest call here (a struct write plus a vault lock).
+  // these accounts send — but `eth_estimateGas` fails outright when the sender's balance cannot
+  // cover gasLimit × gasPrice at the estimator's own price, and `file()` is the heaviest call here
+  // (a struct write plus a vault lock).
   const gasEach = 50_000_000_000_000n;
   for (const [label, acct] of Object.entries(DEMO)) {
     const bal = await publicClient.getBalance({ address: acct.address });

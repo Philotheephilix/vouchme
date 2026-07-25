@@ -6,9 +6,8 @@
  * ---
  * At base 20 / T1 55, carol sits at 50.00 Tier 0 with two depth-1 vouchers:
  *     20 + min(60x0.25,20) + min(60x0.25,20) = 20 + 15 + 15 = 50 < 55
- * That is correct — it is the "two vouches is never enough from ordinary members,
- * three is" rule doing its job. But it means the live graph no longer shows a
- * promoted depth-2 account, which is the most interesting node in the demo.
+ * — the "two vouches is never enough from ordinary members, three is" rule doing its
+ * job. Without a third voucher the live graph shows no promoted depth-2 account.
  *
  * A third depth-1 voucher fixes it: 20 + 15x3 = 65 >= 55 -> Tier 1.
  *
@@ -23,9 +22,8 @@
  *              ├─> erin (depth 1, 20 + 20 + 20 = 60, Tier 1) ──> carol
  *     anchor6 ─┘
  *
- * The rate limit is not an obstacle to work around here; it is the same mechanism
- * that makes the collusion ring impossible to bootstrap in one session. A live
- * demo does not get to skip its own medicine.
+ * The rate limit is not an obstacle to work around: it is the same mechanism that
+ * makes a collusion ring impossible to bootstrap in one session.
  *
  * Idempotent: every step checks chain state and skips if already done.
  */

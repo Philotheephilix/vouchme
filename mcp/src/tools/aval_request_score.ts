@@ -14,9 +14,8 @@
 //
 // NOTE ON SCOPE: submitting the actual on-chain transaction needs a
 // funded signer and the PlatformRegistry ABI, neither of which this
-// scaffold wires up (no operator wallet was specified in the task brief).
-// The score computation below is real; `requestId` is derived
-// deterministically so it is stable and inspectable, but is NOT yet the
+// scaffold wires up. The score computation below is real; `requestId` is
+// derived deterministically so it is stable and inspectable, but is NOT yet the
 // id of a transaction that has actually landed on World Chain. This is
 // flagged here and in mcp/README.md rather than silently pretended.
 

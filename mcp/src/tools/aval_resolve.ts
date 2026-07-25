@@ -55,8 +55,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     // Multiple anchors can each independently reach the same intermediate handle (e.g. two
     // anchors both vouching the same depth-1 account), producing distinct NamedPath objects that
     // render to the identical name string — dedupe by name, not by path object, or the same alias
-    // would be listed once per redundant anchor-path (a real thing this live, multi-anchor
-    // deployment now exhibits).
+    // would be listed once per redundant anchor-path.
     const aliases = [...new Set(paths.filter((p) => p.name !== canonical?.name).map((p) => p.name))].sort();
 
     const inbound = scored.inboundByAccount.get(address) ?? [];

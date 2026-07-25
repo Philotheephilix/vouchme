@@ -16,9 +16,9 @@ import type { EngineInput } from "./types.js";
 
 // I-2: A complete subgraph with no anchor path scores exactly BASE + tenure, and never reaches T1.
 test("I-2 — 7-account complete ring, no anchor path, scores exactly BASE + tenure", () => {
-  // 7, not 6: at base=20/T2=140, the smallest complete-graph clique that would self-certify
-  // Tier 2 if depth ordering did not exclude it is 7 accounts (§5.1, errata E-16), so that is the
-  // canonical illustrative ring size across docs and tests.
+  // 7 accounts: the smallest complete-graph clique that would self-certify Tier 2 if depth
+  // ordering did not exclude it (docs/01-trust-math.md §5.1), and the canonical ring size used
+  // across the docs and tests.
   const ids = ["R0", "R1", "R2", "R3", "R4", "R5", "R6"];
 
   // zero-tenure variant
@@ -32,9 +32,8 @@ test("I-2 — 7-account complete ring, no anchor path, scores exactly BASE + ten
     assert.equal(zero.score[id], BASE);
     assert.equal(zero.tier[id], 0);
     assert.ok(zero.score[id]! < T1);
-    // all three gates fail independently: score < T1 (gate 1), unreachable (gate 3), and —
-    // with the corrected gate 2 (contributing vouchers, not raw edges) — zero of the 6 raw
-    // inbound vouches are contributing, so gate 2 fails too, not just gates 1 and 3.
+    // all three gates fail independently: score < T1 (gate 1), unreachable (gate 3), and zero of
+    // the 6 raw inbound vouches are contributing, so gate 2 fails as well.
     const bd = breakdown(id, zeroInput, zero);
     assert.equal(bd.vouchers.length, 6);
     assert.ok(bd.vouchers.every((v) => !v.counted));

@@ -2,10 +2,9 @@
  * Aval — human-readable score explanations.
  *
  * This is a product surface, not a debug aid: "why is my score what it is" has to answer for
- * every inbound edge, including the ones that contribute nothing (docs/01-trust-math.md's own
- * E-2 errata example is exactly this — a legal voucher whose raw contribution is shown and
- * explicitly marked excluded because of depth ordering). `breakdown()` returns one row per
- * inbound vouch and per report against the account, each with a `counted` flag and, when
+ * every inbound edge, including the ones that contribute nothing — a legal voucher excluded only
+ * by depth ordering still gets a row showing its raw contribution. `breakdown()` returns one row
+ * per inbound vouch and per report against the account, each with a `counted` flag and, when
  * `counted` is false, the specific reason why not.
  */
 
@@ -21,10 +20,9 @@ import type {
 } from "./types.js";
 import { BASE } from "./constants.js";
 import { tenureCenti } from "./tenure.js";
-// R-5 (docs/97-review-engine-app.md): import the real contribution formula instead of duplicating
-// its constants as bare literals here — constants.ts's own header says not to.
-// R-2: import the same canonical-edge dedup compute() uses, so a duplicated (voucher, vouchee)
-// record shows up as exactly one row here too, not one row per duplicate.
+// Import the real contribution formula rather than duplicating its constants as bare literals,
+// and the same canonical-edge dedup `compute()` uses, so a duplicated (voucher, vouchee) record
+// shows up as exactly one row here too.
 import { dedupeVouches, weightPos } from "./score.js";
 
 export type VoucherNotCountedReason =
@@ -41,8 +39,8 @@ export interface VoucherRow {
   voucherSPlus: number | undefined;
   /** BFS depth of the voucher; `undefined` if missing/not human/unreachable. */
   voucherDepth: number | undefined;
-  /** The raw contribution this vouch WOULD make — min(voucherSPlus × 0.25, cap), centi-points —
-   *  shown even when `counted` is false, per E-2 of docs/99-errata.md. */
+  /** The raw contribution this vouch WOULD make — min(voucherSPlus × 0.25, cap), centi-points.
+   *  Shown even when `counted` is false. */
   rawContribution: number;
   /** What actually landed in the vouchee's s⁺ sum: `rawContribution` if counted, else 0. */
   contribution: number;

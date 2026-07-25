@@ -6,14 +6,9 @@ import {IAddressBook} from "../../src/interfaces/IAddressBook.sol";
 /// @notice Test double for the World ID Address Book. Defaults everyone to unverified; tests can
 ///         flip individual addresses, or set a precise expiry.
 ///
-/// @dev    Errata E-18: this mock previously implemented `getIsUserVerified(address) -> bool`,
-///         a function the real Address Book does not have. The whole suite passed against it,
-///         because the mock and the interface agreed with each other and neither agreed with the
-///         chain. The real contract exposes `addressVerifiedUntil(address) -> uint256`.
-///
-///         Storing an expiry rather than a bool also makes the lapse case testable at all, which
-///         the boolean version could not express: Orb verification EXPIRES, and `isAnchor` must
-///         stop being true when it does.
+/// @dev    Mirrors the real Address Book's `addressVerifiedUntil(address) -> uint256`. Storing an
+///         expiry rather than a bool is what makes the lapse case testable: Orb verification
+///         EXPIRES, and `isAnchor` must stop being true when it does.
 contract MockAddressBook is IAddressBook {
     mapping(address => uint256) public verifiedUntil;
 

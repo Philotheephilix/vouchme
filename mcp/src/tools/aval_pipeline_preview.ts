@@ -5,10 +5,10 @@
 //
 // Natural language -> a Substreams pipeline preview (docs/14-substreams.md
 // §3). This scaffold does not implement the NL -> Substreams manifest
-// codegen backend (out of this task's build scope — see mcp/README.md's
-// scope note); it implements the documented tool *shape*, including the
-// safety property aval_pipeline_deploy depends on: a preview that finds no
-// events must be refused at deploy time, not silently indexed as empty.
+// codegen backend (see mcp/README.md's scope note); it implements the
+// documented tool *shape*, including the safety property
+// aval_pipeline_deploy depends on: a preview that finds no events must be
+// refused at deploy time, not silently indexed as empty.
 
 import { z } from "zod";
 import { newPreviewId, savePreview } from "../pipelines.js";

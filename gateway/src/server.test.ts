@@ -1,15 +1,14 @@
 // @aval/gateway — src/server.test.ts
 //
-// Smoke test for the HTTP server (task brief §3: "npm run dev must start
-// and serve GET /health without throwing when optional env vars are
-// absent. Missing REQUIRED config should fail fast with a clear message
-// naming the variable, not a stack trace."). Run with `npm test` after
-// `npm run build` (node's built-in test runner).
+// Smoke test for the HTTP server: it must start and serve GET /health without throwing when the
+// optional env vars are absent, and missing REQUIRED config must fail fast with a clear message
+// naming the variable rather than a stack trace. Run with `npm test` after `npm run build`
+// (node's built-in test runner).
 //
-// There is no deployed Aval Subgraph for this task (deployments/worldchain-sepolia.json's own
-// notes) — src/chain.ts reads World Chain Sepolia directly instead, using contract addresses from
-// that same deployment record and (by default) the RPC endpoints named in the task brief. The
-// ONLY env var this server cannot run without is the gateway's own signing key.
+// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes) —
+// src/chain.ts reads World Chain Sepolia directly instead, using contract addresses from that same
+// deployment record and its own default RPC endpoints. The ONLY env var this server cannot run
+// without is the gateway's own signing key.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -20,7 +19,7 @@ import { getAnchorBookAddress, getAvalRegistryAddress } from "./chain.js";
 
 // The only env var this server cannot run without — everything else in gateway/.env.example has
 // a default or is optional. Kept minimal and explicit here (rather than read from ambient
-// process.env) so this test exercises exactly the "optional vars absent" case the brief describes.
+// process.env) so this test exercises exactly the "optional vars absent" case.
 function requiredEnv(): NodeJS.ProcessEnv {
   return {
     GATEWAY_SIGNER_PRIVATE_KEY: generatePrivateKey(),

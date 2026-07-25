@@ -1,19 +1,18 @@
 // @aval/gateway — src/chain.ts
 //
 // Live World Chain Sepolia reads — the trust graph's actual data source. There is no deployed
-// Aval Subgraph (deployments/worldchain-sepolia.json's own notes; scripts/live-verify.mjs proves
-// this exact approach against the live chain and its output is this module's ground truth). Every
-// number this module produces is read directly off `AvalRegistry` events / view functions and
+// Aval Subgraph (deployments/worldchain-sepolia.json's own notes), so every number this module
+// produces is read directly off `AvalRegistry` events / view functions and
 // `GenesisAnchorBook.getIsUserVerified` — no indexer, no cache-as-source-of-truth, no fabricated
-// deployment id (the gateway's `aval.subgraph` text record — see context.ts — is the honest
-// literal string `direct-chain-read:4801`, never a guessed IPFS hash).
+// deployment id (the gateway's `aval.subgraph` text record — see context.ts — is the literal
+// string `direct-chain-read:4801`, never a guessed IPFS hash).
 //
 // Mirrors app/src/lib/chain.ts's approach closely (same event ABI fragments, same Multicall3
 // batching, same chunked getLogs, same chronological Vouched/Reaffirmed/Revoked replay per
-// (voucher, vouchee) pair — docs/01-trust-math.md §18: an indexer/log-replay can legitimately
-// emit more than one record for the same pair, and summing duplicates is a real Sybil hole, not a
-// tidiness concern). Kept self-contained here (not imported from app/) because this package must
-// not depend on app/, per the task's directory boundaries.
+// (voucher, vouchee) pair — docs/01-trust-math.md §18: a log replay can legitimately emit more
+// than one record for the same pair, and summing duplicates is a Sybil hole, not a tidiness
+// concern). Kept self-contained rather than imported from app/, because this package must not
+// depend on app/.
 //
 // Contract addresses and the deployment block are READ from deployments/worldchain-sepolia.json
 // at runtime — the authoritative record — never retyped as literals here.
@@ -66,19 +65,18 @@ export function getDeploymentBlock(): bigint {
   return BigInt(loadDeployment().deploymentBlock);
 }
 
-/** What every `aval.subgraph` text record reports — honest about there being no subgraph, per
- *  the task brief ("be honest in whatever provenance field you expose; do not fabricate a
- *  deployment ID"). */
+/** What every `aval.subgraph` text record reports: there is no subgraph, and this provenance
+ *  string says so rather than naming a fabricated deployment ID. */
 export const CHAIN_PROVENANCE = "direct-chain-read:4801";
 
 // ── chain + transport ────────────────────────────────────────────────────────────────────────
 
 const WORLDCHAIN_SEPOLIA_ID = 4801;
 const DEFAULT_PRIMARY_RPC = "https://worldchain-sepolia.gateway.tenderly.co";
-// Alchemy's public endpoint rate-limits hard — fallback only, never primary (task brief).
+// Alchemy's public endpoint rate-limits hard — fallback only, never primary.
 const DEFAULT_FALLBACK_RPC = "https://worldchain-sepolia.g.alchemy.com/public";
 
-// Canonical Multicall3 address; verified deployed on World Chain Sepolia (task brief).
+// Canonical Multicall3 address; deployed on World Chain Sepolia.
 const MULTICALL3_ADDRESS: Address = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 function worldChainSepolia(): Chain {
@@ -93,9 +91,9 @@ function worldChainSepolia(): Chain {
   };
 }
 
-/** Tenderly primary, Alchemy public fallback ONLY (task brief: "Alchemy's public endpoint
- *  rate-limits hard — use it only as fallback"). `WORLDCHAIN_SEPOLIA_RPC` overrides the primary
- *  for local testing; `WORLDCHAIN_SEPOLIA_RPC_FALLBACK` overrides the fallback. */
+/** Tenderly primary, Alchemy public fallback ONLY — Alchemy's public endpoint rate-limits hard.
+ *  `WORLDCHAIN_SEPOLIA_RPC` overrides the primary for local testing;
+ *  `WORLDCHAIN_SEPOLIA_RPC_FALLBACK` overrides the fallback. */
 function buildTransport(env: NodeJS.ProcessEnv): Transport {
   const primary = env.WORLDCHAIN_SEPOLIA_RPC ?? DEFAULT_PRIMARY_RPC;
   const secondary = env.WORLDCHAIN_SEPOLIA_RPC_FALLBACK ?? DEFAULT_FALLBACK_RPC;
@@ -112,15 +110,14 @@ function getClient(): PublicClient {
     transport: buildTransport(process.env),
     // Aggregate concurrent eth_calls (getIsUserVerified / members, once per account) into
     // Multicall3 instead of firing one HTTP request per account — a naive per-account fan-out
-    // trips the public RPC's rate limit immediately (task brief; already happened once in app/).
+    // trips the public RPC's rate limit immediately.
     batch: { multicall: { batchSize: 1024, wait: 16 } },
   });
   return cachedClient;
 }
 
 // ── ABI fragments — exactly the surface read, matching contracts/src/AvalRegistry.sol and
-// contracts/src/GenesisAnchorBook.sol, and identical to app/src/lib/chain.ts's own fragments
-// (verified against this exact live deployment). ────────────────────────────────────────────────
+// contracts/src/GenesisAnchorBook.sol, and identical to app/src/lib/chain.ts's own fragments. ───
 
 const ENROLLED_EVENT = {
   type: "event",
@@ -243,8 +240,7 @@ function credentialLabel(hash: string): string {
 }
 
 // ── log fetching, chunked — the public RPC gateway caps eth_getLogs at 100 blocks per call
-// (confirmed against this exact endpoint; scripts/live-verify.mjs and app/src/lib/chain.ts use
-// the same value for the same reason). ─────────────────────────────────────────────────────────
+// (app/src/lib/chain.ts uses the same value for the same reason). ──────────────────────────────
 
 const LOG_CHUNK_BLOCKS = 100n;
 
@@ -313,8 +309,7 @@ async function ensureLogsThrough(
   return ensureLogsThrough(client, registry, deployBlock, upToBlock);
 }
 
-// ── the graph shapes context.ts consumes — same field names as the pre-existing subgraph.ts so
-// context.ts's consuming logic barely changes, just where the numbers come from. ────────────────
+// ── the graph shapes context.ts consumes — the same field names subgraph.ts re-exports. ────────
 
 export type AccountStatus = "ACTIVE" | "GRACE" | "SUSPENDED" | "FRAUDULENT";
 
@@ -370,10 +365,9 @@ function deriveStatus(now: number, credentialExpiresAt: number, fraudulent: bool
   return "SUSPENDED";
 }
 
-// Credential grace window (docs/10-constants.md §14: CREDENTIAL_GRACE_DAYS = 14). Not imported
-// from @aval/engine's constants here (the gateway's own dependency graph already includes
-// @aval/engine for compute() — see context.ts — but this file is a low-level chain reader kept
-// independent of it) — kept as a locally-cited constant, matching this exact value.
+// Credential grace window (docs/10-constants.md §14: CREDENTIAL_GRACE_DAYS = 14). Kept local
+// rather than imported from @aval/engine so this low-level chain reader stays independent of the
+// engine, which context.ts (not this file) is the one to call.
 const CREDENTIAL_GRACE_DAYS = 14;
 
 interface EnrolledArgs {
@@ -464,7 +458,7 @@ async function fetchLiveGraphAtBlock(atBlock: bigint): Promise<LiveGraph> {
     const [, credentialExpiresAt, , , , , enrolled, fraudulent] = memberTuples[i]!;
     if (!enrolled) return;
     const status = deriveStatus(now, Number(credentialExpiresAt), fraudulent, CREDENTIAL_GRACE_DAYS);
-    if (status === "FRAUDULENT") return; // excluded from the graph entirely, matching the original subgraph query
+    if (status === "FRAUDULENT") return; // excluded from the graph entirely
     accounts.push({
       id: addr,
       handle: handleFor.get(addr) ?? "",
@@ -529,9 +523,8 @@ async function fetchLiveGraphAtBlock(atBlock: bigint): Promise<LiveGraph> {
 }
 
 // ── caching — by latest block, short TTL. Two flavors of the same underlying live read: the
-// scoring-oriented TrustGraphSnapshot (subgraph.ts's original shape) and the naming-oriented
-// NamingSnapshot, both derived from one shared fetch so a single resolution only reads the chain
-// once. ─────────────────────────────────────────────────────────────────────────────────────────
+// scoring-oriented TrustGraphSnapshot and the naming-oriented NamingSnapshot, both derived from
+// one shared fetch so a single resolution only reads the chain once. ───────────────────────────
 
 const LATEST_BLOCK_TTL_MS = 4_000;
 let latestBlockCache: { fetchedAt: number; block: bigint } | null = null;
@@ -579,9 +572,9 @@ export interface GetTrustGraphOptions {
 /** Trust graph shaped for @aval/engine's compute() input — inbound edges already active-filtered
  *  (docs/01-trust-math.md §14, §18: expiry is a query-time predicate, and duplicate/replayed
  *  (voucher, vouchee) records are resolved to exactly one edge before anything downstream sees
- *  them). `options.now` is accepted for API compatibility with the pre-existing subgraph.ts
- *  signature but the graph's own active-filter always uses the read block's real timestamp — the
- *  same "active" answer the chain itself would give at that block, not a caller-substituted one. */
+ *  them). `options.now` is accepted for API compatibility with subgraph.ts's signature but is not
+ *  used: the active-filter always runs against the read block's own timestamp — the same "active"
+ *  answer the chain itself would give at that block, not a caller-substituted one. */
 export async function getTrustGraph(
   _config: ChainClientConfig,
   options: GetTrustGraphOptions = {},
@@ -632,10 +625,10 @@ export async function getNamingGraph(
   return { accounts, edges, blockNumber, deploymentId: CHAIN_PROVENANCE };
 }
 
-/** Config placeholder — kept as a type (rather than deleting it outright) so context.ts's
- *  `GatewayConfig.chain: ChainClientConfig` field has something concrete to name; there is
- *  nothing to configure beyond the RPC env vars `buildTransport()` already reads directly, since
- *  contract addresses come from deployments/worldchain-sepolia.json, not caller-supplied config. */
+/** Config placeholder — exists so context.ts's `GatewayConfig.chain: ChainClientConfig` field has
+ *  something concrete to name. There is nothing to configure beyond the RPC env vars
+ *  `buildTransport()` already reads directly, since contract addresses come from
+ *  deployments/worldchain-sepolia.json, not caller-supplied config. */
 export interface ChainClientConfig {
   rpcUrl?: string | undefined;
 }

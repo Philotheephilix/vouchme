@@ -43,20 +43,15 @@ struct Params {
     model: String,
     protocol: String,
     network: String,
-    /// Which indexed topic carries the ASSERTER (`from`) and which the SUBJECT (`to`).
+    /// Which indexed topic carries the ASSERTER (`from`) and which the SUBJECT (`to`), as 1-based
+    /// topic indices.
     ///
-    /// trust-graph v0.1.0 hardcoded `from = topics[1]`, `to = topics[2]`, which silently assumed
-    /// every protocol declares its indexed address params asserter-first. Aval does
-    /// (`Vouched(address indexed voucher, address indexed vouchee, ...)`); **EAS does not** —
-    /// `Attested(address indexed recipient, address indexed attester, bytes32, bytes32 indexed)`
-    /// puts the SUBJECT first. Under v0.1.0 every EAS edge therefore pointed backwards: the
-    /// person being attested about was recorded as the one doing the attesting. Real bug, real
-    /// rows, caught by reading EAS's own event declaration against the emitted data rather than
-    /// trusting that two indexed addresses mean the same two things everywhere.
-    ///
-    /// v0.2.0 makes the mapping explicit and per-deployment: `from_topic` / `to_topic`, 1-based
-    /// topic indices. Defaults (1, 2) preserve v0.1.0 behaviour for Aval and anything else that
-    /// already declared asserter-first, so no existing deployment changes meaning.
+    /// Two indexed address params do not mean the same two things in every protocol. Aval declares
+    /// them asserter-first (`Vouched(address indexed voucher, address indexed vouchee, ...)`);
+    /// **EAS does not** — `Attested(address indexed recipient, address indexed attester, bytes32,
+    /// bytes32 indexed)` puts the SUBJECT first, so inferring the roles from position alone points
+    /// every EAS edge backwards. There is no ABI-level signal that distinguishes the two orderings,
+    /// so the mapping is declared per deployment. Defaults (1, 2) are asserter-first.
     from_topic: usize,
     to_topic: usize,
     /// Optional 1-based topic index carrying the `scope` discriminator (EAS: `schemaUID` at
@@ -72,14 +67,11 @@ struct Params {
 
 /// How to read a kind's non-indexed ABI tail for timing information.
 ///
-/// v0.1.0 inferred this from `Kind` alone — VOUCH means "two uint64 words, issuedAt then
-/// expiresAt", REVOKE means "one uint64 word, `at`", and so on. That inference is only valid for
-/// contracts shaped like AvalRegistry. Applied to EAS, whose single non-indexed word is a
-/// content-addressed `uid`, it read a hash as a clock: PROOF.md §8.2 records the resulting
-/// `expires_at = 2106-02-07` on live rows, and `clamp_unix_timestamp` exists purely to stop that
-/// garbage from wedging the sink. The fix is to stop guessing — a deployment DECLARES its tail
-/// layout, and `None` is a first-class, honest answer meaning "this log carries no timing data;
-/// use the block clock and leave expiry unset".
+/// The layout cannot be inferred from `Kind` alone: "VOUCH means two uint64 words, issuedAt then
+/// expiresAt" holds only for contracts shaped like AvalRegistry. EAS's single non-indexed word is
+/// a content-addressed `uid`, and reading a hash as a clock yields absurd expiries. A deployment
+/// therefore DECLARES its tail layout, and `None` is a first-class answer meaning "this log
+/// carries no timing data; use the block clock and leave expiry unset".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TailLayout {
     /// word[0] = issuedAt, word[1] = expiresAt  (AvalRegistry `Vouched`)
@@ -137,8 +129,8 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
     let mut model = "WEIGHTED".to_string();
     let mut protocol = "aval".to_string();
     let mut network = String::new();
-    // Defaults reproduce trust-graph v0.1.0 exactly, so every deployment written against v0.1.0
-    // keeps its meaning under v0.2.0 without editing its params.
+    // Defaults reproduce trust-graph v0.1.0's implicit behaviour, so a deployment written against
+    // v0.1.0 keeps its meaning without editing its params.
     let mut from_topic = 1usize;
     let mut to_topic = 2usize;
     let mut scope_topic: Option<usize> = None;
@@ -185,8 +177,7 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
                 }
             }
             // An UNRECOGNISED tail value is fatal, not silently defaulted: a typo like
-            // `vouch_tail=nil` would otherwise fall back to reading a `uid` as a timestamp —
-            // exactly the class of silent-garbage bug v0.2.0 exists to remove.
+            // `vouch_tail=nil` would otherwise fall back to reading a `uid` as a timestamp.
             "vouch_tail" => {
                 vouch_tail = TailLayout::parse(val)
                     .ok_or_else(|| Error::msg(format!("unknown vouch_tail {val:?}")))?
@@ -272,9 +263,11 @@ fn word_u64(word: &[u8]) -> u64 {
     u64::from_be_bytes(buf)
 }
 
-/// The trust-graph v0.1.0 event shape fixes indexed params to `(from, to)`
-/// but leaves the non-indexed tail free per `Kind`, matching the concrete
-/// shapes AvalRegistry actually emits (contracts/src/AvalRegistry.sol):
+/// Decodes `(issued_at, expires_at)` from a log's non-indexed tail, per the declared `TailLayout`.
+///
+/// The trust-graph event shape fixes indexed params to `(from, to)` but leaves the non-indexed
+/// tail free per `Kind`, matching the concrete shapes AvalRegistry actually emits
+/// (contracts/src/AvalRegistry.sol):
 ///   VOUCH    Vouched(address indexed,address indexed,uint64 issuedAt,uint64 expiresAt)   -> 2 words
 ///   REAFFIRM Reaffirmed(address indexed,address indexed,uint64 expiresAt)                -> 1 word
 ///   REVOKE / REPORT / REPORT_RESOLVED (..., uint64 at)                                    -> 1 word,
@@ -282,20 +275,12 @@ fn word_u64(word: &[u8]) -> u64 {
 ///
 /// `block_timestamp` (the containing block's own clock, always present, never decoded from event
 /// data) is the fallback `issued_at` for every kind whose ABI shape does not carry an explicit
-/// issuance word — REAFFIRM has none at all (only `expiresAt`), and the too-short-data branches
-/// for every kind have none either. **Real regression, found by a second reviewer directly
-/// querying the sink DB, not by this module's own tests**: before this fallback existed, REAFFIRM
-/// always emitted `issued_at: 0` — literal Unix epoch, 1970-01-01 — because there is no issuedAt
-/// word to decode and the old code did not fall back to anything. That is silently wrong in the
-/// most damaging direction: any downstream tenure/freshness computation over such an edge reads it
-/// as maximally old. It was latent (not yet visible) on the live Aval reference deployment only
-/// because zero real `Reaffirmed` events have happened there yet (see PROOF.md) — this shares code
-/// with the WCS/Aval path, so it would have hit real Aval score inputs the moment one did. Falling
-/// back to `block_timestamp` is never wrong in the way `0` was: it is always at least "this event
-/// genuinely happened at this real, on-chain moment," never a fabricated date. It does not, by
-/// itself, recover an *original* VOUCH's `issued_at` when a REAFFIRM follows it — that gap is the
-/// separate, already-documented `store_edges` KNOWN LIMITATION below (this event-level value is
-/// correct; carrying it forward across events in the store is the unrelated, unresolved part).
+/// issuance word — REAFFIRM has none at all (only `expiresAt`), and neither do the too-short-data
+/// branches. It must never fall back to `0` instead: `issued_at: 0` is literal Unix epoch,
+/// 1970-01-01, which any downstream tenure/freshness computation reads as maximally old. The block
+/// clock is always at least "this event genuinely happened at this real, on-chain moment". It does
+/// not, by itself, recover an *original* VOUCH's `issued_at` when a REAFFIRM follows it — that gap
+/// is the separate `store_edges` KNOWN LIMITATION below.
 fn decode_timing(layout: TailLayout, data: &[u8], block_timestamp: u64) -> (u64, u64) {
     match layout {
         TailLayout::IssuedExpires => {
@@ -319,9 +304,9 @@ fn decode_timing(layout: TailLayout, data: &[u8], block_timestamp: u64) -> (u64,
                 (block_timestamp, 0)
             }
         }
-        // The whole point of v0.2.0: a deployment can say "there is no timing data here" and get
-        // the block clock plus an explicit `expires_at = 0` (perpetual-as-far-as-this-log-proves),
-        // instead of a `uid` hash silently decoded as a year-2106 expiry.
+        // A deployment declaring "there is no timing data here" gets the block clock plus an
+        // explicit `expires_at = 0` (perpetual as far as this log proves), rather than a `uid`
+        // hash silently decoded as a year-2106 expiry.
         TailLayout::None => (block_timestamp, 0),
     }
 }
@@ -428,15 +413,14 @@ fn map_trust_events(params: String, block: eth::Block) -> Result<TrustEvents, Er
 
 /// The edge identity under trust-graph v0.2.0: (protocol, network, scope, from, to).
 ///
-/// v0.1.0 keyed on (protocol, from, to) only. Two real collisions that hid behind that:
+/// `network` and `scope` are load-bearing parts of the identity, not decoration:
 ///   * **network** — the SAME protocol indexed on two chains (EAS on Base and EAS on Optimism)
-///     shares `protocol=eas`, so an edge on one chain would overwrite the identically-addressed
-///     edge on the other. Addresses are not chain-scoped; the key has to be.
+///     shares `protocol=eas`, so without it an edge on one chain overwrites the
+///     identically-addressed edge on the other. Addresses are not chain-scoped; the key has to be.
 ///   * **scope**   — one EAS attester routinely holds several live attestations about the same
-///     recipient under different schemas. Without `scope`, revoking one collapsed all of them
+///     recipient under different schemas. Without `scope`, revoking one collapses all of them
 ///     into a single revoked edge.
-/// Both are only reachable once the module actually runs on more than one chain and more than
-/// one protocol, which is exactly what v0.2.0 does. schema.sql's ORDER BY mirrors this tuple.
+/// schema.sql's ORDER BY mirrors this tuple.
 fn edge_key(protocol: &str, network: &str, scope: &str, from: &[u8], to: &[u8]) -> String {
     format!(
         "edge:{protocol}:{network}:{scope}:{}:{}",
@@ -448,22 +432,20 @@ fn edge_key(protocol: &str, network: &str, scope: &str, from: &[u8], to: &[u8]) 
 // KNOWN LIMITATION — read this before changing store_edges:
 //
 // `updatePolicy: set` stores in Substreams cannot read their own prior state
-// from within their own handler. Verified empirically against substreams
-// 1.20.2: declaring `store_edges` as its own `mode: get` input (so a REAFFIRM
-// or REVOKE event could recover the `weight_raw`/`issued_at` an earlier
-// VOUCH wrote for the same key) is rejected by `substreams info` with
-// `modules graph has a cycle` — a store module may not depend on itself.
-// `StoreSetProto<T>` also has no `get_*` methods at all (confirmed by the
-// compiler, not just by convention) — a set-store's own write handle is
-// write-only.
+// from within their own handler. Under substreams 1.20.2, declaring
+// `store_edges` as its own `mode: get` input (so a REAFFIRM or REVOKE event
+// could recover the `weight_raw`/`issued_at` an earlier VOUCH wrote for the
+// same key) is rejected by `substreams info` with `modules graph has a cycle`
+// — a store module may not depend on itself. `StoreSetProto<T>` also has no
+// `get_*` methods at all: a set-store's own write handle is write-only.
 //
 // So, within the single `store_edges` module docs/14-substreams.md §2 names,
 // a REAFFIRM or REVOKE event can only write the fields IT carries; it cannot
 // recover `weight_raw` / `issued_at` from an earlier VOUCH for the same key.
 // On the live reference deployment this is a *latent* limitation, not an
-// active bug: World Chain Sepolia has zero Revoked/Reaffirmed events as of
-// this writing (0/0 — see ../PROOF.md and scripts/live-verify.mjs), so every
-// Edge this store currently produces is a complete, correct VOUCH record.
+// active bug: World Chain Sepolia has no Revoked/Reaffirmed events at all
+// (see ../PROOF.md), so every Edge this store currently produces is a
+// complete, correct VOUCH record.
 //
 // The correct fix for when REAFFIRM/REVOKE volume is nonzero is four small
 // single-purpose stores combined downstream in `map_edge_deltas` (each using
@@ -493,13 +475,11 @@ fn store_edges(events: TrustEvents, store: StoreSetProto<Edge>) {
             from: ev.from.clone(),
             to: ev.to.clone(),
             // "0", not `String::new()`: schema.sql's `weight_raw` column is ClickHouse
-            // `Decimal(38, 18)`, which rejects an empty string outright
-            // (`converting value "" to type "decimal.Decimal": unsupported struct type`) and
-            // fails the WHOLE flush batch, not just this field — found by actually running the
-            // sink against a REAFFIRM-first key (real Base/EAS data with no prior VOUCH; see the
-            // KNOWN LIMITATION note above and PROOF.md). "0" is still an honestly-incomplete
-            // placeholder for that case, same as the rest of this freshly-zeroed `edge` — it is
-            // just also a value the sink can actually store instead of crashing on.
+            // `Decimal(38, 18)`, which rejects an empty string outright and fails the WHOLE flush
+            // batch, not just this field. Reachable for a REAFFIRM- or REVOKE-first key, which has
+            // no prior VOUCH to take a weight from under this single-store design (see the KNOWN
+            // LIMITATION note above). "0" is still an honestly-incomplete placeholder, same as the
+            // rest of this freshly-zeroed `edge` — it is just one the sink can actually store.
             weight_raw: "0".to_string(),
             issued_at: 0,
             expires_at: 0,
@@ -511,17 +491,13 @@ fn store_edges(events: TrustEvents, store: StoreSetProto<Edge>) {
             scope: ev.scope.clone(),
         };
 
-        // Applies to every kind, not just VOUCH: `ev.issued_at` is now always well-defined
+        // Applies to every kind, not just VOUCH: `ev.issued_at` is always well-defined
         // (`decode_timing`'s doc comment) — the event's own decoded ABI word for VOUCH, or the
         // containing block's real timestamp for every kind whose shape carries no issuance word
-        // of its own. Real regression, found by a second reviewer directly querying the sink DB:
-        // this line used to live only inside the `Vouch` arm below, so a REAFFIRM- or
-        // REVOKE-first key (no prior VOUCH seen by this single-store design — the freshly-zeroed
-        // `edge` initializer above defaults `issued_at` to `0`) kept `issued_at: 0` in the row
-        // sent to the sink even after `map_trust_events` itself was fixed to stop emitting `0`.
-        // Fixing the raw event's field is necessary but not sufficient: the store has to actually
-        // carry it into the `Edge` for every kind, not just the one that happened to set it
-        // before.
+        // of its own. It has to be carried into the `Edge` here rather than inside the `Vouch`
+        // arm below, or a REAFFIRM- or REVOKE-first key (no prior VOUCH under this single-store
+        // design) keeps the freshly-zeroed initializer's `issued_at: 0` in the row sent to the
+        // sink.
         edge.issued_at = ev.issued_at;
 
         match kind {
@@ -567,19 +543,16 @@ fn hex0x(bytes: &[u8]) -> String {
 /// Clamp a decoded `uint64` timing field into ClickHouse `DateTime`'s valid range
 /// (`[0, 4294967295]` — 1970-01-01 through 2106-02-07, since the column is 32-bit).
 ///
-/// Why this exists: the trust-graph v0.1.0 shape assumes a contract's non-indexed event tail is
-/// timing data (docs/14 §2's `issued_at`/`expires_at`), which holds for AvalRegistry and Circles
-/// v2's `Trust.expiryTime`. It does NOT hold for every contract with two indexed addresses — EAS's
-/// `Attested(address indexed,address indexed,bytes32,bytes32 indexed)` on Base structurally
-/// matches (topics align, decode succeeds, real addresses come out correct — see PROOF.md), but
-/// its one non-indexed word is a content-addressed `uid` hash, not a clock reading. Read through
-/// `word_u64`, a `uid` produces an arbitrary, often huge or (interpreted as `i64`) negative
-/// number — ClickHouse's `DateTime` column then rejects it outright
-/// (`cannot parse "-475969128228036841" as "2006"`) and the whole flush batch fails, not just
-/// that row. That failure mode — one shape-mismatched event able to wedge the entire sink — is
-/// worse than storing a clamped, honestly-wrong sentinel value for a field this particular
-/// protocol pairing was never going to populate meaningfully. Found by actually running the sink
-/// against live Base data, not by inspection.
+/// Why this exists: a contract with two indexed addresses does not necessarily carry timing data
+/// in its non-indexed tail (docs/14 §2's `issued_at`/`expires_at`). AvalRegistry and Circles v2's
+/// `Trust.expiryTime` do; EAS's `Attested(address indexed,address indexed,bytes32,bytes32 indexed)`
+/// on Base structurally matches but its one non-indexed word is a content-addressed `uid` hash.
+/// `tail=none` is the declared way to say so, but a misconfigured profile can still read a hash
+/// through `word_u64`, producing an arbitrary, often huge or (interpreted as `i64`) negative
+/// number. ClickHouse's `DateTime` column rejects that outright and the whole flush batch fails,
+/// not just that row. One shape-mismatched event able to wedge the entire sink is worse than
+/// storing a clamped, honestly-wrong sentinel for a field that pairing was never going to
+/// populate meaningfully.
 fn clamp_unix_timestamp(value: u64) -> i64 {
     const CLICKHOUSE_DATETIME_MAX: u64 = 4_294_967_295;
     value.min(CLICKHOUSE_DATETIME_MAX) as i64
@@ -693,9 +666,7 @@ mod tests {
                 // NOT `receipt.logs` (the receipt copy is what a real Firehose block also carries, but
                 // `logs_with_calls()` ignores it; it exists to exclude logs from reverted sub-calls, so
                 // it reads off `calls`). A fixture with only `receipt.logs` set decodes to zero events
-                // — silently, no panic — which is exactly the "builds but decodes nothing" failure mode
-                // the acceptance test exists to catch. Caught by actually running `cargo test`, not by
-                // inspection: the two tests below failed (0 events, not 1) until this call was added.
+                // — silently, no panic — so every fixture must populate `calls` too.
                 calls: vec![Call {
                     state_reverted: false,
                     logs: vec![Log {
@@ -790,22 +761,20 @@ mod tests {
         assert_eq!(hex::encode(&out_b.events[0].to), "4dfc0607d1687816eea7df62847a953a29272777");
     }
 
-    /// Real regression: a `Trust`/`Attested`-shaped event whose non-indexed word is a content
-    /// hash, not a timestamp (EAS's `uid` on Base — see PROOF.md), decodes to a `u64` so large
-    /// that `as i64` wraps negative. Un-clamped, that value reached ClickHouse as
-    /// `-475969128228036841` and `DateTime` parsing failed the whole flush batch, not just the
-    /// one row (found by actually running the sink against live Base data). Clamping must land
-    /// safely in ClickHouse `DateTime`'s 32-bit range regardless of how large or how the u64
-    /// input is, with no cast-related sign flip.
+    /// A `Trust`/`Attested`-shaped event whose non-indexed word is a content hash rather than a
+    /// timestamp (EAS's `uid` on Base — see PROOF.md) decodes to a `u64` so large that `as i64`
+    /// wraps negative, and ClickHouse `DateTime` parsing then fails the whole flush batch, not
+    /// just the one row. Clamping must land safely in `DateTime`'s 32-bit range regardless of how
+    /// large the u64 input is, with no cast-related sign flip.
     #[test]
     fn clamp_unix_timestamp_never_goes_negative_or_out_of_range() {
         assert_eq!(clamp_unix_timestamp(0), 0);
         assert_eq!(clamp_unix_timestamp(1_784_980_220), 1_784_980_220); // a real Vouched issuedAt
         assert_eq!(clamp_unix_timestamp(4_294_967_295), 4_294_967_295); // exactly the DateTime max
         assert_eq!(clamp_unix_timestamp(4_294_967_296), 4_294_967_295); // one past max: clamps
-        // The actual garbage word_u64 value observed from a real EAS `uid` on Base (see
-        // PROOF.md) — u64::from_be_bytes on a hash's low 8 bytes, which is > i64::MAX and would
-        // flip negative under a bare `as i64` cast.
+        // A real EAS `uid` on Base read through word_u64 (see PROOF.md) — u64::from_be_bytes on a
+        // hash's low 8 bytes, which is > i64::MAX and would flip negative under a bare `as i64`
+        // cast.
         let real_garbage_uid_low_bytes: u64 = 17_970_774_945_481_514_775;
         assert!(real_garbage_uid_low_bytes > i64::MAX as u64);
         let clamped = clamp_unix_timestamp(real_garbage_uid_low_bytes);
@@ -813,22 +782,16 @@ mod tests {
         assert_eq!(clamped, 4_294_967_295);
     }
 
-    /// Real regression, flagged by a second reviewer directly querying the sink DB rather than
-    /// trusting this module's own test suite: REAFFIRM's ABI shape (one word, `expiresAt` only)
-    /// carries no `issuedAt`, and before this fix the raw event's `issued_at` was hardcoded `0` —
-    /// literal 1970-01-01. That is not a neutral "unknown," it is wrong in the single most
-    /// damaging direction for a tenure input: an edge with `issued_at: 0` reads as maximally old
-    /// to any freshness computation. It was invisible on `cargo test` because no existing test
-    /// exercised REAFFIRM at all, and invisible on the live Aval deployment only because zero real
-    /// `Reaffirmed` events had happened yet (PROOF.md) — the exact review comment that caught it
-    /// was "does the WCS path share this bug," and the honest answer was yes, latently, via this
-    /// same shared function. `block_timestamp` is a real fallback, not a better-looking fake one:
-    /// it is the actual time this REAFFIRM happened on chain, which is always true of it, even
-    /// though it is not the same fact as "when was this edge's original VOUCH" (that gap is the
-    /// separate, still-open `store_edges` KNOWN LIMITATION documented above `store_edges`).
+    /// REAFFIRM's ABI shape (one word, `expiresAt` only) carries no `issuedAt`, so the raw event's
+    /// `issued_at` must fall back to the block clock and never to `0`. `0` is not a neutral
+    /// "unknown" but literal 1970-01-01, i.e. wrong in the single most damaging direction for a
+    /// tenure input: such an edge reads as maximally old to any freshness computation.
+    /// `block_timestamp` is the actual time this REAFFIRM happened on chain — always true of it,
+    /// even though it is not the same fact as "when was this edge's original VOUCH" (that gap is
+    /// the separate `store_edges` KNOWN LIMITATION documented above `store_edges`).
     #[test]
     fn reaffirm_issued_at_falls_back_to_block_timestamp_not_zero() {
-        // Synthetic (not a captured real log) — REAFFIRM has zero occurrences on the live Aval
+        // Synthetic (not a captured real log) — REAFFIRM has no occurrences on the live Aval
         // deployment to capture from (PROOF.md) — but the topic0, address shape, and single-word
         // `expiresAt` payload are the real, verified `Reaffirmed(address,address,uint64)` layout.
         let block = block_with_real_log(
@@ -904,9 +867,8 @@ mod tests {
     /// wired into `map_trust_events`'s output. This test exists purely to
     /// prove — against real on-chain bytes — that the same ABI-decoding
     /// primitives this module relies on (address-from-topic, uint64-from-word,
-    /// and here, the dynamic `string` tail) work correctly, satisfying the
-    /// "show actual decoded Vouched/Enrolled events" acceptance bar. See
-    /// ../PROOF.md for the full worked decode and the raw log.
+    /// and here, the dynamic `string` tail) work correctly. See ../PROOF.md
+    /// for the full worked decode and the raw log.
     #[test]
     fn decodes_real_enrolled_event_as_account_context() {
         let topics = [
@@ -940,10 +902,10 @@ mod tests {
     // ─── World Chain MAINNET (chainId 480) — the currently shipped target ──────
     //
     // Everything above this line decodes real logs from the *Sepolia* (4801)
-    // reference deployment, captured before Aval moved to mainnet. They are kept
-    // because they are real bytes and they still exercise every decode branch —
-    // but they no longer describe the contract this package ships pointed at. The
-    // tests below close that gap against the live mainnet deployment.
+    // reference deployment. They are kept because they are real bytes and they
+    // still exercise every decode branch — but they do not describe the contract
+    // this package ships pointed at. The tests below cover that against the live
+    // mainnet deployment.
 
     /// The params string the shipped manifest actually deploys with, read out of
     /// `substreams.yaml` itself at compile time. This is deliberately NOT a copy:
@@ -1088,9 +1050,8 @@ mod tests {
     /// `Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
     /// — SUBJECT first, asserter second. The two assertions that matter here are the `from`/`to`
     /// pair: `from` must be the ATTESTER (0x357458…d7ee, topics[2]) and `to` the RECIPIENT
-    /// (0xf46f5d…5e50, topics[1]). Under trust-graph v0.1.0's hardcoded
-    /// `from = topics[1], to = topics[2]` this edge pointed the other way — see
-    /// `v0_1_0_topic_order_would_reverse_this_eas_edge` below, which pins that exact regression.
+    /// (0xf46f5d…5e50, topics[1]). The default topic order would give the opposite — see
+    /// `v0_1_0_topic_order_would_reverse_this_eas_edge` below.
     #[test]
     fn decodes_a_real_eas_attested_log_with_the_attester_as_from() {
         let block = block_with_real_log(
@@ -1114,9 +1075,7 @@ mod tests {
 
         assert_eq!(ev.protocol, "eas");
         assert_eq!(ev.network, "base");
-        // An attestation being issued IS a trust assertion — VOUCH, not REAFFIRM. v0.1.0 had no
-        // topic slot free for it and routed `Attested` through `reaffirm_topic`, which is why
-        // PROOF.md §7.3's rows all read REAFFIRM. That was a workaround, not a mapping.
+        // An attestation being issued IS a trust assertion — VOUCH, not REAFFIRM.
         assert_eq!(ev.kind, EventKind::Vouch as i32);
         assert_eq!(
             hex::encode(&ev.from),
@@ -1134,17 +1093,17 @@ mod tests {
         );
         // `vouch_tail=none`: no timing in the log, so issuance is the block's own clock and
         // expiry is the standard's perpetual sentinel 0 — NOT a `uid` misread as a year-2106
-        // timestamp, which is what v0.1.0 produced (PROOF.md §8.2).
+        // timestamp.
         assert_eq!(ev.issued_at, 1_785_003_000);
         assert_eq!(ev.expires_at, 0);
         assert_eq!(ev.block_num, 49109539);
     }
 
-    /// The regression pin for the reversed-edge bug. Same real log, same everything, except the
-    /// params keep v0.1.0's implicit `from_topic=1&to_topic=2`. The decode still "succeeds" and
-    /// still produces two real, plausible-looking addresses — it just names the wrong one as the
-    /// asserter. That is precisely why this had to be made explicit rather than inferred: there
-    /// is no ABI-level signal that distinguishes the two orderings, and the wrong answer is
+    /// Pins what the DEFAULT topic order means for an EAS log. Same real log, same everything,
+    /// except the params omit the explicit roles and fall back to `from_topic=1&to_topic=2`. The
+    /// decode still "succeeds" and still produces two real, plausible-looking addresses — it just
+    /// names the wrong one as the asserter. That is why the roles are declared rather than
+    /// inferred: no ABI-level signal distinguishes the two orderings, and the wrong answer is
     /// indistinguishable from the right one by inspection of the output alone.
     #[test]
     fn v0_1_0_topic_order_would_reverse_this_eas_edge() {
@@ -1196,8 +1155,9 @@ mod tests {
         assert_eq!(ev.kind, EventKind::Revoke as i32);
         assert_eq!(hex::encode(&ev.from), "357458739f90461b99789350868cd7cf330dd7ee");
         assert_eq!(hex::encode(&ev.to), "fde64995acd78435c63505a066273abdd979386c");
-        // `revoke_tail=none`: v0.1.0 would have read the `uid` as this revocation's `at`,
-        // producing an absurd `issued_at`. The block clock is the real, checkable answer.
+        // `revoke_tail=none`: the log's only non-indexed word is a `uid`, so reading it as this
+        // revocation's `at` would give an absurd `issued_at`. The block clock is the real,
+        // checkable answer.
         assert_eq!(ev.issued_at, 1_785_003_890);
         assert_eq!(ev.expires_at, 0);
     }

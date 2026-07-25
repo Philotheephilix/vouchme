@@ -147,7 +147,7 @@ contract PlatformRegistryTest is Test {
         assertEq(platformActive, 0);
     }
 
-    // ─── G-B5: an address must not be both a human and a platform (mirror of AvalRegistry's) ──
+    // ─── dual-role guard: an address must not be both a human and a platform ──────────────────
 
     function test_RegisterPlatform_RevertsIfEnrolledHuman() public {
         vm.startPrank(governor);

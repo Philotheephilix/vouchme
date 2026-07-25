@@ -6,7 +6,7 @@
 // and runs it through the real @aval/engine `compute()` — the same function the app/subgraph use.
 //
 // Asserts the expected values from docs/01-trust-math.md §12.1 and exits non-zero on mismatch.
-// Per the task: a mismatch is not silently reconciled by editing the assertion. It is reported.
+// A mismatch is reported, never silently reconciled by editing the assertion.
 
 import { createPublicClient, http } from "viem";
 import { readFileSync } from "node:fs";
@@ -166,12 +166,10 @@ async function main() {
   const depthDisplay = (d) => (d === Infinity ? "∞ (unreachable)" : String(d));
 
   // ── expected values, docs/01-trust-math.md §12.1 — kept exactly as specified; NOT adjusted
-  // to match whatever the chain says. See the task report for how/why any mismatch happened. ──
+  // to match whatever the chain says. ──
   const expectations = [
-    // Derived from the engine's own constants, never hardcoded — the base 10 -> 20
-    // migration silently invalidated the literals that used to live here, and a
-    // verification script that has to be hand-edited after every constants change
-    // is a script that will eventually assert the wrong thing confidently.
+    // Derived from the engine's own constants, never hardcoded, so they cannot drift when the
+    // constants change.
     //   depth-1 (2 anchors)  = BASE + 2*20                       = 60.00
     //   depth-2 (3 x depth-1) = BASE + 3*min(60*0.25,20) = BASE+45 = 65.00
     //   unreachable           = BASE                              = 20.00
