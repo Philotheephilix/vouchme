@@ -31,7 +31,7 @@ import {
   signGatewayResponse,
 } from "./sign.js";
 
-function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const url = env.AVAL_SUBGRAPH_URL;
   if (!url) {
     throw new Error("AVAL_SUBGRAPH_URL is not set (see gateway/.env.example)");
@@ -117,17 +117,56 @@ export function createApp(config: GatewayConfig, signerKey: Hex): Hono {
   return app;
 }
 
-function main(): void {
-  const config = loadConfig();
-  const signerKey = loadSignerKeyFromEnv();
+/**
+ * Starts the HTTP server for a given (already-validated) config/signer key.
+ * Exported so tests can start the server on an OS-assigned port (`port: 0`)
+ * and shut it down cleanly, instead of every test needing its own env vars
+ * and a fixed port.
+ */
+export function startServer(
+  app: Hono,
+  options: { port?: number | undefined; host?: string | undefined } = {},
+): Promise<{ server: ReturnType<typeof serve>; port: number }> {
+  const port = options.port ?? Number(process.env.PORT ?? 8787);
+  const host = options.host ?? process.env.HOST ?? "0.0.0.0";
+
+  return new Promise((resolve) => {
+    const server = serve({ fetch: app.fetch, port, hostname: host }, (info: AddressInfo) => {
+      resolve({ server, port: info.port });
+    });
+  });
+}
+
+/**
+ * Loads config, builds the app, and starts listening — everything `main()`
+ * needs, split out so it can be driven with an explicit `env` map (tests)
+ * instead of always reading `process.env` directly.
+ */
+async function run(env: NodeJS.ProcessEnv = process.env): Promise<{ server: ReturnType<typeof serve>; port: number }> {
+  const config = loadConfig(env);
+  const signerKey = loadSignerKeyFromEnv(env);
   const app = createApp(config, signerKey);
+  const hostname = env.HOST ?? "0.0.0.0";
+  const { server, port } = await startServer(app, {
+    port: env.PORT ? Number(env.PORT) : undefined,
+    host: hostname,
+  });
+  // eslint-disable-next-line no-console
+  console.log(`@aval/gateway listening on http://${hostname}:${port}`);
+  return { server, port };
+}
 
-  const port = Number(process.env.PORT ?? 8787);
-  const host = process.env.HOST ?? "0.0.0.0";
-
-  serve({ fetch: app.fetch, port, hostname: host }, (info: AddressInfo) => {
+function main(): void {
+  // Required config (GATEWAY_SIGNER_PRIVATE_KEY, AVAL_SUBGRAPH_URL) fails
+  // fast with a clear, named-variable message via loadConfig/
+  // loadSignerKeyFromEnv above — caught here so a missing var prints one
+  // line and exits, instead of Node's default full stack-trace dump for an
+  // uncaught exception.
+  run().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
     // eslint-disable-next-line no-console
-    console.log(`@aval/gateway listening on http://${info.address}:${info.port}`);
+    console.error(`@aval/gateway failed to start: ${message}`);
+    process.exitCode = 1;
   });
 }
 
