@@ -90,9 +90,20 @@ Flagged here rather than silently stubbed:
   with a named `NotConfigured` error when `SUBSTREAMS_API_TOKEN` / `SUBSTREAMS_ENDPOINT` aren't set,
   rather than reporting a fake `sinkStatus`. The natural-language → manifest codegen backend
   (docs/14-substreams.md) is out of this task's build scope.
-- **Circles v2 / ENS adapters** (`aval_cross_protocol_trust`): the Aval side is real; the other two
-  legs report zero inbound with a code comment rather than fabricated data, pending the adapter
-  deployments in docs/05 §3.3 (deliverable G-3, not this task).
+- **Cross-protocol trust** (`aval_cross_protocol_trust`): **real, live, multi-protocol.** It runs
+  ONE query against the standardized `trust_edges` store that the composable Substreams package
+  writes (`substreams/service`'s `GET /cross-protocol`), returning edges from Aval on World Chain
+  and EAS on Base / Optimism / Arbitrum / Ethereum in a single identical shape — see
+  [`docs/17-trust-graph-standard.md`](../docs/17-trust-graph-standard.md). The tool contains **no
+  per-protocol branching**; registering another protocol changes neither this file nor its config.
+  Two honest edges to know about:
+  - The Aval-specific engine read (a chunked `eth_getLogs` replay) attaches the normalized
+    `avalWeight` and is bounded by `AVAL_ENGINE_TIMEOUT_MS`. On timeout the tool still returns
+    every standardized edge — Aval's included, since the store carries them too — and names the
+    skipped enrichment in `unavailable`.
+  - **Circles v2 is specified but not indexed**: Gnosis has no Firehose/Substreams endpoint from
+    any provider (`substreams/PROOF.md` §7.1, §11.4). Its adapter profile is written out as a
+    worked example in docs/17 §7; it cannot be run.
 
 ## Development
 
