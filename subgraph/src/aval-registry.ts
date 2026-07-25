@@ -37,6 +37,10 @@ export function handleEnrolled(event: Enrolled): void {
   account.activeOutboundCount = 0;
   account.activeInboundCount = 0;
   account.slotPenaltyUntil = BigInt.zero();
+  // docs/05-graph-data-layer.md §2.1.1: tenure input, maintained by
+  // src/presence-drip.ts's handleClaimed/handleTenureZeroed.
+  account.epochsClaimed = 0;
+  account.lastClaimAt = BigInt.zero();
   account.save();
 
   const protocol = getOrCreateProtocol();

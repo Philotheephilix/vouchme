@@ -2,10 +2,15 @@
 ## Aval — `aval-worldchain` Subgraph schema
 ##
 ## Section 1 (Account, Vouch, FraudEvent, Protocol, ProtocolDailySnapshot,
-## AccountStatus) is reproduced EXACTLY from docs/05-graph-data-layer.md
-## §2.1 — do not add fields to these six types; extend via new entities
-## instead, which is what section 2 below does for the v2/v3 features
-## (reporting, platforms, presence drip).
+## AccountStatus) is reproduced from docs/05-graph-data-layer.md §2.1, with
+## one documented exception: docs/05 §2.1.1 ("v2/v3 entities — required,
+## not optional") explicitly requires `Account.epochsClaimed` /
+## `Account.lastClaimAt` in addition to the six §2.1 types, as the tenure
+## input PresenceDrip needs (docs/16-presence-drip.md §4) — gap review
+## G-A1 rated the absence of this a blocker, same as the entities in
+## section 2 below. Every other field of these six types is unchanged from
+## §2.1; extend via new entities for anything else, which is what section 2
+## below does for the v2/v3 features (reporting, platforms, presence drip).
 ##
 ## Design rule (docs/02-contracts.md §1): "The contract stores facts, the
 ## Subgraph computes meaning." No score, tier, or depth is ever a field on
@@ -18,7 +23,7 @@
 
 # ── 1. docs/05-graph-data-layer.md §2.1, verbatim ───────────────────────
 
-type Account @entity {
+type Account @entity(immutable: false) {
   id:              Bytes!          # address
   handle:          String!
   enrolledAt:      BigInt!
@@ -35,9 +40,16 @@ type Account @entity {
   activeOutboundCount: Int!
   activeInboundCount:  Int!
   slotPenaltyUntil:    BigInt!
+
+  # docs/05-graph-data-layer.md §2.1.1's addendum to §2.1's Account type
+  # (not part of the original six-type block reproduced verbatim above —
+  # see this file's header comment): the tenure input, monotone, fed by
+  # PresenceDrip's `Claimed`/`TenureZeroed` events (docs/16 §4, §6).
+  epochsClaimed: Int!
+  lastClaimAt:   BigInt!
 }
 
-type Vouch @entity {
+type Vouch @entity(immutable: false) {
   id:        Bytes!               # keccak(voucher ++ vouchee)
   voucher:   Account!
   vouchee:   Account!
@@ -58,7 +70,7 @@ type FraudEvent @entity(immutable: true) {
   penalizedVouchers: [Bytes!]!
 }
 
-type Protocol @entity {
+type Protocol @entity(immutable: false) {
   id: ID!                         # "aval"
   accountCount: Int!
   activeVouchCount: Int!
@@ -94,12 +106,20 @@ enum ReportState { NONE PENDING ARBITRATION UPHELD UNPROVEN MALICIOUS WITHDRAWN 
 # Platform" without a union or interface neither docs/05 §2.1 nor this
 # task's entity list defines. Bytes + a resolver-side lookup is the
 # established pattern for this in subgraph schemas.
-type Report @entity {
+type Report @entity(immutable: false) {
   id:             Bytes!          # report id, from ReportFiled
   reporter:       Bytes!
   target:         Bytes!
   evidenceHash:   Bytes!
-  weightPoints:   Int!            # snapshotted at filing (docs/12 §5)
+  # Named `snapshotWeight`, not `weightPoints`, deliberately: this is the
+  # SUBGRAPH's field name for the attested value the contract's
+  # `ReportFiled.weightPoints` param carries — docs/01-trust-math.md §7.1's
+  # own terminology ("`snapshotWeight` is the `weightPoints` value recorded
+  # on-chain when the report was filed"). MUST be indexed: report damage is
+  # `min(snapshotWeight, live weight, cap⁻)` (docs/05 §2.1.1, docs/01 §7.1)
+  # — without the snapshot on the entity, the engine cannot bound damage by
+  # the bond that was actually paid.
+  snapshotWeight: Int!            # snapshotted at filing (docs/12 §5)
   bond:           BigInt!
   filedAt:        BigInt!
   resolvedAt:     BigInt
@@ -112,7 +132,7 @@ type Report @entity {
   rebuttals:      [Rebuttal!]! @derivedFrom(field: "report")
 }
 
-type Rebuttal @entity {
+type Rebuttal @entity(immutable: true) {
   id:        Bytes!               # txHash ++ logIndex
   report:    Report!
   voucher:   Bytes!                # one of the target's vouchers, staking in their defence
@@ -121,7 +141,7 @@ type Rebuttal @entity {
   txHash:    Bytes!
 }
 
-type Platform @entity {
+type Platform @entity(immutable: false) {
   id:            Bytes!           # platform address
   ensName:       String!
   metadataURI:   Bytes!
@@ -142,7 +162,7 @@ type Platform @entity {
 # calculation (docs/13 §4). Modeling it as its own entity, rather than
 # overloading Vouch, keeps that distinction structural instead of
 # convention-based.
-type PlatformVouch @entity {
+type PlatformVouch @entity(immutable: false) {
   id:         Bytes!              # keccak(human ++ platform)
   human:      Account!
   platform:   Platform!
@@ -164,10 +184,12 @@ type ScoreRequest @entity(immutable: true) {
   txHash:      Bytes!
 }
 
-# One PresenceDrip claim (docs/16 §6). `totalEpochs` on the latest claim
-# for an account is that account's current `epochsClaimed` — the input to
-# the tenure curve (`tenureCenti`, docs/16 §4) — without adding a field to
-# Account itself (kept exact per section 1 above).
+# One PresenceDrip claim (docs/16 §6) — the append-only transparency log.
+# `totalEpochs` on a claim is a point-in-time record of the running total
+# at that transaction; `Account.epochsClaimed` / `lastClaimAt` (declared in
+# section 1 above, per docs/05 §2.1.1) are the current, queryable values a
+# reader wants without walking this log — both are maintained in lockstep
+# by src/presence-drip.ts's handlers.
 type PresenceClaim @entity(immutable: true) {
   id:           Bytes!            # txHash ++ logIndex
   account:      Account!

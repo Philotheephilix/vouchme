@@ -1,10 +1,11 @@
 // @aval/subgraph — src/presence-drip.ts
 //
 // Handlers for every event PresenceDrip emits (docs/16-presence-drip.md §6).
-// `PresenceClaim.totalEpochs` on an account's most recent claim is that
-// account's current `epochsClaimed` — the input to `tenureCenti()`
-// (docs/16 §4) — without adding a field to the exact Account entity from
-// docs/05 §2.1 (see schema.graphql's comment on PresenceClaim).
+// Every Claimed/TenureZeroed event both appends a `PresenceClaim` (the log)
+// and updates `Account.epochsClaimed` / `lastClaimAt` (the current value,
+// required by docs/05-graph-data-layer.md §2.1.1 as the tenure input to
+// `tenureCenti()`, docs/16 §4) — see schema.graphql's comment on
+// PresenceClaim for why both exist.
 
 import { BigInt, log } from "@graphprotocol/graph-ts";
 import { Claimed, TenureZeroed, DripRateChanged } from "../generated/PresenceDrip/PresenceDrip";
@@ -22,6 +23,16 @@ export function handleClaimed(event: Claimed): void {
   claim.at = event.block.timestamp;
   claim.txHash = event.transaction.hash;
   claim.save();
+
+  // docs/05-graph-data-layer.md §2.1.1: Account.epochsClaimed / lastClaimAt
+  // are the current, queryable mirror of this log — `totalEpochs` (uint64
+  // on-chain, so BigInt in the mapping) narrows to i32 here because the
+  // schema follows docs §2.1.1's own `epochsClaimed: Int!` exactly; a real
+  // claimant is nowhere near i32's ~2.1B-epoch range (each epoch is 6h,
+  // docs/16 §3).
+  account.epochsClaimed = event.params.totalEpochs.toI32();
+  account.lastClaimAt = event.block.timestamp;
+  account.save();
 }
 
 export function handleTenureZeroed(event: TenureZeroed): void {
@@ -42,6 +53,13 @@ export function handleTenureZeroed(event: TenureZeroed): void {
   claim.at = event.block.timestamp;
   claim.txHash = event.transaction.hash;
   claim.save();
+
+  // Mirror the zeroing onto Account.epochsClaimed (see handleClaimed's
+  // matching comment). lastClaimAt is deliberately left untouched — this
+  // is a penalty, not a claim, and docs/16 §4's 6h-epoch clock
+  // (`(block.timestamp - lastClaimAt[a]) / 6 hours`) is unaffected by it.
+  account.epochsClaimed = 0;
+  account.save();
 }
 
 export function handleDripRateChanged(event: DripRateChanged): void {

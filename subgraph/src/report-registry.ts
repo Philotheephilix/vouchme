@@ -18,7 +18,12 @@ export function handleReportFiled(event: ReportFiled): void {
   report.reporter = event.params.reporter;
   report.target = event.params.target;
   report.evidenceHash = event.params.evidenceHash;
-  report.weightPoints = event.params.weightPoints;
+  // Entity field is `snapshotWeight` (docs/05 §2.1.1 / docs/01 §7.1's
+  // terminology), sourced from the ABI's `weightPoints` event param
+  // (docs/12-reporting.md §5) — the on-chain name and the Subgraph's
+  // stored-attribute name differ deliberately; see schema.graphql's
+  // comment on Report.snapshotWeight.
+  report.snapshotWeight = event.params.weightPoints.toI32();
   report.bond = event.params.bond;
   report.filedAt = event.block.timestamp;
   report.resolvedAt = null;

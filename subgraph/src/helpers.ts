@@ -66,6 +66,8 @@ export function getOrCreateAccount(address: Bytes, timestamp: BigInt): Account {
     account.activeOutboundCount = 0;
     account.activeInboundCount = 0;
     account.slotPenaltyUntil = BigInt.zero();
+    account.epochsClaimed = 0;
+    account.lastClaimAt = BigInt.zero();
     account.save();
   }
   return account as Account;
