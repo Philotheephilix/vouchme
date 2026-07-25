@@ -1,6 +1,6 @@
-# Aval — World ID / World App / World Chain
+# VouchMe — World ID / World App / World Chain
 
-Aval is a trust graph: humans vouch for humans, and a score falls out of the graph. World ID is what
+VouchMe is a trust graph: humans vouch for humans, and a score falls out of the graph. World ID is what
 keeps that graph from being a self-referential fiction. This document says exactly where it sits,
 how the integration works, what is on chain right now, and what is not built.
 
@@ -26,7 +26,7 @@ writing this. Commands to reproduce them are at the end.
 
 ## 1. Why the graph needs World ID at all
 
-Aval's score is defined by a mutually recursive equation: your score depends on your vouchers'
+VouchMe's score is defined by a mutually recursive equation: your score depends on your vouchers'
 scores, which depend on theirs. That equation has **infinitely many solutions**. One of them is the
 honest one. Others are self-supporting cliques that award themselves Tier 2 out of nothing — a ring
 of six accounts that all vouch for each other is a perfectly valid fixed point of "trust flows from
@@ -37,7 +37,7 @@ known bottom (`engine/src/score.ts`, `originsSet` → `persistedSp`). A least fi
 bottom. **The anchor set is the bottom**, and Orb verification is what defines it:
 
 ```solidity
-// contracts/src/AvalRegistry.sol:318
+// contracts/src/VouchMeRegistry.sol:318
 function isAnchor(address a) public view returns (bool) {
     return addressBook.addressVerifiedUntil(a) > block.timestamp;
 }
@@ -49,7 +49,7 @@ function isAnchor(address a) public view returns (bool) {
 export const ANCHOR = 10_000;
 ```
 
-Orb verification is the only claim in Aval that does not depend on any other claim in Aval. Everything
+Orb verification is the only claim in VouchMe that does not depend on any other claim in VouchMe. Everything
 else — every score, every tier, every slot allowance — is downstream of it.
 
 Run the real engine on a fully-connected 6-account ring with no anchor anywhere in it — every account
@@ -79,7 +79,7 @@ Two consequences the code actually implements:
 ## 2. Enrollment, end to end
 
 Files: `app/src/app/enroll/page.tsx`, `app/src/app/api/enroll/rp-context/route.ts`,
-`app/src/app/api/enroll/route.ts`, `app/src/lib/attestation.ts`, `contracts/src/AvalRegistry.sol`.
+`app/src/app/api/enroll/route.ts`, `app/src/lib/attestation.ts`, `contracts/src/VouchMeRegistry.sol`.
 
 **1. Handle check** — `GET /api/enroll/handle?h=…` (this reserves the ENS label; see `submission/ens.md`).
 
@@ -111,7 +111,7 @@ sig = signRequest({ signingKeyHex: key, action, ttl: 300 });
 **4. Selfie Check** runs in World App: device-camera liveness plus weak facial uniqueness. The SDK's own
 docstring for this preset opens with *"Preview: Selfie Check is currently in preview. Contact us if you
 need it enabled."*, and `docs/03-worldid.md` §1 quotes World's documentation describing it as a
-low-assurance credential offering weaker Sybil resistance than iris scanning. Aval does not pretend
+low-assurance credential offering weaker Sybil resistance than iris scanning. VouchMe does not pretend
 otherwise — the premise of the product is that proof-of-human is weak on its own and a trust graph is
 the right structure to compensate. **This is also why enrollment records `keccak256("selfie-check")` on
 chain even for the two members who are in fact Orb-verified**: the credential field is the *path taken
@@ -139,14 +139,14 @@ truncates above 2⁵³ and truncated nullifiers collide.
 
 **7. EIP-712 attestation.** The server signs `EnrollAttestation(address account, uint256
 nullifierHash, bytes32 credential, uint64 deadline, uint256 nonce)` with `ATTESTOR_PRIVATE_KEY`
-(`app/src/lib/attestation.ts:83`), domain `{ name: "AvalRegistry", version: "1", chainId: 480,
+(`app/src/lib/attestation.ts:83`), domain `{ name: "VouchMeRegistry", version: "1", chainId: 480,
 verifyingContract }`, TTL 285s.
 
 **8. `enroll()` on World Chain.** Submitted by the user's own wallet — inside World App via
 `MiniKit.sendTransaction`, outside it via the injected provider. The contract enforces:
 
 ```solidity
-// contracts/src/AvalRegistry.sol:201
+// contracts/src/VouchMeRegistry.sol:201
 if (members[msg.sender].enrolled) revert AlreadyEnrolled();
 if (usedNullifier[nullifierHash]) revert NullifierUsed();   // ← one account per World ID
 …
@@ -168,7 +168,7 @@ World ID nullifiers are scoped **per app, per action**, and are *deliberately un
 actions*. That unlinkability is the whole privacy property the scheme exists to provide.
 
 An earlier design used a separate `aval-vouch-v1` action and claimed the backend would map the vouch
-nullifier back to the enrollment nullifier. **That mapping cannot exist** — not for Aval, not for
+nullifier back to the enrollment nullifier. **That mapping cannot exist** — not for VouchMe, not for
 anyone. It was caught before implementation (errata E-1) and `aval-vouch-v1` is now recorded as a
 retired string that must never be used.
 
@@ -199,13 +199,13 @@ The edge binding:
 ```ts
 // app/src/lib/worldid-client.ts:30
 export function encodeVouchSignal(voucher: string, vouchee: string): string {
-  return `aval-vouch:${voucher.toLowerCase()}:${vouchee.toLowerCase()}`;
+  return `vouchme-vouch:${voucher.toLowerCase()}:${vouchee.toLowerCase()}`;
 }
 ```
 
 A proof generated for edge A→B has a different `signal_hash` than one for A→C, so it cannot be
 replayed onto a different vouchee. Reusing the action costs nothing in privacy: the voucher's
-nullifier is already known to Aval from enrollment, so re-deriving it reveals no new information, and
+nullifier is already known to VouchMe from enrollment, so re-deriving it reveals no new information, and
 `signal` supplies all the per-vouch binding.
 
 ---
@@ -214,7 +214,7 @@ nullifier is already known to Aval from enrollment, so re-deriving it reveals no
 
 ### MiniKit will not transact on any other chain
 
-Aval was originally deployed to World Chain Sepolia (4801). Sign-in worked. Every transaction failed
+VouchMe was originally deployed to World Chain Sepolia (4801). Sign-in worked. Every transaction failed
 with `invalid_operation`. The reason is in MiniKit's own source — `@worldcoin/minikit-js` **2.0.3**,
 `build/index.cjs:733`:
 
@@ -266,8 +266,8 @@ matters because a World App user's account is counterfactual until their first t
 fallback needs a chain to call, which is why this module holds its own `PublicClient`.
 
 The sign-in flow itself is a server-issued, single-use, HMAC-signed nonce → real signature →
-`/api/auth/verify` → httpOnly `aval_session` cookie. It replaced a build where a client-writable
-`aval_addr` cookie *was* the identity (a forged cookie rendered another member's dashboard in
+`/api/auth/verify` → httpOnly `vouchme_session` cookie. It replaced a build where a client-writable
+`vouchme_addr` cookie *was* the identity (a forged cookie rendered another member's dashboard in
 server-rendered HTML).
 
 Two smaller World App facts the code had to learn the hard way, both documented inline in
@@ -404,15 +404,15 @@ World Chain mainnet, chain ID 480. Read at block 32,837,137.
 
 | Contract | Address | Runtime bytecode |
 |---|---|---|
-| AvalRegistry | `0x6fEfEf2d44203300a6a33d631840C972181b8722` | 7,645 bytes |
-| AvalToken | `0xdF0cdF53981bdbcCF25cC0d51E8948579adA82Ef` | 2,137 |
+| VouchMeRegistry | `0x6fEfEf2d44203300a6a33d631840C972181b8722` | 7,645 bytes |
+| VouchMeToken | `0xdF0cdF53981bdbcCF25cC0d51E8948579adA82Ef` | 2,137 |
 | CredibilityVault | `0xE3bb69E90d124268A348A3ef17420d05CF6e177D` | 7,199 |
 | PlatformRegistry | `0xbBEE544679F9C5a8784F30195a9030131f9E9106` | 7,692 |
 | ReportRegistry | `0x4570B517C75A90F85c9FeD321113fB80FC777bcC` | 9,938 |
 | PresenceDrip | `0x4C0cf0D239A1012D432EDEa47e3BB1cb00F5192d` | 5,444 |
 | *World ID Address Book* (not ours) | `0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D` | 3,095 |
 
-`AvalRegistry` deployed at block **32833177**, tx
+`VouchMeRegistry` deployed at block **32833177**, tx
 `0x8636e08a48a01c5b6a4c200fb7a7039fc11764870ef5830925e762337d712384`. Wiring read back live:
 
 ```
@@ -428,9 +428,9 @@ addressVerifiedUntil(0xB23a3B23…2B47) = 1789813327   (2026-09-19T10:22:07Z)
 addressVerifiedUntil(0x4774b962…e7de) = 1796790737   (2026-12-09T04:32:17Z)
 addressVerifiedUntil(0x0000…dEaD)     = 0
 
-AvalRegistry.isAnchor(0xB23a3B23…2B47) = true
-AvalRegistry.isAnchor(0x4774b962…e7de) = true
-AvalRegistry.isAnchor(0x0000…dEaD)     = false
+VouchMeRegistry.isAnchor(0xB23a3B23…2B47) = true
+VouchMeRegistry.isAnchor(0x4774b962…e7de) = true
+VouchMeRegistry.isAnchor(0x0000…dEaD)     = false
 ```
 
 Both live members are genuinely Orb-verified humans, resolved through World ID's own contract.
@@ -440,7 +440,7 @@ Both live members are genuinely Orb-verified humans, resolved through World ID's
 Seven events, ever. Two from the constructor (`GovernorTransferred`, `AttestorSet` at block 32833177),
 two wiring setters (`ReportRegistrySet` at 32833184, `PlatformRegistrySet` at 32833186), then:
 
-**Enrollment 1 — `philoo.aval.eth`**
+**Enrollment 1 — `philoo.vouchme.eth`**
 ```
 account      0xB23a3B2384D721d7C487a3ACc6405a1d36672B47
 tx           0xde6f732eeb3c812d81df6098f74eab48b7c76f40f9443832299e13255fd52749
@@ -450,7 +450,7 @@ credential   0x429ce4cb…4e06 = keccak256("selfie-check")
 expires      1792778775 (2026-10-23T18:06:15Z, +90d)
 ```
 
-**Enrollment 2 — `romariokavin.aval.eth`**
+**Enrollment 2 — `romariokavin.vouchme.eth`**
 ```
 account      0x4774b9621102eAc2254365f9311C4E7700D9e7de
 tx           0xcbafd84a98bc5e8f2eb7e5a660cfaf57220a344fb5fdc8164a289bed239869f4
@@ -514,7 +514,7 @@ server-side presence gate at all (E-19). The account-rental and slot-farming att
 supposed to price are currently priced only by the 1-vouch-per-24h rate limit and the 3/10-slot cap.
 The vouch UI states this on the step itself rather than advertising a guarantee that does not hold.
 
-**3. The chain trusts the attestor for everything World ID.** `AvalRegistry.vouch()` takes **no
+**3. The chain trusts the attestor for everything World ID.** `VouchMeRegistry.vouch()` takes **no
 nullifier and no proof** — only an EIP-712 signature from an allowlisted attestor. All World ID
 checking (nullifier equality, signal binding, tier) happens off-chain in `/api/vouch/attest`. The
 attestor is a single EOA (`0x69827C0FEF274C63Ac4806106F2BA544E6129050`) whose key lives in the app's
@@ -539,7 +539,7 @@ members stop being able to vouch with no in-app way to fix it.
 Anchors are still Tier 2 — but because `score.ts` puts them in `originsSet` and assigns tier 2 by
 construction, not for the reason the doc gives. The behaviour is right; the doc's reasoning is stale.
 
-**7. Minor recording errors in `deployments/worldchain-mainnet.json`.** It lists AvalRegistry's runtime
+**7. Minor recording errors in `deployments/worldchain-mainnet.json`.** It lists VouchMeRegistry's runtime
 size as 7,637 bytes; the live contract is 7,645 (7,637 is the *superseded* pre-E-18 registry at
 `0x7a294C7C…`, still on chain, marked dead). It also records `deployedAtBlock: 32833180`, while the
 registry's own constructor events are in block 32833177. Both are bookkeeping slips in a file that is

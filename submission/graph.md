@@ -1,16 +1,16 @@
 # Best Use of Composable or Standardized Graph Products
 
-**Aval — the Trust Graph Standard v0.2.0, and the composable Substreams module that implements it.**
+**VouchMe — the Trust Graph Standard v0.2.0, and the composable Substreams module that implements it.**
 
 Spec: [`docs/17-trust-graph-standard.md`](../docs/17-trust-graph-standard.md) ·
-Module: [`substreams/aval-trust/`](../substreams/aval-trust/) ·
+Module: [`substreams/vouchme-trust/`](../substreams/vouchme-trust/) ·
 Evidence: [`substreams/PROOF.md`](../substreams/PROOF.md) §9–§12
 
 ---
 
 ## 0. The one-paragraph version
 
-Trust and attestation is a protocol *category* with no standardized schema. Aval, EAS and Circles
+Trust and attestation is a protocol *category* with no standardized schema. VouchMe, EAS and Circles
 all express the same primitive — *account A asserts something about account B, at a time,
 revocably* — and each models it differently. We authored a Standardized Subgraph schema for that
 category and shipped its executable form: **one Substreams `.spkg` that indexes two protocols
@@ -25,7 +25,7 @@ ClickHouse sink:
 
 ```
 protocol  network      edges  attesters
-aval      worldchain       1          1
+vouchme      worldchain       1          1
 eas       arbitrum         1          1
 eas       base             5          2
 eas       mainnet          1          1
@@ -43,7 +43,7 @@ Every one of those 10 rows is independently re-derived from public JSON-RPC —
 |---|---|---|---|
 | 1 | Compose **two or more** Graph products, **or** build meaningfully on a standardized schema | **Both.** Six composed products (§5); and the standardized schema is one we authored for a category that lacked one | §5, §3 |
 | 2 | **Consume live data from a Graph provider. Mocked/static does not qualify** | Live Firehose/Substreams streams on 5 endpoints, re-run during the writing of this document — 20 blocks / 7.7 KiB on World Chain, 90 blocks / 35 KiB on Base, both `Completed successfully` | §5.1 |
-| 3 | Querying **one** Subgraph with no composition does **not** qualify | We query no Subgraph at all. The surface is a standardized multi-protocol Substreams package + SQL sink. Our own Aval subgraph exists and is **explicitly excluded** — it is undeployed and single-protocol | §7.2 |
+| 3 | Querying **one** Subgraph with no composition does **not** qualify | We query no Subgraph at all. The surface is a standardized multi-protocol Substreams package + SQL sink. Our own VouchMe subgraph exists and is **explicitly excluded** — it is undeployed and single-protocol | §7.2 |
 | 4 | Authoring/extending a Standardized Subgraph, or contributing a reusable composable Substreams module | Both: a new standard (`docs/17-trust-graph-standard.md`) **and** a reusable `.spkg` whose modules are importable — already imported by a second manifest in this repo | §3, §5.4 |
 | 5 | Make the standards leverage clear | §6 — the counterfactual, stated as a number |
 
@@ -57,7 +57,7 @@ how:
 
 | Protocol | Its vocabulary | Its event shape |
 |---|---|---|
-| Aval | `Vouched` / `Reaffirmed` / `Revoked` | `(address indexed voucher, address indexed vouchee, uint64 issuedAt, uint64 expiresAt)` |
+| VouchMe | `Vouched` / `Reaffirmed` / `Revoked` | `(address indexed voucher, address indexed vouchee, uint64 issuedAt, uint64 expiresAt)` |
 | EAS | `Attested` / `Revoked` | `(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)` |
 | Circles v2 | `Trust` | `(address indexed truster, address indexed trustee, uint256 expiryTime)` |
 
@@ -73,11 +73,11 @@ one"* rather than a retrofit of an existing standard.
 
 ## 3. The standard
 
-### 3.1 Fields — `TrustEvent` (`proto/trust_graph.proto`, package `aval.trust.v1`)
+### 3.1 Fields — `TrustEvent` (`proto/trust_graph.proto`, package `vouchme.trust.v1`)
 
 | Field | Type | Meaning |
 |---|---|---|
-| `protocol` | `string` | Stable slug: `aval`, `eas`, `circles` |
+| `protocol` | `string` | Stable slug: `vouchme`, `eas`, `circles` |
 | `network` | `string` | Chain slug **matching The Graph's network registry** — `worldchain`, `base`, `optimism`, `arbitrum`, `mainnet` |
 | `kind` | enum | `VOUCH` / `REVOKE` / `REAFFIRM` / `REPORT` / `REPORT_RESOLVED` |
 | `from` | `bytes` | **The asserter** |
@@ -133,7 +133,7 @@ The five registered profiles, verbatim from `substreams.yaml`:
 
 | Protocol | Network | Contract | Roles | Scope | Tails |
 |---|---|---|---|---|---|
-| `aval` | `worldchain` | `0x6fEfEf2d…8722` | `from=1, to=2` | — | `vouch=issued_expires`, `revoke=at`, `reaffirm=expires` |
+| `vouchme` | `worldchain` | `0x6fEfEf2d…8722` | `from=1, to=2` | — | `vouch=issued_expires`, `revoke=at`, `reaffirm=expires` |
 | `eas` | `base` | `0x4200…0021` | **`from=2, to=1`** | `3` | `vouch=none`, `revoke=none` |
 | `eas` | `optimism` | `0x4200…0021` | **`from=2, to=1`** | `3` | `vouch=none`, `revoke=none` |
 | `eas` | `arbitrum` | `0xbD75f629…c458` | **`from=2, to=1`** | `3` | `vouch=none`, `revoke=none` |
@@ -158,7 +158,7 @@ EAS declares **subject first**:
 event Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID);
 ```
 
-Aval declares **asserter first** (`Vouched(voucher, vouchee, …)`). v0.1.0 hardcoded
+VouchMe declares **asserter first** (`Vouched(voucher, vouchee, …)`). v0.1.0 hardcoded
 `from = topics[1]`, so every EAS edge recorded the person being attested *about* as the one doing
 the attesting. The rows that were in ClickHouse (PROOF.md §10.1) put
 `0x357458739f90461b99789350868cd7cf330dd7ee` — a prolific Base **attester**, present as `topics[2]`
@@ -227,11 +227,11 @@ build if the two manifests' profiles drift.
 | 1 | **Substreams / Firehose** (StreamingFast, The Graph) | The extractor itself — `map_trust_events`, `store_edges`, `map_edge_deltas`, `db_out` | 5 authenticated endpoints; two re-run below |
 | 2 | **The Graph network registry** | Endpoint resolution *and* the standard's `network` slug vocabulary | `substreams tools default-endpoint worldchain` → `mainnet.worldchain.streamingfast.io:443` |
 | 3 | **`substreams-sink-database-changes` v4.0.0** (imported `.spkg`) | Supplies `sf.substreams.sink.database.v1.DatabaseChanges` — the **output type of two of our four modules** | `substreams.yaml:21`; `substreams info` reports both modules with that output type |
-| 4 | **`substreams-sink-sql` v4.13.1** → ClickHouse | Materializes the standard's relational form into `trust_edges` | Real table, 10 rows, container `aval-substreams-clickhouse` |
+| 4 | **`substreams-sink-sql` v4.13.1** → ClickHouse | Materializes the standard's relational form into `trust_edges` | Real table, 10 rows, container `vouchme-substreams-clickhouse` |
 | 5 | **`substreams-sink-sql` protodefs v1.0.7** (imported `.spkg`) | Supplies `sf.substreams.sink.sql.v1.Service` to the sink manifest | `substreams.sink.yaml:39` |
-| 6 | **Our own `.spkg`, imported as a dependency** | `substreams.sink.yaml` imports `main: ./aval-trust-graph-v0.2.0.spkg` and declares **no modules of its own** — modules referenced as `main:db_out` | This is the reuse pattern of §3.3, demonstrated inside the repo |
+| 6 | **Our own `.spkg`, imported as a dependency** | `substreams.sink.yaml` imports `main: ./vouchme-trust-graph-v0.2.0.spkg` and declares **no modules of its own** — modules referenced as `main:db_out` | This is the reuse pattern of §3.3, demonstrated inside the repo |
 
-Consumed on top: an **MCP tool** (`mcp/src/tools/aval_cross_protocol_trust.ts`) that queries the
+Consumed on top: an **MCP tool** (`mcp/src/tools/vouchme_cross_protocol_trust.ts`) that queries the
 standardized store, and a dependency-free HTTP service (`substreams/service/server.mjs`) over
 `trust_edges`.
 
@@ -242,8 +242,8 @@ bytes). **Only `--network` differs.** No recompile between these two commands.
 
 ```
 $ substreams run ./substreams.yaml map_trust_events --network worldchain -e worldchain -s 32835370 -t +20 -o jsonl
-{"@module":"map_trust_events","@block":32835377,"@type":"aval.trust.v1.TrustEvents","@data":{"events":[
-  {"protocol":"aval","network":"worldchain",
+{"@module":"map_trust_events","@block":32835377,"@type":"vouchme.trust.v1.TrustEvents","@data":{"events":[
+  {"protocol":"vouchme","network":"worldchain",
    "from":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47",
    "to":"0x4774b9621102eac2254365f9311c4e7700d9e7de",
    "weightRaw":"1","issuedAt":"1785006393","expiresAt":"1792782393",
@@ -272,7 +272,7 @@ Completed successfully
 `from` is the **attester** in every EAS row. Compare against §4.1.
 
 **Two data planes agree byte-for-byte.** `node substreams/scripts/verify-mainnet.mjs` reads the same
-Aval contract over plain JSON-RPC via Alchemy — a different provider, a different protocol, no
+VouchMe contract over plain JSON-RPC via Alchemy — a different provider, a different protocol, no
 StreamingFast credential — across the contract's whole deployed lifetime (5,036 blocks at time of
 writing):
 
@@ -300,12 +300,12 @@ modules, `Networks: optimism, arbitrum, mainnet, worldchain, base`, and
 
 ### 5.2 The consumer: one MCP tool, no per-protocol branching
 
-`aval_cross_protocol_trust` makes **one** request against the standardized store and returns
+`vouchme_cross_protocol_trust` makes **one** request against the standardized store and returns
 whatever protocols happen to be registered. Three live calls, three different protocol/chain
 combinations, one output shape, one code path:
 
 ```
-0x4774b9621102eac2254365f9311c4e7700d9e7de → byProtocol: [{ aval,     worldchain, inbound: 1 }]
+0x4774b9621102eac2254365f9311c4e7700d9e7de → byProtocol: [{ vouchme,     worldchain, inbound: 1 }]
 0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8 → byProtocol: [{ eas,      base,       inbound: 1 }]
 0xfc61965861b679c5aa728d41fa6ea0b29544f554 → byProtocol: [{ eas,      optimism,   inbound: 1 }]
 ```
@@ -315,11 +315,11 @@ sentinel. **The absence of branching is the deliverable** — registering Circle
 this file nor its configuration.
 
 One honest detail visible in that output: the tool also returns
-`"unavailable": ["Aval engine enrichment skipped (timed out after 8000ms) — Aval edges below come
-from the standardized store and carry no avalWeight"]`. That enrichment is a *bespoke,
+`"unavailable": ["VouchMe engine enrichment skipped (timed out after 8000ms) — VouchMe edges below come
+from the standardized store and carry no vouchMeWeight"]`. That enrichment is a *bespoke,
 single-protocol* `eth_getLogs` replay — the exact thing the standard exists to replace. It is
-bounded by a deadline rather than awaited; when it times out, **the Aval edge is still returned,
-correct and complete, from the standardized store**, and only the normalized `avalWeight` is lost.
+bounded by a deadline rather than awaited; when it times out, **the VouchMe edge is still returned,
+correct and complete, from the standardized store**, and only the normalized `vouchMeWeight` is lost.
 The tool names what it lost instead of returning an empty result. A bespoke integration degraded and
 the shared schema covered for it.
 
@@ -354,7 +354,7 @@ What that bought, stated as things that are now true and were not before:
  The query below names no protocol and no chain.
 ────────────────────────────────────────────────────────────────────────────────
 ┌─protocol─┬─network────┬─kind───┬─from_addr──────────────────────────────────┬─to_addr────────────────────────────────────┬─scope──────┬───────────issued_at─┬──────────expires_at─┬─revoked─┬─block_num─┐
-│ aval     │ worldchain │ VOUCH  │ 0xb23a3b2384d721d7c487a3acc6405a1d36672b47 │ 0x4774b9621102eac2254365f9311c4e7700d9e7de │            │ 2026-07-25 19:06:33 │ 2026-10-23 19:06:33 │       0 │  32835377 │
+│ vouchme  │ worldchain │ VOUCH  │ 0xb23a3b2384d721d7c487a3acc6405a1d36672b47 │ 0x4774b9621102eac2254365f9311c4e7700d9e7de │            │ 2026-07-25 19:06:33 │ 2026-10-23 19:06:33 │       0 │  32835377 │
 │ eas      │ arbitrum   │ VOUCH  │ 0x7848a3578ff2e1f134659a23f64a404a4d710475 │ 0x83143ed768fa64744835ad58748f8dd90ec7a17e │ 0x1f3dce65 │ 2026-07-25 04:24:39 │ 1970-01-01 00:00:00 │       0 │ 487448518 │
 │ eas      │ base       │ VOUCH  │ 0x357458739f90461b99789350868cd7cf330dd7ee │ 0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8 │ 0x254bd1b6 │ 2026-07-25 20:00:09 │ 1970-01-01 00:00:00 │       0 │  49110131 │
 │ eas      │ base       │ VOUCH  │ 0x561143bfe9e2d975d92e915b8effeaa54119472a │ 0x0000000000000000000000000000000000000000 │ 0xe74a27f6 │ 2026-07-25 20:00:09 │ 1970-01-01 00:00:00 │       0 │  49110131 │
@@ -370,7 +370,7 @@ What that bought, stated as things that are now true and were not before:
    (uses the standard's liveness predicate — note the perpetual-sentinel arm)
 ┌─subject────────────────────────────────────┬─live_inbound_edges─┬─asserted_on───────────┐
 │ 0x0000000000000000000000000000000000000000 │                  2 │ eas:base, eas:mainnet │
-│ 0x4774b9621102eac2254365f9311c4e7700d9e7de │                  1 │ aval:worldchain       │
+│ 0x4774b9621102eac2254365f9311c4e7700d9e7de │                  1 │ vouchme:worldchain    │
 │ 0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8 │                  1 │ eas:base              │
 │ 0x83143ed768fa64744835ad58748f8dd90ec7a17e │                  1 │ eas:arbitrum          │
 │ 0xfc61965861b679c5aa728d41fa6ea0b29544f554 │                  1 │ eas:optimism          │
@@ -393,7 +393,7 @@ parsing it would make the auditor agree with a bug instead of catching it.
 $ node substreams/scripts/crosscheck-trust-edges.mjs
 crosschecking 10 standardized trust edges against independent RPC reads
 
-OK    aval/worldchain 0x563172cb96… blk 32835377
+OK    vouchme/worldchain 0x563172cb96… blk 32835377
         VOUCH  from=0xb23a3b2384d721d7c487a3acc6405a1d36672b47 to=0x4774b9621102eac2254365f9311c4e7700d9e7de
         issued_at=2026-07-25 19:06:33 expires_at=2026-10-23 19:06:33
 OK    eas/base 0xacb7dc06ef… blk 49110131
@@ -435,10 +435,10 @@ source.
 
 ### 7.2 `subgraph/` is not deployed
 
-The directory holds a complete, compiled Aval subgraph (schema, manifest, four data sources,
+The directory holds a complete, compiled VouchMe subgraph (schema, manifest, four data sources,
 handlers, `build/` artifacts) pointed at live mainnet addresses. It is **not deployed** and nothing
 queries it — deploying to Studio needs the credential §7.1 establishes we do not have, and the app
-reads the chain directly instead. It is also Aval-specific and therefore *not* the standardized
+reads the chain directly instead. It is also VouchMe-specific and therefore *not* the standardized
 surface. **We are not claiming it.** Per gate 3, our submission would not qualify on it anyway.
 
 ### 7.3 Gnosis / Circles v2 is a worked example only
@@ -466,7 +466,7 @@ this finding.
 ### 7.4 EAS coverage is a recent window, not all history
 
 `store_edges` is a Substreams store: it must process every block from `initialBlock` forward, with
-no mid-chain cold start. Aval's profile therefore indexes its **entire** history (the contract is
+no mid-chain cold start. VouchMe's profile therefore indexes its **entire** history (the contract is
 days old — `initialBlock` is its real creation block, 32833177). The four EAS profiles start at a
 documented recent block chosen because it provably contains real `Attested`/`Revoked` logs, verified
 independently via Blockscout before streaming. EAS has been live since 2023; a full backfill is a
@@ -493,14 +493,14 @@ all of EAS.** The `initialBlock` values are in `substreams.yaml` with this state
   binary does not, and importing it to satisfy the sink breaks streaming with a proto name conflict.
   `substreams.sink.yaml` exists solely for that, declares no modules of its own, and is kept in sync
   by a test that fails the build on drift.
-- **The dataset is small and stated as such.** Aval is days old: two real humans enrolled through
+- **The dataset is small and stated as such.** VouchMe is days old: two real humans enrolled through
   World App, one vouched for the other. That is the entire population of the contract, not a sample.
 
 ---
 
 ## 8. Reproduce it
 
-Prerequisites: ClickHouse on `:8123` (container `aval-substreams-clickhouse`), `SUBSTREAMS_API_KEY`
+Prerequisites: ClickHouse on `:8123` (container `vouchme-substreams-clickhouse`), `SUBSTREAMS_API_KEY`
 / `SUBSTREAMS_API_TOKEN` in root `.env`, `substreams` + `substreams-sink-sql` on `PATH`.
 
 ```bash
@@ -513,11 +513,11 @@ cd /home/ubuntu/projects/lisboa
 node substreams/scripts/crosscheck-trust-edges.mjs
 
 # 3. The conformance suite: 21 tests, every fixture a real captured log.
-cd substreams/aval-trust && cargo test && cd -
+cd substreams/vouchme-trust && cargo test && cd -
 
-# 4. Live Firehose, Aval on World Chain mainnet.
+# 4. Live Firehose, VouchMe on World Chain mainnet.
 set -a; . .env; set +a
-cd substreams/aval-trust
+cd substreams/vouchme-trust
 substreams run ./substreams.yaml map_trust_events --network worldchain -e worldchain \
   -s 32835370 -t +20 -o jsonl
 
@@ -525,7 +525,7 @@ substreams run ./substreams.yaml map_trust_events --network worldchain -e worldc
 substreams run ./substreams.yaml map_trust_events --network base -e base \
   -s 49110120 -t +90 -o jsonl
 
-# 6. Independent ground truth for Aval, plain eth_getLogs, no Substreams involved.
+# 6. Independent ground truth for VouchMe, plain eth_getLogs, no Substreams involved.
 node ../scripts/verify-mainnet.mjs
 
 # 7. Rebuild the whole standardized table from live streams on all five chains.
@@ -534,7 +534,7 @@ node ../scripts/verify-mainnet.mjs
 
 # 8. The MCP consumer. Requires `node substreams/service/server.mjs` on :8790.
 #    Same tool, same shape, three protocol/chain combinations:
-#      0x4774b9621102eac2254365f9311c4e7700d9e7de  -> aval/worldchain
+#      0x4774b9621102eac2254365f9311c4e7700d9e7de  -> vouchme/worldchain
 #      0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8  -> eas/base
 #      0xfc61965861b679c5aa728d41fa6ea0b29544f554  -> eas/optimism
 curl -s "http://127.0.0.1:8790/cross-protocol?address=0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8&direction=inbound&liveOnly=true"
@@ -549,10 +549,10 @@ substreams tools default-endpoint base     # -> base-mainnet.streamingfast.io:44
 | Path | What |
 |---|---|
 | `docs/17-trust-graph-standard.md` | **The standard.** Field table, edge identity, adapter profiles, adding a third protocol |
-| `substreams/aval-trust/proto/trust_graph.proto` | The wire format |
-| `substreams/aval-trust/schema.sql` | The relational form + the liveness predicate |
-| `substreams/aval-trust/substreams.yaml` | The five adapter profiles — the whole cost of two protocols on five chains |
-| `substreams/aval-trust/src/lib.rs` | Reference implementation; tests at `:1150`, `:1210`, `:1234` pin §4's three defects |
+| `substreams/vouchme-trust/proto/trust_graph.proto` | The wire format |
+| `substreams/vouchme-trust/schema.sql` | The relational form + the liveness predicate |
+| `substreams/vouchme-trust/substreams.yaml` | The five adapter profiles — the whole cost of two protocols on five chains |
+| `substreams/vouchme-trust/src/lib.rs` | Reference implementation; tests at `:1150`, `:1210`, `:1234` pin §4's three defects |
 | `substreams/PROOF.md` §9–§12 | Chronological evidence trail, including the negatives with their real errors |
 | `substreams/scripts/crosscheck-trust-edges.mjs` | The independent auditor |
-| `mcp/src/tools/aval_cross_protocol_trust.ts` | The consumer with no per-protocol branching |
+| `mcp/src/tools/vouchme_cross_protocol_trust.ts` | The consumer with no per-protocol branching |

@@ -1,4 +1,4 @@
-# How Aval computes a reputation score
+# How VouchMe computes a reputation score
 
 The engine is one pure function: `compute(accounts, vouches, platformVouches, reports, now) -> scores`.
 No I/O, no `Date.now()`, no randomness, no floats. 660 lines in
@@ -48,7 +48,7 @@ s⁺(u) = base + tenure(u) +   Σ   min( s⁺(v) × m⁺ , cap⁺ )
 
 `A(u)` is the set of active inbound vouchers. The third line is the whole design.
 
-`s⁺` depends on `s⁺` — circular, and the system has **many** solutions. Aval takes the **least** one,
+`s⁺` depends on `s⁺` — circular, and the system has **many** solutions. VouchMe takes the **least** one,
 and takes it constructively: BFS outward from the anchors, then one layered pass that computes each
 depth strictly from the layer above it.
 
@@ -150,11 +150,11 @@ Read from [`engine/src/constants.ts`](../engine/src/constants.ts). All values ar
 | `CAP_POS` | 20 | `2_000` | `constants.ts:19` | The whale ceiling. |
 | `M_NEG` | 0.50 | `50/100` | `constants.ts:29-30` | Reports weigh double vouches. |
 | `CAP_NEG` | 40 | `4_000` | `constants.ts:22` | One maximal report cancels two anchor vouches. |
-| `MAX_DEPTH` | 3 | — | `constants.ts:56` | Also the ENS label limit: `carol.alice.aval.eth` is depth 2. |
+| `MAX_DEPTH` | 3 | — | `constants.ts:56` | Also the ENS label limit: `carol.alice.vouchme.eth` is depth 2. |
 | `MIN_VOUCHERS` | 2 | — | `constants.ts:59` | Gate 2. |
 | `TOP_K` | 3 | — | `constants.ts:67` | Only the 3 heaviest valid reports count. |
 | `T_MAX_CENTI` | 5.00 | `500` | `constants.ts:123` | Tenure ceiling. |
-| `SLOTS_TIER_1 / 2` | 3 / 10 | — | `constants.ts:95-96` | Outbound vouch capacity. **Enforced in the contract, not the engine** — `AvalRegistry._slotsAvailable`, `contracts/src/AvalRegistry.sol:394`. |
+| `SLOTS_TIER_1 / 2` | 3 / 10 | — | `constants.ts:95-96` | Outbound vouch capacity. **Enforced in the contract, not the engine** — `VouchMeRegistry._slotsAvailable`, `contracts/src/VouchMeRegistry.sol:394`. |
 
 ### The invariants that pin these values
 
@@ -422,7 +422,7 @@ protected from reports on the same grounds as the credential. The clique test as
 
 | Enforced in the engine | Enforced elsewhere |
 |---|---|
-| gates 1-4, depth, contributions, report weights, decay, top-K, voiding, tenure, tiers | vouch **slots** (3 / 10) — `AvalRegistry._slotsAvailable`, reverts `NoSlots` |
+| gates 1-4, depth, contributions, report weights, decay, top-K, voiding, tenure, tiers | vouch **slots** (3 / 10) — `VouchMeRegistry._slotsAvailable`, reverts `NoSlots` |
 | edge dedup by `(voucher, vouchee)` | rate limits (1 new vouch / 24h) — contract |
 | anchor score fixed at 100 | anchor status itself — read live from the Address Book |
 
@@ -745,7 +745,7 @@ right.
 ## 10. Honest limitations
 
 **10.1 — The negative half of the math is not wired to the live app.** `app/src/lib/chain.ts` reads
-`Enrolled` / `Vouched` / `Reaffirmed` / `Revoked` from `AvalRegistry` and presence from
+`Enrolled` / `Vouched` / `Reaffirmed` / `Revoked` from `VouchMeRegistry` and presence from
 `PresenceDrip`. It never reads `ReportRegistry` or `PlatformRegistry`, and hands the engine:
 
 ```ts
@@ -789,7 +789,7 @@ is a caller's problem that no caller currently handles.
 **10.4 — Slots are a contract property, not an engine property.** `SLOTS_TIER_1 = 3` and
 `SLOTS_TIER_2 = 10` are exported from `constants.ts` for the UI, but `compute()` never reads them. An
 `EngineInput` with a thousand outbound vouches from one Tier 1 account scores exactly as given. The
-constraint that makes the growth model work lives in `AvalRegistry.vouch()`.
+constraint that makes the growth model work lives in `VouchMeRegistry.vouch()`.
 
 **10.5 — `upheld` reports are not required to carry `upheldAt`.** The type says they must
 (`types.ts:57-58`); `compute()` validates the field's *format* when present but never its

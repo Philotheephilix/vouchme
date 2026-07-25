@@ -1,10 +1,10 @@
-# Aval × ENS
+# VouchMe × ENS
 
-**The claim:** Aval does not display ENS names. Aval stores its trust graph *in* the ENS name tree.
+**The claim:** VouchMe does not display ENS names. VouchMe stores its trust graph *in* the ENS name tree.
 A member is a registry contract. A vouch is a subname registered inside the voucher's registry. The
 edge has no other representation — delete the name and the edge is gone.
 
-`romariokavin.philoo.aval.eth` existing on Ethereum Sepolia **is** the statement "philoo vouched for
+`romariokavin.philoo.vouchme.eth` existing on Ethereum Sepolia **is** the statement "philoo vouched for
 romariokavin." Not a label for it. The statement itself.
 
 Everything below was re-verified against the live chain while writing this document. Where a repo
@@ -19,42 +19,42 @@ import { createPublicClient, http } from "viem";
 import { sepolia } from "viem/chains";
 const c = createPublicClient({ chain: sepolia, transport: http() });
 
-await c.getEnsAddress({ name: "erin.carol.alice.aval.eth" });
+await c.getEnsAddress({ name: "erin.carol.alice.vouchme.eth" });
 // 0x30F99b23402377BC829e573389c2317f97db8740
 
-await c.getEnsAddress({ name: "romariokavin.philoo.aval.eth" });
+await c.getEnsAddress({ name: "romariokavin.philoo.vouchme.eth" });
 // 0x4774b9621102eAc2254365f9311C4E7700D9e7de
 ```
 
-That is stock viem, stock chain config, no Aval code. Under the hood it goes through the ENS
+That is stock viem, stock chain config, no VouchMe code. Under the hood it goes through the ENS
 UniversalResolver at `0xeeeeeeee14d718c2b47d9923deab1335e144eeee` (2491 bytes on Sepolia), which
 walks the ENSv2 registry tree to find the resolver:
 
 ```
-UR.resolve("erin.carol.alice.aval.eth")  -> addr=0x30F99b23402377BC829e573389c2317f97db8740
+UR.resolve("erin.carol.alice.vouchme.eth")  -> addr=0x30F99b23402377BC829e573389c2317f97db8740
                                             resolverUsed=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
-UR.resolve("romariokavin.philoo.aval.eth") -> addr=0x4774b9621102eAc2254365f9311C4E7700D9e7de
+UR.resolve("romariokavin.philoo.vouchme.eth") -> addr=0x4774b9621102eAc2254365f9311C4E7700D9e7de
                                             resolverUsed=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
-UR.resolve("alice.aval.eth")             -> addr=0xEe0f520A7Cd3F6998dEE6463dfE3fc49E040520B
+UR.resolve("alice.vouchme.eth")             -> addr=0xEe0f520A7Cd3F6998dEE6463dfE3fc49E040520B
                                             resolverUsed=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
 ```
 
-**Chain:** Ethereum Sepolia (11155111). **Root name:** `aval.eth`.
+**Chain:** Ethereum Sepolia (11155111). **Root name:** `vouchme.eth`.
 **All writes from:** `0x69827C0FEF274C63Ac4806106F2BA544E6129050` (see [Limitations](#what-is-not-done)).
 
 ---
 
 ## 1. This is ENSv2. Reading v1 to check it will mislead you
 
-`aval.eth` has **no forward record in the v1 flat registry**. If you check it there you will conclude
+`vouchme.eth` has **no forward record in the v1 flat registry**. If you check it there you will conclude
 the name doesn't exist:
 
 ```
 v1.owner("eth")                  = 0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85   (BaseRegistrar — the call path works)
-v1.owner("aval.eth")             = 0x0000000000000000000000000000000000000000
-v1.resolver("aval.eth")          = 0x0000000000000000000000000000000000000000
-v1.owner("carol.aval.eth")       = 0x0000000000000000000000000000000000000000
-v1.owner("carol.alice.aval.eth") = 0x0000000000000000000000000000000000000000
+v1.owner("vouchme.eth")             = 0x0000000000000000000000000000000000000000
+v1.resolver("vouchme.eth")          = 0x0000000000000000000000000000000000000000
+v1.owner("carol.vouchme.eth")       = 0x0000000000000000000000000000000000000000
+v1.owner("carol.alice.vouchme.eth") = 0x0000000000000000000000000000000000000000
 ```
 *(v1 ENS Registry `0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`. The first line is the control: the
 registry answers correctly for `eth`, so the zeroes are real absences, not a dead call.)*
@@ -65,11 +65,11 @@ the trap still live on chain:
 
 ```
 v1.resolver("69827c0f…e6129050.addr.reverse") = 0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
-  .name(node)                                 = "aval.eth"
+  .name(node)                                 = "vouchme.eth"
 ```
 
-The deployer has a **v1 reverse record claiming `aval.eth`** — set by two `setName()` calls that
-never touched name ownership. A v1-based explorer will happily print "aval.eth" next to that address.
+The deployer has a **v1 reverse record claiming `vouchme.eth`** — set by two `setName()` calls that
+never touched name ownership. A v1-based explorer will happily print "vouchme.eth" next to that address.
 That is an unverified claim from the address side and proves nothing. Ignore it. It is not how any
 of this works.
 
@@ -89,12 +89,12 @@ Live chain of custody, read top-down:
 ```
 ethRegistry.getParent()             = [0xc960F7217d3643B525Ef36Bec8Adf86953CD9aB8, "eth"]   (root registry)
 ethRegistry (PermissionedRegistry)  = 0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67   code=15453B
-ethRegistry.getSubregistry("aval")  = 0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33   ← aval.eth's own registry
-avalRegistry.roles(0, deployer)     = 0x1111111111111111111111111111111111111111111111111111111111111111
+ethRegistry.getSubregistry("vouchme")  = 0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33   ← vouchme.eth's own registry
+vouchMeRegistry.roles(0, deployer)     = 0x1111111111111111111111111111111111111111111111111111111111111111
 ```
 
 That last line is `RegistryRolesLib`'s 64-slot nybble-packed bitmap with every nybble set — the
-deployer holds all roles on `aval.eth`'s root resource, which is what lets it `register()`.
+deployer holds all roles on `vouchme.eth`'s root resource, which is what lets it `register()`.
 This value was read off chain, not assumed.
 
 **It now reads `0x111111111111111111111111011111…1111`.** Nybble 39 —
@@ -122,7 +122,7 @@ results. The 77-byte clones themselves are EIP-1167 stubs with nothing to verify
 ## 2. A member *is* a registry they own
 
 Not "a member has a name." A member owns a `PermissionedRegistry` clone, and that clone is what
-`Entry.subregistry` points at. Without it, `<someone>.<member>.aval.eth` is structurally impossible —
+`Entry.subregistry` points at. Without it, `<someone>.<member>.vouchme.eth` is structurally impossible —
 which is exactly the bug this project shipped first and then fixed (see §5).
 
 The clone is deployed through the shared `VerifiableFactory`
@@ -144,6 +144,14 @@ address     = CREATE2(VerifiableFactory, outerSalt, keccak256(creation))
 - **Idempotence for free.** `deployMemberRegistry` checks `eth_getCode` at the predicted address
   first and returns without writing if code is already there. Re-running the provisioner is a no-op
   rather than a CREATE2 collision.
+
+The `aval.eth/` prefix in that namespace string is **frozen**, and survives the product rename to
+VouchMe unchanged. It is a CREATE2 salt input, so it is address-defining: `vouchme.eth`'s own
+registry and every member registry below were deployed under it, and re-deriving under a
+`vouchme.eth/…` namespace points at empty addresses (`vouchme` -> `0x94Bed2A4…`, `alice` ->
+`0x2a0d88a8…`, both 0 bytes of code). Nothing can be migrated onto a new namespace either, because
+the entries are non-transferable by construction. See the comment on
+`MEMBER_REGISTRY_SALT_NAMESPACE`.
 
 I re-derived all 19 addresses offline and compared to `getSubregistry(label)` read live:
 
@@ -185,7 +193,7 @@ Decoded from the real, user-triggered vouch transaction
 [`0x5a31e21f4a4018ba3ff4dd78b35fcbfea6073af24a02aa6c0c3b9ae99a98fb98`](https://sepolia.etherscan.io/tx/0x5a31e21f4a4018ba3ff4dd78b35fcbfea6073af24a02aa6c0c3b9ae99a98fb98):
 
 ```
-to        : 0xdC216d65d13ECF88069d3901B69990ef82bBdD47   ← philoo's registry, not aval.eth's
+to        : 0xdC216d65d13ECF88069d3901B69990ef82bBdD47   ← philoo's registry, not vouchme.eth's
 label     : romariokavin
 registry  : 0xf86c82f9941680E30746aE83B7977409C76175Ec   ← romariokavin's OWN registry
 resolver  : 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
@@ -201,10 +209,10 @@ the transfer role. This name has since been retro-fitted to soulbound, and a rea
 
 Three properties fall out of the data structure rather than out of code we wrote:
 
-| Aval concept | ENSv2 mechanism | Verified |
+| VouchMe concept | ENSv2 mechanism | Verified |
 |---|---|---|
 | Trust edge `philoo → romariokavin` | the subname exists | `philooRegistry.findOwner("romariokavin") != 0` |
-| Depth in the graph | label count in the name | `erin.carol.alice.aval.eth` is depth 3, by inspection |
+| Depth in the graph | label count in the name | `erin.carol.alice.vouchme.eth` is depth 3, by inspection |
 | Vouch expiry (90 d) | `Entry.expiry`, native to ENS | `1792782393` — see §6 |
 | Walking a trust path | repeated `getSubregistry()` | §4 |
 
@@ -217,9 +225,9 @@ from a complete mint, but the name resolves to nothing.
 This project hit it. From `deployments/ens-sepolia.json`, recorded at the time:
 
 ```
-carolAvalEth.readbackVerification:
-  "avalRegistry.getResolver('carol')  == 0x211D6CC3…"        ← pointer wired
-  "resolver.addr(namehash('carol.aval.eth')) == 0x0"         ← name resolves to NOTHING
+carolVouchMeEth.readbackVerification:
+  "vouchMeRegistry.getResolver('carol')  == 0x211D6CC3…"        ← pointer wired
+  "resolver.addr(namehash('carol.vouchme.eth')) == 0x0"         ← name resolves to NOTHING
 ```
 
 The fix is structural, not a comment. `ens-core.ts` will not report success on a receipt:
@@ -241,22 +249,22 @@ The same `ens-core.ts` is imported by `/api/ens/mint`, `/api/vouch/ens` and
 
 ## 4. The four-level traversal
 
-`node scripts/dev/ens-walk.mjs erin.carol.alice.aval.eth`, run just now:
+`node scripts/dev/ens-walk.mjs erin.carol.alice.vouchme.eth`, run just now:
 
 ```
-aval.eth                   parentRegistry=0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67
+vouchme.eth                   parentRegistry=0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67
                            owner=0x69827C0FEF274C63Ac4806106F2BA544E6129050 resolver=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 expiry=1848158652 (2028-07-25T17:24:12.000Z)
-                           getSubregistry("aval")=0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33 code=77B
-alice.aval.eth             parentRegistry=0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33
+                           getSubregistry("vouchme")=0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33 code=77B
+alice.vouchme.eth             parentRegistry=0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33
                            owner=0x69827C0FEF274C63Ac4806106F2BA544E6129050 resolver=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 expiry=1816531850 (2027-07-25T16:10:50.000Z)
                            getSubregistry("alice")=0xeB3e71b211B947a7EF4EbC1Cb7d4ae7e97eCf143 code=77B
-carol.alice.aval.eth       parentRegistry=0xeB3e71b211B947a7EF4EbC1Cb7d4ae7e97eCf143
+carol.alice.vouchme.eth       parentRegistry=0xeB3e71b211B947a7EF4EbC1Cb7d4ae7e97eCf143
                            owner=0x69827C0FEF274C63Ac4806106F2BA544E6129050 resolver=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 expiry=1792771911 (2026-10-23T16:11:51.000Z)
                            getSubregistry("carol")=0x3f04Cac222A9627F9De911b274CdF289bbA008d9 code=77B
-erin.carol.alice.aval.eth  parentRegistry=0x3f04Cac222A9627F9De911b274CdF289bbA008d9
+erin.carol.alice.vouchme.eth  parentRegistry=0x3f04Cac222A9627F9De911b274CdF289bbA008d9
                            owner=0x69827C0FEF274C63Ac4806106F2BA544E6129050 resolver=0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 expiry=1792772705 (2026-10-23T16:25:05.000Z)
                            getSubregistry("erin")=0xbD0805Db6f42e570FeEC0966A0531762A7472b83 code=77B
-resolver.addr(namehash("erin.carol.alice.aval.eth")) = 0x30F99b23402377BC829e573389c2317f97db8740
+resolver.addr(namehash("erin.carol.alice.vouchme.eth")) = 0x30F99b23402377BC829e573389c2317f97db8740
 ```
 
 Read the `parentRegistry` column downward. Each line's registry is the previous line's
@@ -265,7 +273,7 @@ Read the `parentRegistry` column downward. Each line's registry is the previous 
 member.
 
 Note the expiries: the two member names sit at ~1 year, the two vouch edges at 2026-10-23 — 90 days,
-the same constant as `AvalRegistry.VOUCH_EXPIRY = 90 days` in the World Chain contract. Vouch expiry
+the same constant as `VouchMeRegistry.VOUCH_EXPIRY = 90 days` in the World Chain contract. Vouch expiry
 is not a predicate we evaluate. It is `Entry.expiry` in ENS.
 
 ### Negative controls
@@ -273,10 +281,10 @@ is not a predicate we evaluate. It is `Entry.expiry` in ENS.
 Structure that should not resolve, doesn't:
 
 ```
-addr("mallory.aval.eth")              = 0x0    avalRegistry.findOwner("mallory")        = 0x0
-addr("dave.alice.aval.eth")           = 0x0    (alice never vouched for dave)
-addr("erin.bob.aval.eth")             = 0x0    bobRegistry.findOwner("erin")            = 0x0
-addr("x.erin.carol.alice.aval.eth")   = 0x0
+addr("mallory.vouchme.eth")              = 0x0    vouchMeRegistry.findOwner("mallory")        = 0x0
+addr("dave.alice.vouchme.eth")           = 0x0    (alice never vouched for dave)
+addr("erin.bob.vouchme.eth")             = 0x0    bobRegistry.findOwner("erin")            = 0x0
+addr("x.erin.carol.alice.vouchme.eth")   = 0x0
 ```
 
 An unvouched-for name is not "a name with a low score." It does not exist.
@@ -285,20 +293,20 @@ An unvouched-for name is not "a name with a low score." It does not exist.
 
 ## 5. The depth-3 subtlety, and what it tells you about the design
 
-`erin.carol.alice.aval.eth` required **no third `register()` call**. There is exactly one
+`erin.carol.alice.vouchme.eth` required **no third `register()` call**. There is exactly one
 `register("erin", …)` transaction — `0xae5f361e…`, sent to carol's registry
 `0x3f04Cac222A9627F9De911b274CdF289bbA008d9`.
 
 The reason is that carol has **one** registry, and it is simultaneously:
 
-- `avalRegistry.getSubregistry("carol")` — the child of `carol.aval.eth`, and
-- `aliceRegistry.getSubregistry("carol")` — the child of `carol.alice.aval.eth`.
+- `vouchMeRegistry.getSubregistry("carol")` — the child of `carol.vouchme.eth`, and
+- `aliceRegistry.getSubregistry("carol")` — the child of `carol.alice.vouchme.eth`.
 
 Both read back as the same address:
 
 ```
-carol.alice.aval.eth   childRegistry=0x3f04Cac222A9627F9De911b274CdF289bbA008d9  identicalTo<carol>.aval.eth's=true
-erin.carol.aval.eth    childRegistry=0xbD0805Db6f42e570FeEC0966A0531762A7472b83  identicalTo<erin>.aval.eth's=true
+carol.alice.vouchme.eth   childRegistry=0x3f04Cac222A9627F9De911b274CdF289bbA008d9  identicalTo<carol>.vouchme.eth's=true
+erin.carol.vouchme.eth    childRegistry=0xbD0805Db6f42e570FeEC0966A0531762A7472b83  identicalTo<erin>.vouchme.eth's=true
 ```
 
 So the single `erin` entry inside carol's registry is reachable through *every* path that reaches
@@ -309,8 +317,8 @@ The resolver does not share that property. It is **node-keyed** — `addr(bytes3
 `namehash` includes the full path:
 
 ```
-namehash("erin.carol.alice.aval.eth") = 0x516166d6c2a8388d3bdf3bba132203ad6cdf297ab26874dccbee3c557373e25e
-namehash("erin.carol.aval.eth")       = 0x491990ed7e25f0a94eb5a5bb5beff6ea0a676e27d2f6b1a1f70a450c361ad8f3
+namehash("erin.carol.alice.vouchme.eth") = 0x516166d6c2a8388d3bdf3bba132203ad6cdf297ab26874dccbee3c557373e25e
+namehash("erin.carol.vouchme.eth")       = 0x491990ed7e25f0a94eb5a5bb5beff6ea0a676e27d2f6b1a1f70a450c361ad8f3
 ```
 
 So the depth-3 leaf needed its own `setAddr`, and only that. Verified by decoding the transaction:
@@ -319,11 +327,11 @@ So the depth-3 leaf needed its own `setAddr`, and only that. Verified by decodin
 tx 0xdea4291e5571c13b0740905e2b308b5248f6a6d581fa659085c996beb92c32c4  (block 11348817, success)
 to    0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
 input 0xd5fa2b00 516166d6…e25e  …30F99b23402377BC829e573389c2317f97db8740
-      └ setAddr  └ namehash("erin.carol.alice.aval.eth")  └ erin's address
+      └ setAddr  └ namehash("erin.carol.alice.vouchme.eth")  └ erin's address
 ```
 
 Two layers, two different addressing models — registry state keyed by (registry, label), resolver
-state keyed by namehash. Aval's trust graph lives entirely in the first. The second is a display
+state keyed by namehash. VouchMe's trust graph lives entirely in the first. The second is a display
 concern. `deployments/ens-sepolia.json` → `nestedVouchNames.resolverNote` states this in one line;
 this is what it means in practice.
 
@@ -333,13 +341,13 @@ this is what it means in practice.
 
 The 17 demo labels (`alice`…`ring6`) were provisioned by a script. Two names were not:
 
-**On World Chain mainnet (480), `AvalRegistry` `0x6fEfEf2d44203300a6a33d631840C972181b8722`** has
+**On World Chain mainnet (480), `VouchMeRegistry` `0x6fEfEf2d44203300a6a33d631840C972181b8722`** has
 emitted five events in its entire life — two of them deploy-time wiring (`ReportRegistrySet`,
 `PlatformRegistrySet`, blocks 32833184/32833186). The other three are the whole user story:
 
 ```
-block 32833568  Enrolled  0xB23a3B…672B47  handle="philoo.aval.eth"        tx 0xde6f732e…
-block 32833881  Enrolled  0x4774b9…D9e7de  handle="romariokavin.aval.eth"  tx 0xcbafd84a…
+block 32833568  Enrolled  0xB23a3B…672B47  handle="philoo.vouchme.eth"        tx 0xde6f732e…
+block 32833881  Enrolled  0x4774b9…D9e7de  handle="romariokavin.vouchme.eth"  tx 0xcbafd84a…
 block 32835377  Vouched   0xB23a3B…672B47 -> 0x4774b9…D9e7de
                           issuedAt=1785006393 (2026-07-25T19:06:33Z)
                           expiresAt=1792782393 (2026-10-23T19:06:33Z)   tx 0x563172cb…
@@ -354,12 +362,12 @@ seeded number would be.
 |---|---|---|---|
 | 1 | 11349301 | `0x65f1569ca3bdc9363688eaeacd44e1fc470fbfb779d46dc62ce362cdfffa6368` | `deployProxy` salt `0xbd8c15d0…` → philoo's registry |
 | 2 | 11349302 | `0xde24f630b0224a3db0282a7b70589cc80d88a57cf5e8cf41d2624efa60be6dc5` | `register("philoo")`, registry = `0xdC216d65…` |
-| 3 | 11349303 | `0x41c79ba980f8af41abe5aaa2728c73dfbfa9ec17b508d83d60bc25d60ed073d7` | `setAddr(philoo.aval.eth → 0xB23a3B…672B47)` |
+| 3 | 11349303 | `0x41c79ba980f8af41abe5aaa2728c73dfbfa9ec17b508d83d60bc25d60ed073d7` | `setAddr(philoo.vouchme.eth → 0xB23a3B…672B47)` |
 | 4 | 11349351 | `0xd08fc3022034ef62445b0c90529c3a0489df1049bf645fd3cf605e8bbb287f0d` | `deployProxy` salt `0x992afefd…` → romariokavin's registry |
 | 5 | 11349352 | `0xfa9b011adb2ec1975c02cb599b4c77bbc8b53e4bb52e374c19d74693d701ba2c` | `register("romariokavin")` |
-| 6 | 11349353 | `0x4a68814e1a5e2c37af542cffc21547b80bfa18176740b112e6e05808b79e5f2f` | `setAddr(romariokavin.aval.eth → 0x4774b9…D9e7de)` |
+| 6 | 11349353 | `0x4a68814e1a5e2c37af542cffc21547b80bfa18176740b112e6e05808b79e5f2f` | `setAddr(romariokavin.vouchme.eth → 0x4774b9…D9e7de)` |
 | 7 | 11349597 | `0x5a31e21f4a4018ba3ff4dd78b35fcbfea6073af24a02aa6c0c3b9ae99a98fb98` | **`register("romariokavin")` inside philoo's registry** |
-| 8 | 11349599 | `0x49235bc8d4a33b22d24f46837fb26bf368dec453c8835aa9965442d02ebbdf6a` | `setAddr(romariokavin.philoo.aval.eth → 0x4774b9…D9e7de)` |
+| 8 | 11349599 | `0x49235bc8d4a33b22d24f46837fb26bf368dec453c8835aa9965442d02ebbdf6a` | `setAddr(romariokavin.philoo.vouchme.eth → 0x4774b9…D9e7de)` |
 
 Rows 1–3 and 4–6 are `/api/ens/mint` firing from the enroll screen. Rows 7–8 are `/api/vouch/ens`
 firing from the vouch wizard, three seconds after the World Chain vouch landed. The expiries line up
@@ -386,12 +394,12 @@ predates the real users. Both files were written at 16:24 UTC; philoo and romari
 19 registered labels, 19 distinct registries, every one with code
 
 nested vouch names present on chain:
-  carol.alice.aval.eth          in=0xeB3e71b2… child=0x3f04Cac2… sameAsMemberRegistry=true addr=0x23761b08… exp=2026-10-23
-  erin.carol.aval.eth           in=0x3f04Cac2… child=0xbD0805Db… sameAsMemberRegistry=true addr=0x30F99b23… exp=2026-10-23
-  romariokavin.philoo.aval.eth  in=0xdC216d65… child=0xf86c82f9… sameAsMemberRegistry=true addr=0x4774b962… exp=2026-10-23
+  carol.alice.vouchme.eth          in=0xeB3e71b2… child=0x3f04Cac2… sameAsMemberRegistry=true addr=0x23761b08… exp=2026-10-23
+  erin.carol.vouchme.eth           in=0x3f04Cac2… child=0xbD0805Db… sameAsMemberRegistry=true addr=0x30F99b23… exp=2026-10-23
+  romariokavin.philoo.vouchme.eth  in=0xdC216d65… child=0xf86c82f9… sameAsMemberRegistry=true addr=0x4774b962… exp=2026-10-23
 
 depth 3:
-  addr("erin.carol.alice.aval.eth") = 0x30F99b23402377BC829e573389c2317f97db8740
+  addr("erin.carol.alice.vouchme.eth") = 0x30F99b23402377BC829e573389c2317f97db8740
 ```
 
 ---
@@ -402,15 +410,15 @@ A `mapping(address => address[]) vouches` with an ENS name rendered next to each
 same UI. It does not give you these:
 
 - **The provenance is inside the identifier.** You cannot hand someone
-  `erin.carol.alice.aval.eth` without also handing them the path. There is no way to display the
+  `erin.carol.alice.vouchme.eth` without also handing them the path. There is no way to display the
   identity while suppressing where it came from.
 - **The path walk is ENS resolution.** `getSubregistry()` four times. Any client that can resolve an
-  ENS name can walk an Aval trust path, having never heard of Aval. The stock viem call at the top of
+  ENS name can walk a VouchMe trust path, having never heard of VouchMe. The stock viem call at the top of
   this document is the proof.
 - **Expiry is native.** `Entry.expiry` is enforced by ENS itself. No `expiresAt_gt: now` predicate to
   forget in a query.
 - **The attack is unrepresentable rather than filtered.** A collusion ring can mint
-  `mallory.mallory2.mallory3.eth` all day; those labels do not descend from `aval.eth`, so there is
+  `mallory.mallory2.mallory3.eth` all day; those labels do not descend from `vouchme.eth`, so there is
   nothing to detect. Contrast a mapping, where the ring's rows exist and you must *decide* to exclude
   them.
 - **Revocation propagates by absence.** Nothing needs to publish a revocation list; the name stops
@@ -423,7 +431,7 @@ same UI. It does not give you these:
 
 Everything in this section was checked, not guessed.
 
-**1. Two chains, no bridge.** Names are on Ethereum Sepolia (11155111). The app and `AvalRegistry`
+**1. Two chains, no bridge.** Names are on Ethereum Sepolia (11155111). The app and `VouchMeRegistry`
 are on World Chain **mainnet** (480, `NEXT_PUBLIC_CHAIN_ID=480`). Nothing on either chain proves
 anything about the other — the only thing connecting the World Chain `Vouched` event to the Sepolia
 subname is our server, holding a key, choosing to write both. A judge should read the ENS layer as
@@ -451,45 +459,45 @@ retro-fitted. Four real `safeTransferFrom` transactions were sent and all four r
 `TransferDisallowed`, owner unchanged. Full evidence in
 [`docs/99-errata.md` E-10](../docs/99-errata.md).
 
-**4. No slot limits, no rate limits, no depth cap in ENS.** §7.1/7.3 describe an `AvalMemberRegistry`
+**4. No slot limits, no rate limits, no depth cap in ENS.** §7.1/7.3 describe a `VouchMeMemberRegistry`
 subclass enforcing 3-or-10 outbound slots and a 1-per-day rate limit in the member's own contract.
-What is deployed is the stock `PermissionedRegistry` clone; those rules live only in `AvalRegistry`
-on World Chain. Likewise, `docs/04-ens.md` §5.3's "`x.y.z.w.aval.eth` does not resolve — beyond
+What is deployed is the stock `PermissionedRegistry` clone; those rules live only in `VouchMeRegistry`
+on World Chain. Likewise, `docs/04-ens.md` §5.3's "`x.y.z.w.vouchme.eth` does not resolve — beyond
 max_depth" is true today only because nobody registered it. erin's registry
 `0xbD0805Db6f42e570FeEC0966A0531762A7472b83` has 77 bytes of code, so a 4th label under it is
 structurally available. ENS caps nothing.
 
-**5. No text records.** `docs/04-ens.md` §2 describes `aval.score`, `aval.tier`, `aval.path`,
-`aval.subgraph` computed at resolution time. On chain, right now:
+**5. No text records.** `docs/04-ens.md` §2 describes `vouchme.score`, `vouchme.tier`, `vouchme.path`,
+`vouchme.subgraph` computed at resolution time. On chain, right now:
 
 ```
-text("erin.carol.alice.aval.eth","aval.score")    = ""
-text("erin.carol.alice.aval.eth","aval.tier")     = ""
-text("erin.carol.alice.aval.eth","aval.path")     = ""
-text("erin.carol.alice.aval.eth","aval.subgraph") = ""
-text("alice.aval.eth","avatar")                   = ""
+text("erin.carol.alice.vouchme.eth","vouchme.score")    = ""
+text("erin.carol.alice.vouchme.eth","vouchme.tier")     = ""
+text("erin.carol.alice.vouchme.eth","vouchme.path")     = ""
+text("erin.carol.alice.vouchme.eth","vouchme.subgraph") = ""
+text("alice.vouchme.eth","avatar")                   = ""
 ```
 
 Empty on every name tested. The names carry an address record and nothing else.
 
 **6. The CCIP-Read gateway is not in the resolution path.** `gateway/` exists as a real package
 (ENSIP-10 wildcard decoding, EIP-3668 request handling, EIP-191 signing, with tests). It is not
-deployed, no L1 CCIP resolver contract appears in any file under `deployments/`, and `aval.eth`'s
+deployed, no L1 CCIP resolver contract appears in any file under `deployments/`, and `vouchme.eth`'s
 resolver on chain is the plain `PermissionedResolver` clone — which is why §5 above returns empty
 strings. The §3 architecture diagram in `docs/04-ens.md` describes a system that is written but not
 wired.
 
 **7. No reverse resolution.** No member address has an `addr.reverse` resolver set;
 `getEnsName()` returns `null` for every one. `docs/04-ens.md` §1.1's canonical-name selection is
-unimplemented — and since a person can hold several names (`carol.aval.eth`, `carol.alice.aval.eth`),
+unimplemented — and since a person can hold several names (`carol.vouchme.eth`, `carol.alice.vouchme.eth`),
 reverse resolution is where that ambiguity would have to be resolved.
 
 **8. Revocation only happens by expiry.** `ens-core.ts` has no burn or revoke path. A World Chain
 `Revoked` event does not remove the subname; the name keeps resolving until `Entry.expiry` lapses,
 up to 90 days later.
 
-**9. Sepolia only.** `aval.eth` is registered under an ENSv2 alpha stack on Sepolia. There is no
-mainnet `aval.eth`, and no ENSIP-25/26 agent records exist on chain (`docs/04-ens.md` §4 is design
+**9. Sepolia only.** `vouchme.eth` is registered under an ENSv2 alpha stack on Sepolia. There is no
+mainnet `vouchme.eth`, and no ENSIP-25/26 agent records exist on chain (`docs/04-ens.md` §4 is design
 only).
 
 ---
@@ -497,8 +505,8 @@ only).
 ## Reproduce
 
 ```bash
-node scripts/dev/ens-walk.mjs erin.carol.alice.aval.eth      # the four-level traversal
-node scripts/dev/ens-walk.mjs romariokavin.philoo.aval.eth   # the user-generated edge
+node scripts/dev/ens-walk.mjs erin.carol.alice.vouchme.eth      # the four-level traversal
+node scripts/dev/ens-walk.mjs romariokavin.philoo.vouchme.eth   # the user-generated edge
 node scripts/dev/ensstate.mjs                                # per-member registries (17 seeded only — see §6)
 ```
 
