@@ -1,7 +1,7 @@
 import { Header } from "@/components/Header";
 import { TierBadge } from "@/components/TierBadge";
-import { dropAvalSuffix, fmtScore, truncateMiddle } from "@/lib/format";
-import { EXPLORE_HONEST, EXPLORE_RING } from "@/lib/mock";
+import { anchorSourceLabel, dropAvalSuffix, fmtScore, truncateMiddle } from "@/lib/format";
+import { loadAvalData } from "@/lib/mock";
 import type { ExploreScenario } from "@/lib/types";
 
 function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
@@ -22,7 +22,14 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
       <div className="mt-4">
         {sortedNodes.map((node) => (
           <div key={node.ensName} className="flex items-center justify-between border-b border-rule py-2">
-            <span className="truncate-mono max-w-[150px] text-xs text-cream">{truncateMiddle(node.ensName, 20)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="truncate-mono block max-w-[150px] text-xs text-cream">{truncateMiddle(node.ensName, 20)}</span>
+              {node.isAnchor ? (
+                <span className="block font-mono text-2xs uppercase tracking-wide" style={{ color: "var(--color-anchor)" }}>
+                  {anchorSourceLabel(node.anchorSource)}
+                </span>
+              ) : null}
+            </span>
             <span className="flex items-center gap-2">
               <span className="font-mono text-2xs text-graphite">
                 depth {node.depth ?? "∞"} · {fmtScore(node.score)}
@@ -65,7 +72,11 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
   );
 }
 
-export default function ExplorePage() {
+// LIVE mode reads World Chain Sepolia on every request — never bake a snapshot into the build.
+export const dynamic = "force-dynamic";
+
+export default async function ExplorePage() {
+  const { EXPLORE_HONEST, EXPLORE_RING } = await loadAvalData();
   return (
     <div className="pb-8">
       <Header eyebrow="EXPLORE" title="honest path vs. collusion ring" />

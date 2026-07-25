@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Instrument_Serif, Public_Sans } from "next/font/google";
 import type { ReactNode } from "react";
-import { BottomNav } from "@/components/BottomNav";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -42,10 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`dark ${instrumentSerif.variable} ${publicSans.variable} ${plexMono.variable}`}>
       <body className="min-h-screen bg-void text-cream">
-        <Providers>
-          <main style={{ paddingBottom: "calc(56px + env(safe-area-inset-bottom))" }}>{children}</main>
-          <BottomNav />
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

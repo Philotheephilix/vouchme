@@ -1,10 +1,22 @@
+import { cookies } from "next/headers";
+import { isAddress } from "viem";
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { TierBadge } from "@/components/TierBadge";
 import { fmtScore, truncateMiddle } from "@/lib/format";
-import { AGENT } from "@/lib/mock";
+import { loadAvalData } from "@/lib/mock";
+import type { Address } from "@/lib/types";
 
-export default function AgentsPage() {
+// LIVE mode reads World Chain Sepolia on every request — never bake a snapshot into the build.
+export const dynamic = "force-dynamic";
+
+export default async function AgentsPage() {
+  const cookieStore = await cookies();
+  const cookieAddr = cookieStore.get("aval_addr")?.value;
+  const viewingAddress = cookieAddr && isAddress(cookieAddr) ? (cookieAddr as Address) : undefined;
+  if (!viewingAddress) return null;
+
+  const { AGENT } = await loadAvalData(viewingAddress);
   return (
     <div className="pb-8">
       <Header eyebrow="AGENTS" title={AGENT.subname} />

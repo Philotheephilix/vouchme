@@ -1,9 +1,13 @@
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { fmtAval, fmtPct, fmtScore, platformTierLabel } from "@/lib/format";
-import { PLATFORM } from "@/lib/mock";
+import { loadAvalData } from "@/lib/mock";
 
-export default function PlatformPage() {
+// LIVE mode reads World Chain Sepolia on every request — never bake a snapshot into the build.
+export const dynamic = "force-dynamic";
+
+export default async function PlatformPage() {
+  const { PLATFORM } = await loadAvalData();
   return (
     <div className="pb-8">
       <Header eyebrow="PLATFORM CONSOLE" title={PLATFORM.ensName} />
