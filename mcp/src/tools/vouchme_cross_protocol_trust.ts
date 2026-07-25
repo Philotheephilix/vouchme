@@ -1,10 +1,10 @@
-// @aval/mcp — src/tools/aval_cross_protocol_trust.ts — docs/06-mcp-skills.md §2.8
+// @vouchme/mcp — src/tools/vouchme_cross_protocol_trust.ts — docs/06-mcp-skills.md §2.8
 //
 // Fans ONE standardized query across every protocol and chain indexed under the Trust Graph
 // Standard v0.2.0 (docs/17-trust-graph-standard.md).
 //
 // This is the MCP layer of the standard: an agent asks about an address once and gets back trust
-// edges from Aval on World Chain and EAS on Base / Optimism / Arbitrum / Ethereum — in ONE shape,
+// edges from VouchMe on World Chain and EAS on Base / Optimism / Arbitrum / Ethereum — in ONE shape,
 // from ONE query. The tool contains no per-protocol branching at all, because the shared schema
 // removed the need for any: registering Circles tomorrow changes this file not at all.
 //
@@ -15,17 +15,17 @@
 
 import { z } from "zod";
 import { BASE, CAP_POS, M_POS, getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 /** Where the standardized trust-edge store is served from (substreams/service/server.mjs). */
 const TRUST_GRAPH_SERVICE_URL = process.env.TRUST_GRAPH_SERVICE_URL ?? "http://127.0.0.1:8790";
 
 /**
- * Budget for the Aval-specific engine read. It is an enrichment, not the answer, so it gets a
+ * Budget for the VouchMe-specific engine read. It is an enrichment, not the answer, so it gets a
  * deadline rather than an unbounded await.
  */
-const ENGINE_TIMEOUT_MS = Number(process.env.AVAL_ENGINE_TIMEOUT_MS ?? 8_000);
+const ENGINE_TIMEOUT_MS = Number(process.env.VOUCHME_ENGINE_TIMEOUT_MS ?? 8_000);
 
 type Attempt<T> = { ok: true; value: T } | { ok: false; reason: string };
 
@@ -48,11 +48,11 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<Attempt<
 }
 
 const inputSchema = {
-  address: z.string().describe("The address (or ENS name / Aval handle) to look up across protocols."),
+  address: z.string().describe("The address (or ENS name / VouchMe handle) to look up across protocols."),
   protocols: z
     .array(z.string())
     .optional()
-    .describe("Restrict to these protocol slugs (e.g. ['aval','eas']). Defaults to every indexed protocol."),
+    .describe("Restrict to these protocol slugs (e.g. ['vouchme','eas']). Defaults to every indexed protocol."),
   liveOnly: z
     .boolean()
     .optional()
@@ -77,8 +77,8 @@ interface StandardEdge {
   revoked: boolean;
   blockNum: number;
   txHash: string;
-  /** Only ever set for Aval edges — see the normalization note in the handler. */
-  avalWeight?: string;
+  /** Only ever set for VouchMe edges — see the normalization note in the handler. */
+  vouchMeWeight?: string;
 }
 
 interface ServiceResponse {
@@ -112,39 +112,39 @@ async function fetchStandardEdges(
 }
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_cross_protocol_trust",
+  name: "vouchme_cross_protocol_trust",
   description:
     "Fetch inbound trust edges for an address across EVERY protocol indexed under the Trust Graph " +
-    "Standard v0.2.0 (Aval on World Chain, EAS on Base/Optimism/Arbitrum/Ethereum) using one " +
-    "standardized query. CONTEXT ONLY — non-Aval edges never contribute to the Aval score; never " +
+    "Standard v0.2.0 (VouchMe on World Chain, EAS on Base/Optimism/Arbitrum/Ethereum) using one " +
+    "standardized query. CONTEXT ONLY — non-VouchMe edges never contribute to the VouchMe score; never " +
     "treat them as score when deciding whether to vouch.",
   inputSchema,
   async handler(args) {
     const liveOnly = args.liveOnly ?? true;
 
-    // The standardized store is the PRIMARY path and is queried without the Aval engine, because
-    // it already carries Aval's own edges alongside every other protocol's — that is the point of
+    // The standardized store is the PRIMARY path and is queried without the VouchMe engine, because
+    // it already carries VouchMe's own edges alongside every other protocol's — that is the point of
     // a shared schema. The engine below is strictly an enrichment step, so a slow or failing
-    // Aval-specific chain read degrades this tool instead of hanging it.
+    // VouchMe-specific chain read degrades this tool instead of hanging it.
     //
-    // Concretely: `getCachedGraph()` replays AvalRegistry logs over a chunked `eth_getLogs` scan,
+    // Concretely: `getCachedGraph()` replays VouchMeRegistry logs over a chunked `eth_getLogs` scan,
     // which is a bespoke, single-protocol, single-chain code path — exactly the kind of thing the
     // standard exists to stop every consumer from having to own. It is bounded here rather than
     // awaited unconditionally.
     const graph = await withTimeout(getCachedGraph(), ENGINE_TIMEOUT_MS);
 
-    // Resolve through Aval's own account index when it is available (this accepts ENS names and
-    // Aval handles); otherwise accept a raw address, since a subject may exist on EAS and not on
-    // Aval at all — refusing those would defeat the point of a cross-protocol lookup.
+    // Resolve through VouchMe's own account index when it is available (this accepts ENS names and
+    // VouchMe handles); otherwise accept a raw address, since a subject may exist on EAS and not on
+    // VouchMe at all — refusing those would defeat the point of a cross-protocol lookup.
     const resolved = graph.ok ? resolveIdentifierToAddress(args.address, graph.value) : null;
     const address = (resolved ?? args.address).toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(address)) {
       return errorResult(
-        new AvalToolError(
+        new VouchMeToolError(
           "NotFound",
           graph.ok
-            ? `"${args.address}" is not a known Aval account and is not an address`
-            : `"${args.address}" is not an address, and the Aval account index needed to resolve ` +
+            ? `"${args.address}" is not a known VouchMe account and is not an address`
+            : `"${args.address}" is not an address, and the VouchMe account index needed to resolve ` +
               `names is unavailable (${graph.reason})`
         )
       );
@@ -172,31 +172,31 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       unavailable.push(store.reason);
     }
 
-    // ── Aval's own live engine state ────────────────────────────────────────────────────────
-    // Kept separate from the store deliberately. The standard records the raw edge, but an Aval
+    // ── VouchMe's own live engine state ────────────────────────────────────────────────────────
+    // Kept separate from the store deliberately. The standard records the raw edge, but a VouchMe
     // vouch's EFFECTIVE weight depends on the voucher's own current score — graph-wide state, not
     // a per-event fact, and so correctly absent from `weight_raw`
     // (docs/17-trust-graph-standard.md §5.4). This block is the adapter layer performing exactly
     // the normalization the standard leaves to its consumers.
     if (!graph.ok) {
       unavailable.push(
-        `Aval engine enrichment skipped (${graph.reason}) — Aval edges below come from the ` +
-          `standardized store and carry no avalWeight`
+        `VouchMe engine enrichment skipped (${graph.reason}) — VouchMe edges below come from the ` +
+          `standardized store and carry no vouchMeWeight`
       );
-    } else if (!wanted || wanted.has("aval")) {
+    } else if (!wanted || wanted.has("vouchme")) {
       const scored = scoreGraph(graph.value);
       for (const e of scored.inboundByAccount.get(address) ?? []) {
         const voucher = e.voucherId.toLowerCase();
         const weight = Math.min(((scored.scores.get(e.voucherId)?.score ?? BASE) * M_POS) / CAP_POS, 1).toFixed(4);
-        const existing = edges.find((x) => x.protocol === "aval" && x.from.toLowerCase() === voucher);
+        const existing = edges.find((x) => x.protocol === "vouchme" && x.from.toLowerCase() === voucher);
         if (existing) {
-          existing.avalWeight = weight;
+          existing.vouchMeWeight = weight;
           continue;
         }
         // In the live contract read but not yet in the sink — the sink indexes a block range and
         // the chain moves on. Included and attributed, rather than dropped or backdated.
         const edge: StandardEdge = {
-          protocol: "aval",
+          protocol: "vouchme",
           network: "worldchain",
           scope: "",
           from: e.voucherId,
@@ -209,7 +209,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
           revoked: false,
           blockNum: 0,
           txHash: "",
-          avalWeight: weight,
+          vouchMeWeight: weight,
         };
         edges.push(edge);
         countEdge(edge);
@@ -227,10 +227,10 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       // Only ever populated with a real, named failure — never used to paper over an empty result.
       ...(unavailable.length ? { unavailable } : {}),
       note:
-        "Non-Aval edges are CONTEXT ONLY and do not contribute to the Aval score: importing " +
+        "Non-VouchMe edges are CONTEXT ONLY and do not contribute to the VouchMe score: importing " +
         "another protocol's edges would import its Sybil surface (docs/05-graph-data-layer.md §3.5). " +
-        "`weightRaw` is protocol-native and NOT comparable across protocols; `avalWeight` is the " +
-        "only normalized figure here, and exists only for Aval edges.",
+        "`weightRaw` is protocol-native and NOT comparable across protocols; `vouchMeWeight` is the " +
+        "only normalized figure here, and exists only for VouchMe edges.",
       computedAtBlock: graph.ok ? graph.value.meta.blockNumber : null,
     });
   },

@@ -1,13 +1,13 @@
-// @aval/mcp — src/tools/aval_pipeline_deploy.ts — docs/06-mcp-skills.md §2.14
+// @vouchme/mcp — src/tools/vouchme_pipeline_deploy.ts — docs/06-mcp-skills.md §2.14
 //
-// aval_pipeline_deploy(previewId) -> { protocolSlug, firstBlock,
+// vouchme_pipeline_deploy(previewId) -> { protocolSlug, firstBlock,
 // sinkStatus, query }
 //
 // Refuses any preview where eventsFound == 0 — "a pipeline that deploys
 // cleanly and indexes nothing is indistinguishable from a working one
 // until somebody queries it a week later, so the gate is in the tool
 // rather than in the documentation." That gate is real and enforced below
-// even though the deploy step itself is stubbed (see aval_pipeline_preview.ts).
+// even though the deploy step itself is stubbed (see vouchme_pipeline_preview.ts).
 //
 // Also refuses with NotConfigured when SUBSTREAMS_API_TOKEN / _ENDPOINT
 // aren't set (mcp/.env.example) — there is no Substreams backend to submit
@@ -18,18 +18,18 @@
 import { z } from "zod";
 import { getPreview } from "../pipelines.js";
 import { getCachedGraph } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
-  previewId: z.string().describe("A previewId returned by aval_pipeline_preview."),
+  previewId: z.string().describe("A previewId returned by vouchme_pipeline_preview."),
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_pipeline_deploy",
+  name: "vouchme_pipeline_deploy",
   description:
     "Deploy a previously previewed Substreams pipeline. Refuses with NoEventsFound if the preview " +
-    "found zero matching events — always call aval_pipeline_preview first and check eventsFound.",
+    "found zero matching events — always call vouchme_pipeline_preview first and check eventsFound.",
   inputSchema,
   async handler(args, ctx) {
     if (!ctx.substreamsApiToken || !ctx.substreamsEndpoint) {
@@ -38,7 +38,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
         !ctx.substreamsEndpoint ? "SUBSTREAMS_ENDPOINT" : null,
       ].filter((v): v is string => v !== null);
       return errorResult(
-        new AvalToolError(
+        new VouchMeToolError(
           "NotConfigured",
           `this server has no Substreams backend configured (missing: ${missing.join(", ")} — see mcp/.env.example); refusing rather than reporting a fake sinkStatus`,
         ),
@@ -48,11 +48,11 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const graph = await getCachedGraph();
     const preview = getPreview(args.previewId);
     if (!preview) {
-      return errorResult(new AvalToolError("PreviewNotFound", `no preview "${args.previewId}" (previews expire after 30 minutes)`));
+      return errorResult(new VouchMeToolError("PreviewNotFound", `no preview "${args.previewId}" (previews expire after 30 minutes)`));
     }
     if (preview.eventsFound === 0) {
       return errorResult(
-        new AvalToolError("NoEventsFound", "refusing to deploy: the preview found 0 matching events (docs/06-mcp-skills.md §2.14)"),
+        new VouchMeToolError("NoEventsFound", "refusing to deploy: the preview found 0 matching events (docs/06-mcp-skills.md §2.14)"),
       );
     }
 

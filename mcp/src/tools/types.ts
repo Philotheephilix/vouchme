@@ -1,4 +1,4 @@
-// @aval/mcp — src/tools/types.ts
+// @vouchme/mcp — src/tools/types.ts
 //
 // The shape every file in src/tools/*.ts exports, so src/index.ts can
 // register all 17 tools identically instead of hand-wiring each one.
@@ -11,14 +11,14 @@ export interface ToolContext {
   client: GraphClient;
   /**
    * The address this MCP server acts on behalf of — the human or platform
-   * running it. Used by tools with effects (aval_report, aval_request_score)
+   * running it. Used by tools with effects (vouchme_report, vouchme_request_score)
    * where docs/06-mcp-skills.md's tool signature doesn't take a "reporter"
    * parameter explicitly; it is the server's own operator identity, read
-   * from AVAL_OPERATOR_ADDRESS (see mcp/README.md).
+   * from VOUCHME_OPERATOR_ADDRESS (see mcp/README.md).
    */
   operatorAddress?: string | undefined;
   /**
-   * Credentials for `aval_pipeline_deploy` (docs/06 §2.14, docs/14-substreams.md
+   * Credentials for `vouchme_pipeline_deploy` (docs/06 §2.14, docs/14-substreams.md
    * §3) — a Substreams endpoint + API token to actually submit a manifest to.
    * Without both, the tool refuses with `NotConfigured` rather than reporting
    * a fake `sinkStatus` (see mcp/.env.example's "Pipeline deployment" section).

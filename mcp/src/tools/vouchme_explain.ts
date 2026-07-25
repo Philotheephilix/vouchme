@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_explain.ts — docs/06-mcp-skills.md §2.3
+// @vouchme/mcp — src/tools/vouchme_explain.ts — docs/06-mcp-skills.md §2.3
 //
-// aval_explain(address) -> string (prose). Built for agents that must
+// vouchme_explain(address) -> string (prose). Built for agents that must
 // justify a decision to a human. The last line — the weakest link — is
 // the part users act on.
 
@@ -15,7 +15,7 @@ import {
   scoreGraph,
   T1,
 } from "../engine.js";
-import { AvalToolError, errorResult, textResult } from "../response.js";
+import { VouchMeToolError, errorResult, textResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -23,24 +23,24 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_explain",
+  name: "vouchme_explain",
   description:
     "Explain an address's score in prose: which vouches counted, which didn't and why, the " +
     "promotion gates it does or doesn't pass, and its single weakest link. Use this after " +
-    "aval_gate refuses someone, to give the human a reason.",
+    "vouchme_gate refuses someone, to give the human a reason.",
   inputSchema,
   async handler(args) {
     const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) {
-      return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+      return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
     }
 
     const now = BigInt(Math.floor(Date.now() / 1000));
     const engineIO = computeEngine(graph, now);
     const result = engineScoreResult(engineIO.output, address);
     if (!result) {
-      return errorResult(new AvalToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
+      return errorResult(new VouchMeToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
     }
     const { score, tier, depth } = result;
 
@@ -109,7 +109,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   },
 };
 
-/** Prose for one excluded breakdown row, keyed off @aval/engine's own VoucherNotCountedReason
+/** Prose for one excluded breakdown row, keyed off @vouchme/engine's own VoucherNotCountedReason
  *  (explain.ts) — never a single hardcoded "anti-collusion ordering" explanation for every
  *  exclusion reason, several of which have nothing to do with depth ordering. */
 function describeExcludedReason(reason: string | undefined, voucherDepth: number, depth: number): string {

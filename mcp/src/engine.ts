@@ -1,4 +1,4 @@
-// @aval/mcp — src/engine.ts
+// @vouchme/mcp — src/engine.ts
 //
 // Shared graph fetch + scoring wiring used by every tool in src/tools/*.ts.
 //
@@ -9,13 +9,13 @@
 //
 // Per docs/06-mcp-skills.md §7 build checklist ("Engine imported as a library — the same code the
 // gateway runs, so the MCP and ENS never disagree"), EVERY score/tier/depth number in this server
-// — including the ones `scoreGraph()` further down hands to path-finding (aval_path),
-// candidate-voucher discovery (aval_candidates), and ENS-style naming (aval_resolve's aliases) —
-// comes from `@aval/engine`'s own `compute()` and `breakdown()`. `scoreGraph()` is not a second
+// — including the ones `scoreGraph()` further down hands to path-finding (vouchme_path),
+// candidate-voucher discovery (vouchme_candidates), and ENS-style naming (vouchme_resolve's aliases) —
+// comes from `@vouchme/engine`'s own `compute()` and `breakdown()`. `scoreGraph()` is not a second
 // implementation of the trust math: it only indexes the edge list (inbound/outbound per account,
-// which @aval/engine has no notion of) and then looks up each account's score/tier/depth from a
+// which @vouchme/engine has no notion of) and then looks up each account's score/tier/depth from a
 // real `computeEngine()` call. No threshold (T1, T2, BASE, CAP_POS, ...) is ever hardcoded here —
-// every constant below is derived from `@aval/engine`'s own exports, so a docs/10-constants.md
+// every constant below is derived from `@vouchme/engine`'s own exports, so a docs/10-constants.md
 // change is picked up automatically everywhere in this file.
 
 import {
@@ -36,8 +36,8 @@ import {
   SLOTS_TIER_0,
   SLOTS_TIER_1,
   SLOTS_TIER_2,
-} from "@aval/engine";
-import type { Account, EngineInput, EngineOutput, ScoreBreakdown, Vouch } from "@aval/engine";
+} from "@vouchme/engine";
+import type { Account, EngineInput, EngineOutput, ScoreBreakdown, Vouch } from "@vouchme/engine";
 import {
   fetchGraph as chainFetchGraph,
   getCachedGraph as chainGetCachedGraph,
@@ -52,13 +52,13 @@ export const getCachedGraph = chainGetCachedGraph;
 export { checkAnchorStatusLive };
 export type { GraphAccount, GraphVouch, TrustGraph };
 
-// ── constants — DERIVED from @aval/engine's own exports, never a second, independently-hardcoded
+// ── constants — DERIVED from @vouchme/engine's own exports, never a second, independently-hardcoded
 // number: score thresholds are always read from the engine, never retyped. Decimal-point scale
 // (score, not centi-points) — the scale every tool JSON response and docs/06's own examples
 // (e.g. "62.5") use.
-// `centiToDecimal()` below is the one seam where @aval/engine's centi-point output crosses into
+// `centiToDecimal()` below is the one seam where @vouchme/engine's centi-point output crosses into
 // this scale. If docs/10-constants.md's thresholds change, every one of these follows
-// automatically because each reads the same @aval/engine import, not a retyped literal. ──────────
+// automatically because each reads the same @vouchme/engine import, not a retyped literal. ──────────
 export const BASE = BASE_CENTI / 100;
 export const ANCHOR_SCORE = ANCHOR_CENTI / 100;
 export const M_POS = M_POS_NUM / M_POS_DEN;
@@ -77,23 +77,23 @@ export function slotsFor(tier: 0 | 1 | 2): number {
 
 function bigintSecondsToEngineNow(seconds: bigint): number {
   if (seconds > BigInt(Number.MAX_SAFE_INTEGER) || seconds < BigInt(-Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError(`timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @aval/engine`);
+    throw new RangeError(`timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @vouchme/engine`);
   }
   return Number(seconds);
 }
 
-/** Converts @aval/engine's integer centi-points (score × 100, engine/src/types.ts) into the
+/** Converts @vouchme/engine's integer centi-points (score × 100, engine/src/types.ts) into the
  *  decimal points every tool response uses. The only unit conversion in this file — every other
- *  function here is unambiguously either centi (talking to @aval/engine) or decimal (talking to a
+ *  function here is unambiguously either centi (talking to @vouchme/engine) or decimal (talking to a
  *  tool response). */
 function centiToDecimal(centi: number): number {
   return centi / 100;
 }
 
-/** Builds the exact EngineInput @aval/engine's compute() expects from an already-active-filtered,
+/** Builds the exact EngineInput @vouchme/engine's compute() expects from an already-active-filtered,
  *  already-deduplicated-by-pair TrustGraph (see chain.ts's own doc comment — every graph.vouches
  *  entry reaching this function is live chain data, not subgraph data). `extraVouches` lets
- *  aval_simulate_vouch.ts append one synthetic edge without mutating the cached graph. */
+ *  vouchme_simulate_vouch.ts append one synthetic edge without mutating the cached graph. */
 export function buildEngineInput(graph: TrustGraph, now: bigint, extraVouches: GraphVouch[] = []): EngineInput {
   const accounts: Account[] = graph.accounts.map((a) => ({ id: a.id, kind: "human" as const, isAnchor: a.isAnchor }));
   const vouches: Vouch[] = [...graph.vouches, ...extraVouches].map((v) => ({
@@ -111,8 +111,8 @@ export interface EngineComputation {
   output: EngineOutput;
 }
 
-/** Runs the real @aval/engine compute() — the ONLY place this package computes a score. Returns
- *  both the EngineInput used and the EngineOutput, since @aval/engine's own breakdown() (used by
+/** Runs the real @vouchme/engine compute() — the ONLY place this package computes a score. Returns
+ *  both the EngineInput used and the EngineOutput, since @vouchme/engine's own breakdown() (used by
  *  deriveBreakdown() below) needs both. */
 export function computeEngine(graph: TrustGraph, now: bigint, extraVouches: GraphVouch[] = []): EngineComputation {
   const input = buildEngineInput(graph, now, extraVouches);
@@ -127,7 +127,7 @@ export interface EngineScoreResult {
   depth: number;
 }
 
-/** The authoritative score/tier/depth for one address, straight off @aval/engine's own output.
+/** The authoritative score/tier/depth for one address, straight off @vouchme/engine's own output.
  *  Returns null if `address` isn't a human account in this computation (callers that already
  *  confirmed `address` came from `graph.accounts` should never see null here). */
 export function engineScoreResult(output: EngineOutput, address: string): EngineScoreResult | null {
@@ -160,7 +160,7 @@ export interface BreakdownRow {
   reason?: string;
 }
 
-/** Per-voucher breakdown for `address`, straight from @aval/engine's own breakdown() (explain.ts)
+/** Per-voucher breakdown for `address`, straight from @vouchme/engine's own breakdown() (explain.ts)
  *  — never a local reimplementation of the contribution math. `expiresAt` for counted rows is
  *  read back from the raw TrustGraph edges (the engine's Vouch type carries no timestamps by
  *  design — docs/01-trust-math.md §18 — so this is metadata, not math). */
@@ -213,22 +213,22 @@ export function isLikelyAddress(identifier: string): boolean {
 }
 
 export function isLikelyEnsName(identifier: string): boolean {
-  return identifier.endsWith(".aval.eth") || identifier.endsWith(".eth");
+  return identifier.endsWith(".vouchme.eth") || identifier.endsWith(".eth");
 }
 
 /**
  * The bare ENS label a `handle` should be matched against.
  *
- * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
+ * `VouchMeRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
  * off-chain" — a bare label like "alice" — but this live deployment's actual enrollment script
- * (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL name
- * on-chain instead, e.g. "alice.aval.eth". Both conventions are tolerated here (bare label
- * unchanged; "<label>.aval.eth" stripped to its first segment) so name lookups resolve against
+ * (scripts/live-scenario.mjs: `const handle = \`${label}.vouchme.eth\`;`) writes the FULL name
+ * on-chain instead, e.g. "alice.vouchme.eth". Both conventions are tolerated here (bare label
+ * unchanged; "<label>.vouchme.eth" stripped to its first segment) so name lookups resolve against
  * this deployment's actual data without assuming every future enrollment repeats the same
  * (spec-deviating) convention.
  */
 function bareLabel(handle: string): string {
-  const suffix = ".aval.eth";
+  const suffix = ".vouchme.eth";
   return handle.endsWith(suffix) ? handle.slice(0, -suffix.length) : handle;
 }
 
@@ -236,11 +236,11 @@ function bareLabel(handle: string): string {
 export function resolveIdentifierToAddress(identifier: string, graph: TrustGraph): string | null {
   if (isLikelyAddress(identifier)) return identifier.toLowerCase();
 
-  const label = identifier.endsWith(".aval.eth")
-    ? identifier.slice(0, -".aval.eth".length).split(".")[0]
+  const label = identifier.endsWith(".vouchme.eth")
+    ? identifier.slice(0, -".vouchme.eth".length).split(".")[0]
     : identifier.replace(/\.eth$/, "");
 
-  // Prefer an exact handle match; if ambiguous, the caller's `aval_resolve`
+  // Prefer an exact handle match; if ambiguous, the caller's `vouchme_resolve`
   // reports `canonicalName` computed from the full path anyway.
   const match = graph.accounts.find((a) => bareLabel(a.handle) === label);
   return match ? match.id : null;
@@ -248,11 +248,11 @@ export function resolveIdentifierToAddress(identifier: string, graph: TrustGraph
 
 // ── edge index + engine-backed scores — path-finding / candidate-discovery / naming support. ────
 //
-// `scoreGraph()` only builds the inbound/outbound edge index (pure graph structure — @aval/engine
+// `scoreGraph()` only builds the inbound/outbound edge index (pure graph structure — @vouchme/engine
 // has no notion of "the edge from X to Y", only aggregate scores) and borrows every
 // score/tier/depth number straight from a real `computeEngine()` call. There is exactly one
-// implementation of the scoring math in this server, in @aval/engine, and it is never re-derived —
-// including for the numbers findPath/findCandidates/aval_platform/aval_report use to rank or gate
+// implementation of the scoring math in this server, in @vouchme/engine, and it is never re-derived —
+// including for the numbers findPath/findCandidates/vouchme_platform/vouchme_report use to rank or gate
 // on.
 
 export interface ScoreResult {
@@ -303,7 +303,7 @@ export function scoreGraph(graph: TrustGraph, now: bigint = BigInt(Math.floor(Da
 // ── naming: canonical name, aliases, paths (docs/04-ens.md §1.1, §3.1) ──
 
 export interface NamedPath {
-  name: string; // e.g. "carol.alice.aval.eth"
+  name: string; // e.g. "carol.alice.vouchme.eth"
   depth: number;
   oldestIssuedAt: bigint;
   addresses: string[]; // root to leaf, this account's address last
@@ -319,7 +319,7 @@ export function findAllPaths(address: string, graph: TrustGraph, scored: Scored)
   function walk(currentId: string, labelsRootFirst: string[], addrs: string[], oldest: bigint, depth: number): void {
     if (currentId === target && depth > 0) {
       results.push({
-        name: [...labelsRootFirst].concat(["aval", "eth"]).join("."),
+        name: [...labelsRootFirst].concat(["vouchme", "eth"]).join("."),
         depth,
         oldestIssuedAt: oldest,
         addresses: addrs,

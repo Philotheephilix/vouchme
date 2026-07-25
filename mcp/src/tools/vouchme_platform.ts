@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_platform.ts — docs/06-mcp-skills.md §2.13
+// @vouchme/mcp — src/tools/vouchme_platform.ts — docs/06-mcp-skills.md §2.13
 //
-// aval_platform(nameOrAddress) -> { score, tier, vouchers[], bond,
+// vouchme_platform(nameOrAddress) -> { score, tier, vouchers[], bond,
 // reportsFiled, reportsUpheld, upheldRate, policyURI, requestsLast30d }
 //
 // `upheldRate` and `requestsLast30d` together are the number that
@@ -11,15 +11,15 @@ import { z } from "zod";
 import { BASE, CAP_POS, M_POS, P1, P2, getCachedGraph, nameOf, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
 import { countRequestsLast30d, fetchPlatform } from "../platforms.js";
 import { fetchReportsFiledBy } from "../reports.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
-  nameOrAddress: z.string().describe("The platform's ENS name (under aval.eth) or address."),
+  nameOrAddress: z.string().describe("The platform's ENS name (under vouchme.eth) or address."),
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_platform",
+  name: "vouchme_platform",
   description:
     "Look up a registered platform: its score (granted entirely by human vouchers, since " +
     "platforms cannot vouch for anything), bond, vouchers, and its report track record — " +
@@ -31,7 +31,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
 
     const result = await fetchPlatform(ctx.client, address);
     if (!result) {
-      return errorResult(new AvalToolError("NotFound", `no registered platform matches "${args.nameOrAddress}"`));
+      return errorResult(new VouchMeToolError("NotFound", `no registered platform matches "${args.nameOrAddress}"`));
     }
     const { platform, vouches } = result;
 
@@ -51,7 +51,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       score += Math.min(humanScore * M_POS, CAP_POS);
       voucherRows.push({ human: nameOf(v.human, graph, scored), expiresAt: new Date(Number(v.expiresAt) * 1000).toISOString() });
     }
-    const tier = score >= P2 ? 2 : score >= P1 ? 1 : 0; // docs/13 §3 — P1/P2 read from @aval/engine, never hardcoded
+    const tier = score >= P2 ? 2 : score >= P1 ? 1 : 0; // docs/13 §3 — P1/P2 read from @vouchme/engine, never hardcoded
 
     const reportsFiledList = await fetchReportsFiledBy(ctx.client, platform.id);
     const reportsFiled = reportsFiledList.length;

@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_anchor_status.ts — docs/06-mcp-skills.md §2.9
+// @vouchme/mcp — src/tools/vouchme_anchor_status.ts — docs/06-mcp-skills.md §2.9
 //
-// aval_anchor_status(address) -> { isAnchor, source, checkedAt, contract }
+// vouchme_anchor_status(address) -> { isAnchor, source, checkedAt, contract }
 //
 // Live getIsUserVerified call against GenesisAnchorBook — the testnet stand-in for World ID's
 // Address Book on World Chain Sepolia (deployments/worldchain-sepolia.json: the real Address Book
@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 import { checkAnchorStatusLive, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -32,7 +32,7 @@ const cache = new Map<string, AnchorStatusCacheEntry>();
 const CACHE_TTL_MS = 60_000;
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_anchor_status",
+  name: "vouchme_anchor_status",
   description:
     "Check whether an address is a live World Chain Sepolia GenesisAnchorBook anchor (this " +
     "deployment's testnet stand-in for World ID's Address Book), reading the on-chain view " +
@@ -42,7 +42,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   async handler(args) {
     const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
-    if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+    if (!address) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
 
     const cached = cache.get(address);
     let entry: AnchorStatusCacheEntry;

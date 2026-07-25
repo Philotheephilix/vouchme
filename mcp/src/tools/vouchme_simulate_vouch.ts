@@ -1,10 +1,10 @@
-// @aval/mcp — src/tools/aval_simulate_vouch.ts — docs/06-mcp-skills.md §2.5
+// @vouchme/mcp — src/tools/vouchme_simulate_vouch.ts — docs/06-mcp-skills.md §2.5
 //
-// aval_simulate_vouch(voucher, target) -> { before, after, delta, promotes, cost, downstream }.
+// vouchme_simulate_vouch(voucher, target) -> { before, after, delta, promotes, cost, downstream }.
 // Read-only, no transaction. "Look before you spend a slot" — including
 // second-order effects on people the voucher has never met.
 //
-// before/after are two real @aval/engine compute() calls (the live graph, then the live graph
+// before/after are two real @vouchme/engine compute() calls (the live graph, then the live graph
 // plus one synthetic edge) — never a local reimplementation of the score delta.
 
 import { z } from "zod";
@@ -21,7 +21,7 @@ import {
   T1,
   type GraphVouch,
 } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -33,7 +33,7 @@ const VOUCH_EXPIRY_SECONDS = 90n * 24n * 60n * 60n; // docs/10-constants.md §5
 const RATE_LIMIT_SECONDS = 24n * 60n * 60n;
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_simulate_vouch",
+  name: "vouchme_simulate_vouch",
   description:
     "Simulate a vouch from `voucher` to `target` without submitting a transaction: score/tier " +
     "before and after, whether it promotes the target, the voucher's slot cost, and downstream " +
@@ -43,8 +43,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const graph = await getCachedGraph();
     const voucherAddr = resolveIdentifierToAddress(args.voucher, graph);
     const targetAddr = resolveIdentifierToAddress(args.target, graph);
-    if (!voucherAddr) return errorResult(new AvalToolError("NotFound", `no Aval account matches voucher "${args.voucher}"`));
-    if (!targetAddr) return errorResult(new AvalToolError("NotFound", `no Aval account matches target "${args.target}"`));
+    if (!voucherAddr) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches voucher "${args.voucher}"`));
+    if (!targetAddr) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches target "${args.target}"`));
 
     const voucherAccount = graph.accounts.find((a) => a.id === voucherAddr)!;
 
@@ -55,14 +55,14 @@ export const tool: ToolDefinition<typeof inputSchema> = {
 
     if (voucherResult.tier === 0) {
       return errorResult(
-        new AvalToolError("InsufficientTier", "voucher is Tier 0 and cannot vouch (FR-3, docs/10-constants.md §2)"),
+        new VouchMeToolError("InsufficientTier", "voucher is Tier 0 and cannot vouch (FR-3, docs/10-constants.md §2)"),
       );
     }
 
     const slotsTotal = slotsFor(voucherResult.tier);
     const slotsUsed = voucherAccount.activeOutboundCount;
     if (slotsUsed >= slotsTotal) {
-      return errorResult(new AvalToolError("NoSlots", `voucher has ${slotsUsed}/${slotsTotal} slots used`));
+      return errorResult(new VouchMeToolError("NoSlots", `voucher has ${slotsUsed}/${slotsTotal} slots used`));
     }
 
     const simulatedEdge: GraphVouch = {

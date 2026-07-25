@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_candidates.ts — docs/06-mcp-skills.md §2.7
+// @vouchme/mcp — src/tools/vouchme_candidates.ts — docs/06-mcp-skills.md §2.7
 //
-// aval_candidates(address) -> [{ candidate, distance, freeSlots, wouldPromote, sharedNeighbours }]
+// vouchme_candidates(address) -> [{ candidate, distance, freeSlots, wouldPromote, sharedNeighbours }]
 //
 // docs/06 shows this as a bare array. Design rule §3 requires every
 // response to carry subgraphDeployment + computedAtBlock, which a bare
@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import { findCandidates, getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -18,7 +18,7 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_candidates",
+  name: "vouchme_candidates",
   description:
     "Who could vouch for this person: accounts within 2 hops of their existing vouchers, with " +
     "free slots, at a depth low enough to actually contribute. Turns \"get more vouches\" into a " +
@@ -27,7 +27,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   async handler(args) {
     const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
-    if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+    if (!address) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
 
     const scored = scoreGraph(graph);
     const candidates = findCandidates(address, graph, scored);

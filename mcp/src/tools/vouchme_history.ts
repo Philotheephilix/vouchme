@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_history.ts — docs/06-mcp-skills.md §2.10
+// @vouchme/mcp — src/tools/vouchme_history.ts — docs/06-mcp-skills.md §2.10
 //
-// aval_history(address, from?, to?, points?) -> [{ block, timestamp, score, tier }]
+// vouchme_history(address, from?, to?, points?) -> [{ block, timestamp, score, tier }]
 //
 // Time-travel queries against the Subgraph, engine re-run per point. No
 // snapshot table exists (docs/05-graph-data-layer.md §2.5) — this is
@@ -12,12 +12,12 @@
 // honest simplification rather than a guessed one.
 //
 // docs shows this as a bare array; wrapped as `{ points, subgraphDeployment,
-// computedAtBlock }` for the same reason as aval_candidates (see that
+// computedAtBlock }` for the same reason as vouchme_candidates (see that
 // file's comment).
 
 import { z } from "zod";
 import { BASE, computeEngine, engineScoreResult, fetchGraph, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -34,7 +34,7 @@ const inputSchema = {
 const ESTIMATED_BLOCK_TIME_SECONDS = 2;
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_history",
+  name: "vouchme_history",
   description:
     "Trace an address's score and tier over a block range by re-running the engine at each " +
     "historical block — no snapshot table, fully re-derived. Powers 'watch the score move'.",
@@ -42,7 +42,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   async handler(args) {
     const latest = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, latest);
-    if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+    if (!address) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
 
     const points = args.points ?? 5;
     const to = args.to ?? latest.meta.blockNumber;

@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_request_score.ts — docs/06-mcp-skills.md §2.11
+// @vouchme/mcp — src/tools/vouchme_request_score.ts — docs/06-mcp-skills.md §2.11
 //
-// aval_request_score(subject, purpose) -> attributed lookup. The
+// vouchme_request_score(subject, purpose) -> attributed lookup. The
 // prerequisite for ever reporting `subject` (docs/13-platforms.md §5).
 // Costs an on-chain ScoreRequested event — one of only three tools in
 // this server with real effects (docs/06 §3).
@@ -8,8 +8,8 @@
 // Attribution is mandatory by definition (docs §2.11: "appears in the
 // subject's transparency log" — attributed to *someone*), and docs/06's
 // signature has no explicit "requester" parameter, so — same as
-// aval_report.ts — this refuses with a named error rather than running
-// unattributed when AVAL_OPERATOR_ADDRESS isn't configured, instead of
+// vouchme_report.ts — this refuses with a named error rather than running
+// unattributed when VOUCHME_OPERATOR_ADDRESS isn't configured, instead of
 // silently proceeding to compute (and return) a lookup with no requester.
 //
 // NOTE ON SCOPE: submitting the actual on-chain transaction needs a
@@ -23,7 +23,7 @@ import { keccak256, toHex } from "viem";
 import { z } from "zod";
 import { computeEngine, depthForJson, engineScoreResult, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
 import { fetchReportsAgainst } from "../reports.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -32,29 +32,29 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_request_score",
+  name: "vouchme_request_score",
   description:
     "Attributed score lookup: costs an on-chain ScoreRequested event, appears in the subject's " +
     "transparency log with your declared purpose, and is the ONLY way to become eligible to later " +
-    "file an aval_report against this subject. Use aval_score for a free, anonymous read instead " +
+    "file a vouchme_report against this subject. Use vouchme_score for a free, anonymous read instead " +
     "unless you may need to report this subject.",
   inputSchema,
   async handler(args, ctx) {
     const operator = ctx.operatorAddress;
     if (!operator) {
       return errorResult(
-        new AvalToolError("NoOperator", "AVAL_OPERATOR_ADDRESS is not configured for this server (see mcp/README.md)"),
+        new VouchMeToolError("NoOperator", "VOUCHME_OPERATOR_ADDRESS is not configured for this server (see mcp/README.md)"),
       );
     }
 
     const graph = await getCachedGraph();
     const subject = resolveIdentifierToAddress(args.subject, graph);
-    if (!subject) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.subject}"`));
+    if (!subject) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.subject}"`));
 
     const now = BigInt(Math.floor(Date.now() / 1000));
     const engineIO = computeEngine(graph, now);
     const result = engineScoreResult(engineIO.output, subject);
-    if (!result) return errorResult(new AvalToolError("NotFound", `"${args.subject}" resolved to an address the engine did not score`));
+    if (!result) return errorResult(new VouchMeToolError("NotFound", `"${args.subject}" resolved to an address the engine did not score`));
     const { score, tier, depth } = result;
 
     const reportsAgainst = await fetchReportsAgainst(ctx.client, subject);

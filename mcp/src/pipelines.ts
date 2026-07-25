@@ -1,7 +1,7 @@
-// @aval/mcp — src/pipelines.ts
+// @vouchme/mcp — src/pipelines.ts
 //
-// In-memory preview store shared by aval_pipeline_preview and
-// aval_pipeline_deploy (docs/06-mcp-skills.md §2.14). Natural-language ->
+// In-memory preview store shared by vouchme_pipeline_preview and
+// vouchme_pipeline_deploy (docs/06-mcp-skills.md §2.14). Natural-language ->
 // Substreams pipeline generation (docs/14-substreams.md §3) is out of this
 // task's reading list and build scope — these two tools implement the
 // documented *shapes* faithfully (including the "refuse eventsFound == 0"

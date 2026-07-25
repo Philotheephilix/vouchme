@@ -1,13 +1,13 @@
-// @aval/mcp — src/tools/aval_pipeline_preview.ts — docs/06-mcp-skills.md §2.14
+// @vouchme/mcp — src/tools/vouchme_pipeline_preview.ts — docs/06-mcp-skills.md §2.14
 //
-// aval_pipeline_preview(description, chain) -> { previewId, params,
+// vouchme_pipeline_preview(description, chain) -> { previewId, params,
 // decodedSample[], eventsFound }
 //
 // Natural language -> a Substreams pipeline preview (docs/14-substreams.md
 // §3). This scaffold does not implement the NL -> Substreams manifest
 // codegen backend (see mcp/README.md's scope note); it implements the
 // documented tool *shape*, including the safety property
-// aval_pipeline_deploy depends on: a preview that finds no events must be
+// vouchme_pipeline_deploy depends on: a preview that finds no events must be
 // refused at deploy time, not silently indexed as empty.
 
 import { z } from "zod";
@@ -22,10 +22,10 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_pipeline_preview",
+  name: "vouchme_pipeline_preview",
   description:
     "Preview a Substreams pipeline generated from a natural-language description before deploying " +
-    "it. Always check eventsFound before calling aval_pipeline_deploy — a preview with 0 events " +
+    "it. Always check eventsFound before calling vouchme_pipeline_deploy — a preview with 0 events " +
     "found will be refused at deploy time.",
   inputSchema,
   async handler(args) {
@@ -35,7 +35,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     // event signature (via an LLM pass over a verified ABI, per docs/14
     // §3.1) and decodes a handful of recent blocks on `chain` to produce
     // decodedSample/eventsFound. Absent that backend, this returns a
-    // structurally valid, honestly-empty preview so aval_pipeline_deploy's
+    // structurally valid, honestly-empty preview so vouchme_pipeline_deploy's
     // refusal path is exercised rather than silently bypassed.
     const previewId = newPreviewId();
     const preview = {

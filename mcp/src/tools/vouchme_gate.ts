@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_gate.ts — docs/06-mcp-skills.md §2.4
+// @vouchme/mcp — src/tools/vouchme_gate.ts — docs/06-mcp-skills.md §2.4
 //
-// aval_gate(address, policy) -> { allow, reasons, score, tier }. The one
+// vouchme_gate(address, policy) -> { allow, reasons, score, tier }. The one
 // most integrations will use. Always returns `reasons: string[]`, never a
 // bare boolean (docs/06 §3: "Agents must be able to explain refusals").
 
@@ -15,7 +15,7 @@ import {
   resolveIdentifierToAddress,
   scoreGraph,
 } from "../engine.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const policySchema = z.object({
@@ -34,11 +34,11 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_gate",
+  name: "vouchme_gate",
   description:
     "Evaluate a trust policy against an address in one call: minTier, minScore, maxDepth, " +
     "requireCredential, requireAnchorPath, minVouchers, excludeFraudulent. Returns allow/deny " +
-    "plus named reasons for every failed check — never assemble this decision from aval_score " +
+    "plus named reasons for every failed check — never assemble this decision from vouchme_score " +
     "yourself; the gates (score AND >=2 distinct vouchers AND a path to an anchor) are not the " +
     "same thing as the score alone. Use this for any irreversible action toward a counterparty.",
   inputSchema,
@@ -46,7 +46,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) {
-      return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+      return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
     }
     const account = graph.accounts.find((a) => a.id === address)!;
 
@@ -54,7 +54,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const engineIO = computeEngine(graph, now);
     const result = engineScoreResult(engineIO.output, address);
     if (!result) {
-      return errorResult(new AvalToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
+      return errorResult(new VouchMeToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
     }
     const { score, tier, depth } = result;
 

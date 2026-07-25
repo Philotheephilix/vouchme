@@ -1,7 +1,7 @@
-// @aval/mcp — src/reports.ts
+// @vouchme/mcp — src/reports.ts
 //
-// Shared ReportRegistry data access for aval_report, aval_report_status,
-// and aval_gate's fraud-related context. Kept separate from engine.ts
+// Shared ReportRegistry data access for vouchme_report, vouchme_report_status,
+// and vouchme_gate's fraud-related context. Kept separate from engine.ts
 // (which is about the positive-trust graph) because reports are a
 // different subgraph.yaml data source (ReportRegistry) with their own
 // entities (Report, Rebuttal — see subgraph/schema.graphql).
@@ -19,7 +19,7 @@ export interface ReportRecord {
    *  docs use. Sourced from the Subgraph's `Report.snapshotWeight` (see the GraphQL queries below
    *  and subgraph/schema.graphql's comment on that field for why the two names differ). */
   weightPoints: number;
-  bond: string; // BigInt as decimal string (AVAL, 18 decimals — left as the Subgraph's raw units)
+  bond: string; // BigInt as decimal string (VOUCHME, 18 decimals — left as the Subgraph's raw units)
   filedAt: bigint;
   resolvedAt: bigint | null;
   rebuttalTotal: string;

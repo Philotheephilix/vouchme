@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_report_status.ts — docs/06-mcp-skills.md §2.12
+// @vouchme/mcp — src/tools/vouchme_report_status.ts — docs/06-mcp-skills.md §2.12
 //
-// aval_report_status(address) -> { upheld, pending, filed, voided }
+// vouchme_report_status(address) -> { upheld, pending, filed, voided }
 // voided: true means this account is itself under an upheld report, so
 // ALL reports it has filed carry zero weight (docs/12-reporting.md §5,
 // MALICIOUS-verdict propagation and the reporter-voiding rule).
@@ -8,7 +8,7 @@
 import { z } from "zod";
 import { getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
 import { currentReportWeight, fetchReportsAgainst, fetchReportsFiledBy, isVoided } from "../reports.js";
-import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import { VouchMeToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
@@ -16,7 +16,7 @@ const inputSchema = {
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_report_status",
+  name: "vouchme_report_status",
   description:
     "Every report for and against an address, with weights, decay remaining, and challenge " +
     "deadlines. Check this before filing a new report — a second report on the same conduct " +
@@ -25,7 +25,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   async handler(args, ctx) {
     const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
-    if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+    if (!address) return errorResult(new VouchMeToolError("NotFound", `no VouchMe account matches "${args.address}"`));
 
     const now = BigInt(Math.floor(Date.now() / 1000));
     const [against, filed] = await Promise.all([

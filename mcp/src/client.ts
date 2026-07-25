@@ -1,12 +1,12 @@
-// @aval/mcp — src/client.ts
+// @vouchme/mcp — src/client.ts
 //
-// Data access for the Aval Subgraph, with two paths (docs/05-graph-data-layer.md §4):
+// Data access for the VouchMe Subgraph, with two paths (docs/05-graph-data-layer.md §4):
 //
 //   1. A funded Graph Gateway API key (GRAPH_API_KEY) — the normal path.
 //   2. x402: per-query USDC on Base, no account, no key (X402_PRIVATE_KEY).
 //      "anybody can run our MCP server with nothing but a funded key."
 //
-// docs/06-mcp-skills.md §6's reusability test is explicit: `npx -y @aval/mcp`
+// docs/06-mcp-skills.md §6's reusability test is explicit: `npx -y @vouchme/mcp`
 // with ONLY X402_PRIVATE_KEY set must work. This module is what makes that
 // true — GraphClient always exposes the same `query`/`meta` surface
 // regardless of which path is active, and every tool in src/tools/*.ts is
@@ -172,7 +172,7 @@ class X402GraphClient implements GraphClient {
 
 /**
  * Picks the API-key path when GRAPH_API_KEY is set, otherwise falls back
- * to x402 (docs/05 §4, "Downstream: aval-mcp reads its own Subgraph
+ * to x402 (docs/05 §4, "Downstream: vouchme-mcp reads its own Subgraph
  * through x402 when no gateway API key is configured").
  */
 export function createGraphClient(config: GraphClientConfig): GraphClient {
@@ -189,18 +189,18 @@ export function createGraphClient(config: GraphClientConfig): GraphClient {
   }
 
   throw new GraphClientConfigError(
-    "Neither GRAPH_API_KEY nor X402_PRIVATE_KEY is set. aval-mcp needs one of the two (see mcp/README.md).",
+    "Neither GRAPH_API_KEY nor X402_PRIVATE_KEY is set. vouchme-mcp needs one of the two (see mcp/README.md).",
   );
 }
 
 export function loadGraphClientConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GraphClientConfig {
-  const subgraphId = env.AVAL_SUBGRAPH_ID;
+  const subgraphId = env.VOUCHME_SUBGRAPH_ID;
   if (!subgraphId) {
-    throw new GraphClientConfigError("AVAL_SUBGRAPH_ID is not set (see mcp/README.md).");
+    throw new GraphClientConfigError("VOUCHME_SUBGRAPH_ID is not set (see mcp/README.md).");
   }
   return {
     subgraphId,
-    subgraphUrl: env.AVAL_SUBGRAPH_URL,
+    subgraphUrl: env.VOUCHME_SUBGRAPH_URL,
     graphApiKey: env.GRAPH_API_KEY,
     x402PrivateKey: env.X402_PRIVATE_KEY,
     x402Chain: env.X402_CHAIN,
@@ -210,12 +210,12 @@ export function loadGraphClientConfigFromEnv(env: NodeJS.ProcessEnv = process.en
 /**
  * `createGraphClient(loadGraphClientConfigFromEnv(env))`, except construction never throws.
  *
- * No Aval Subgraph is deployed (deployments/worldchain-sepolia.json's own notes) — the 8 tools
+ * No VouchMe Subgraph is deployed (deployments/worldchain-sepolia.json's own notes) — the 8 tools
  * that must work regardless (docs/06 §2.1-§2.7, §2.9) get their data from src/chain.ts's live
  * World Chain Sepolia reads and never touch this client at all. Constructing it lazily keeps a
- * missing `AVAL_SUBGRAPH_ID` from failing the ENTIRE server at startup: if subgraph config is
- * genuinely absent, every tool that still depends on it (aval_report / aval_report_status /
- * aval_platform / aval_request_score / aval_query / aval_cross_protocol_trust's Aval leg's
+ * missing `VOUCHME_SUBGRAPH_ID` from failing the ENTIRE server at startup: if subgraph config is
+ * genuinely absent, every tool that still depends on it (vouchme_report / vouchme_report_status /
+ * vouchme_platform / vouchme_request_score / vouchme_query / vouchme_cross_protocol_trust's VouchMe leg's
  * ReportRegistry / PlatformRegistry reads) gets the same named `GraphClientConfigError` the moment
  * it actually tries to query — refusing with a named error rather than fabricating data.
  */

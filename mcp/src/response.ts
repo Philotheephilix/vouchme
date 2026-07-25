@@ -1,4 +1,4 @@
-// @aval/mcp — src/response.ts
+// @vouchme/mcp — src/response.ts
 //
 // Every tool response is a JSON object matching docs/06-mcp-skills.md's
 // documented shape *exactly*, carrying `subgraphDeployment` and
@@ -28,7 +28,7 @@ export function jsonResult(value: unknown): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
-/** Plain prose result — used only by aval_explain, whose documented return type is `string`. */
+/** Plain prose result — used only by vouchme_explain, whose documented return type is `string`. */
 export function textResult(text: string): ToolResult {
   return { content: [{ type: "text", text }] };
 }
@@ -40,18 +40,18 @@ export function textResult(text: string): ToolResult {
  * Serialized the same way a normal result is, with `isError: true` so MCP
  * clients surface it as a tool failure rather than a successful answer.
  */
-export class AvalToolError extends Error {
+export class VouchMeToolError extends Error {
   constructor(
     public readonly code: string,
     message: string,
     public readonly extra: Record<string, unknown> = {},
   ) {
     super(message);
-    this.name = "AvalToolError";
+    this.name = "VouchMeToolError";
   }
 }
 
-export function errorResult(err: AvalToolError): ToolResult {
+export function errorResult(err: VouchMeToolError): ToolResult {
   return {
     content: [
       {

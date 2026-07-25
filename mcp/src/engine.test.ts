@@ -1,9 +1,9 @@
-// @aval/mcp — src/engine.test.ts
+// @vouchme/mcp — src/engine.test.ts
 //
 // Smoke tests for scoreGraph()/deriveBreakdown() (engine.ts's thin wrapper over the real
-// @aval/engine compute()/breakdown() — see that file's module comment). Assertions below compute
+// @vouchme/engine compute()/breakdown() — see that file's module comment). Assertions below compute
 // their expected values from the live BASE/CAP_POS/M_POS/T1 constants imported from engine.ts
-// (themselves derived from @aval/engine, never hardcoded) rather than pinning literals, so a
+// (themselves derived from @vouchme/engine, never hardcoded) rather than pinning literals, so a
 // docs/10-constants.md threshold change does not require editing this file. Run with `npm test`
 // after `npm run build`.
 
@@ -48,7 +48,7 @@ test("two anchor vouches give score BASE + 2x(capped anchor contribution) (docs/
   // Anchor score is fixed at 100.00 (ANCHOR, 01-trust-math.md §2); each anchor's contribution is
   // min(100 x M_POS, CAP_POS) — CAP_POS binds here (100 x 0.25 = 25 > CAP_POS), so it's exactly
   // CAP_POS per anchor, not a re-derivation of the multiplier math, just applying the same
-  // min()-cap @aval/engine's own weightPos() uses.
+  // min()-cap @vouchme/engine's own weightPos() uses.
   const perAnchorContribution = Math.min(100 * M_POS, CAP_POS);
   assert.equal(carol.score, BASE + 2 * perAnchorContribution);
   assert.equal(carol.tier, carol.score >= T1 ? 1 : 0);

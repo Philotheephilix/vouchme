@@ -1,6 +1,6 @@
-// @aval/mcp — src/tools/aval_query.ts — docs/06-mcp-skills.md §2.15
+// @vouchme/mcp — src/tools/vouchme_query.ts — docs/06-mcp-skills.md §2.15
 //
-// aval_query(graphql, variables?) -> any. Raw GraphQL against the Aval
+// vouchme_query(graphql, variables?) -> any. Raw GraphQL against the VouchMe
 // Subgraph. "Every good MCP has a door out; agents find questions we
 // didn't anticipate."
 
@@ -10,15 +10,15 @@ import { jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
 const inputSchema = {
-  graphql: z.string().describe("A raw GraphQL query or mutation string against the Aval Subgraph."),
+  graphql: z.string().describe("A raw GraphQL query or mutation string against the VouchMe Subgraph."),
   variables: z.record(z.string(), z.unknown()).optional().describe("GraphQL variables, if the query uses any."),
 };
 
 export const tool: ToolDefinition<typeof inputSchema> = {
-  name: "aval_query",
+  name: "vouchme_query",
   description:
-    "Escape hatch: run a raw GraphQL query against the Aval Subgraph directly. Prefer the named " +
-    "tools (aval_resolve, aval_score, etc.) when one fits — this exists for questions they don't " +
+    "Escape hatch: run a raw GraphQL query against the VouchMe Subgraph directly. Prefer the named " +
+    "tools (vouchme_resolve, vouchme_score, etc.) when one fits — this exists for questions they don't " +
     "anticipate, not as the default entry point.",
   inputSchema,
   async handler(args, ctx) {

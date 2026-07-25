@@ -1,8 +1,8 @@
-// @aval/mcp — src/chain.ts
+// @vouchme/mcp — src/chain.ts
 //
 // Live World Chain Sepolia reads — the trust graph's actual data source for this deployment.
-// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes). Every
-// number this module produces is read directly off `AvalRegistry` events / view functions and
+// There is no deployed VouchMe Subgraph (deployments/worldchain-sepolia.json's own notes). Every
+// number this module produces is read directly off `VouchMeRegistry` events / view functions and
 // `GenesisAnchorBook.getIsUserVerified` — no indexer, no cache-as-source-of-truth, no fabricated
 // deployment id (`meta.deploymentId` is the honest literal string `direct-chain-read:4801`, never
 // a guessed IPFS hash). Matches docs/01-trust-math.md §12.1's worked table.
@@ -12,7 +12,7 @@
 // (voucher, vouchee) pair — docs/01-trust-math.md §18: an indexer/log-replay can legitimately
 // emit more than one record for the same pair, and summing duplicates is a real Sybil hole, not a
 // tidiness concern). Kept self-contained here rather than imported from app/: this package must
-// not depend on app/, and @aval/mcp's TrustGraph shape differs from app's LiveGraph shape.
+// not depend on app/, and @vouchme/mcp's TrustGraph shape differs from app's LiveGraph shape.
 //
 // Contract addresses and the deployment block are READ from deployments/worldchain-sepolia.json
 // at runtime — the authoritative record — never retyped as literals here.
@@ -31,7 +31,7 @@ import {
   type PublicClient,
   type Transport,
 } from "viem";
-import { CREDENTIAL_GRACE_DAYS } from "@aval/engine";
+import { CREDENTIAL_GRACE_DAYS } from "@vouchme/engine";
 import type { SubgraphMeta } from "./client.js";
 
 // ── deployment record ────────────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ interface DeploymentRecord {
   chainId: number;
   deploymentBlock: number;
   contracts: {
-    AvalRegistry: { address: Address };
+    VouchMeRegistry: { address: Address };
     GenesisAnchorBook: { address: Address };
   };
 }
@@ -57,8 +57,8 @@ function loadDeployment(): DeploymentRecord {
   return cachedDeployment;
 }
 
-export function getAvalRegistryAddress(): Address {
-  return loadDeployment().contracts.AvalRegistry.address;
+export function getVouchMeRegistryAddress(): Address {
+  return loadDeployment().contracts.VouchMeRegistry.address;
 }
 export function getAnchorBookAddress(): Address {
   return loadDeployment().contracts.GenesisAnchorBook.address;
@@ -124,7 +124,7 @@ export function resetChainClientForTests(): void {
   cachedClient = null;
 }
 
-// ── ABI fragments — exactly the surface read, matching contracts/src/AvalRegistry.sol and
+// ── ABI fragments — exactly the surface read, matching contracts/src/VouchMeRegistry.sol and
 // contracts/src/GenesisAnchorBook.sol, and identical to app/src/lib/chain.ts's own fragments
 // (verified against this exact live deployment). ────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ const REVOKED_EVENT = {
   ],
 } as const satisfies AbiEvent;
 
-const AVAL_REGISTRY_ABI = [
+const VOUCHME_REGISTRY_ABI = [
   ENROLLED_EVENT,
   VOUCHED_EVENT,
   REAFFIRMED_EVENT,
@@ -272,7 +272,7 @@ async function getLogsChunked(
 // Incremental, monotonically-growing accumulator, module-level so repeat tool calls within one
 // server process don't rescan from the deployment block every time. Grows forward only; a request
 // for a block BEHIND what's already scanned is served by filtering the existing set down (see
-// fetchGraphAtBlock below) rather than re-fetching — this is what makes aval_history's time-travel
+// fetchGraphAtBlock below) rather than re-fetching — this is what makes vouchme_history's time-travel
 // queries cheap on repeat calls too.
 interface LogAccumulator {
   scannedThrough: bigint; // inclusive
@@ -319,7 +319,7 @@ async function ensureLogsThrough(
   return ensureLogsThrough(client, registry, deployBlock, upToBlock);
 }
 
-// ── the trust graph shape @aval/mcp's engine.ts (and every tool built on it) consumes ───────────
+// ── the trust graph shape @vouchme/mcp's engine.ts (and every tool built on it) consumes ───────────
 
 export interface GraphAccount {
   id: string; // lowercase address
@@ -373,7 +373,7 @@ type ReplayEvent = {
 
 async function fetchGraphAtBlock(atBlock: bigint): Promise<TrustGraph> {
   const client = getClient();
-  const registry = getAvalRegistryAddress();
+  const registry = getVouchMeRegistryAddress();
   const anchorBook = getAnchorBookAddress();
   const deployBlock = getDeploymentBlock();
 
@@ -416,13 +416,13 @@ async function fetchGraphAtBlock(atBlock: bigint): Promise<TrustGraph> {
   );
   const isAnchorFor = new Map<Address, boolean>(addresses.map((a, i) => [a, anchorFlags[i]!]));
 
-  // ── AvalRegistry.members: activeOutbound (slots used), fraudulent flag, live credential window.
+  // ── VouchMeRegistry.members: activeOutbound (slots used), fraudulent flag, live credential window.
   // Also Multicall3-batched. ────────────────────────────────────────────────────────────────────
   const memberTuples = await Promise.all(
     addresses.map((addr) =>
       client.readContract({
         address: registry,
-        abi: AVAL_REGISTRY_ABI,
+        abi: VOUCHME_REGISTRY_ABI,
         functionName: "members",
         args: [addr],
         blockNumber: atBlock,
@@ -456,7 +456,7 @@ async function fetchGraphAtBlock(atBlock: bigint): Promise<TrustGraph> {
   // multiset the indexer can emit," and a direct log scan is exactly that, an indexer of one. A
   // fresh Vouched resets revoked=false with a new issuedAt/expiresAt (handling a
   // revoke-then-vouch cycle correctly); a Reaffirmed only moves expiresAt forward; a Revoked only
-  // sets the flag. Exactly one resolved record per pair reaches the caller — @aval/engine's own
+  // sets the flag. Exactly one resolved record per pair reaches the caller — @vouchme/engine's own
   // (separate, redundant-safe) dedupeVouches() never has more than one record per pair to choose
   // between in the first place. ─────────────────────────────────────────────────────────────────
   const toReplay = (logs: Log[], kind: ReplayEvent["kind"]): ReplayEvent[] =>
@@ -545,7 +545,7 @@ export async function getCachedGraph(): Promise<TrustGraph> {
 }
 
 /** `fetchGraph()` (no args) is `getCachedGraph()`. `fetchGraph(atBlock)` bypasses the cache for a
- *  point-in-time historical read (aval_history's time-travel — docs/05-graph-data-layer.md §2.5),
+ *  point-in-time historical read (vouchme_history's time-travel — docs/05-graph-data-layer.md §2.5),
  *  served from the same incremental log accumulator so repeat historical queries are cheap too. */
 export async function fetchGraph(atBlock?: number): Promise<TrustGraph> {
   if (atBlock === undefined) return getCachedGraph();
@@ -558,7 +558,7 @@ export function clearChainCache(): void {
   latestBlockCache = null;
 }
 
-// ── true live anchor check — bypasses the 5s trust-graph cache entirely (aval_anchor_status:
+// ── true live anchor check — bypasses the 5s trust-graph cache entirely (vouchme_anchor_status:
 // "Never cached beyond 60s — anchor status is the ground truth of the whole trust graph," per
 // docs/06-mcp-skills.md §2.9; the tool file itself applies that 60s cache, this function is
 // always a fresh read). ─────────────────────────────────────────────────────────────────────────

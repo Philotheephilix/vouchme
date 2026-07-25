@@ -1,7 +1,7 @@
-// @aval/mcp — src/platforms.ts
+// @vouchme/mcp — src/platforms.ts
 //
-// Shared PlatformRegistry data access for aval_platform, aval_request_score,
-// and aval_report's "prior ScoreRequest" precondition. Separate data
+// Shared PlatformRegistry data access for vouchme_platform, vouchme_request_score,
+// and vouchme_report's "prior ScoreRequest" precondition. Separate data
 // source from the trust graph (see subgraph/schema.graphql's Platform,
 // PlatformVouch, ScoreRequest entities).
 
