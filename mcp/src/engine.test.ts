@@ -1,12 +1,17 @@
 // @aval/mcp — src/engine.test.ts
 //
-// Smoke tests for the local scoring re-implementation (docs/01-trust-math.md
-// §15) against docs/10-constants.md §8's worked examples. Run with `npm
-// test` after `npm run build`.
+// Smoke tests for scoreGraph()/deriveBreakdown() (engine.ts's thin wrapper over the real
+// @aval/engine compute()/breakdown() — see that file's module comment). Assertions below compute
+// their expected values from the live BASE/CAP_POS/M_POS/T1 constants imported from engine.ts
+// (themselves derived from @aval/engine, never hardcoded) rather than pinning literals, precisely
+// because docs/10-constants.md's thresholds are expected to change during this task (task brief:
+// "if your assertions suddenly shift, that is why; re-read the engine's constants rather than
+// pinning numbers") — and they did: BASE/T1/T2 moved from 10/30/100 to 20/55/140 partway through
+// this build. Run with `npm test` after `npm run build`.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BASE, deriveBreakdown, scoreGraph, T1, type TrustGraph } from "./engine.js";
+import { BASE, CAP_POS, M_POS, computeEngine, deriveBreakdown, scoreGraph, T1, type TrustGraph } from "./engine.js";
 
 function graph(accounts: TrustGraph["accounts"], vouches: TrustGraph["vouches"]): TrustGraph {
   return { accounts, vouches, meta: { deploymentId: "Qm-test", blockNumber: 1 } };
@@ -31,7 +36,7 @@ test("an unreached account scores exactly BASE (docs/10 §8: clique scores exact
   assert.equal(scored.scores.get("0xa")?.tier, 0);
 });
 
-test("two anchor vouches give score 50 (docs/10 §8: 'Score with 2 anchors')", () => {
+test("two anchor vouches give score BASE + 2x(capped anchor contribution) (docs/10 §8: 'Score with 2 anchors')", () => {
   const now = 1_700_000_000n;
   const g = graph(
     [account("0xanchor1", true), account("0xanchor2", true), account("0xcarol")],
@@ -42,9 +47,14 @@ test("two anchor vouches give score 50 (docs/10 §8: 'Score with 2 anchors')", (
   );
   const scored = scoreGraph(g);
   const carol = scored.scores.get("0xcarol")!;
-  assert.equal(carol.score, 50);
-  assert.equal(carol.tier, 1);
-  assert.ok(carol.score >= T1);
+  // Anchor score is fixed at 100.00 (ANCHOR, 01-trust-math.md §2); each anchor's contribution is
+  // min(100 x M_POS, CAP_POS) — CAP_POS binds here (100 x 0.25 = 25 > CAP_POS), so it's exactly
+  // CAP_POS per anchor, not a re-derivation of the multiplier math, just applying the same
+  // min()-cap @aval/engine's own weightPos() uses.
+  const perAnchorContribution = Math.min(100 * M_POS, CAP_POS);
+  assert.equal(carol.score, BASE + 2 * perAnchorContribution);
+  assert.equal(carol.tier, carol.score >= T1 ? 1 : 0);
+  assert.ok(carol.score >= T1, `expected two-anchor score ${carol.score} to reach T1 (${T1}) — if not, this graph needs a third anchor under the current constants`);
 });
 
 test("a depth-3 voucher does not count toward a depth-2 account (anti-collusion ordering)", () => {
@@ -58,8 +68,8 @@ test("a depth-3 voucher does not count toward a depth-2 account (anti-collusion 
       { voucherId: "0xdave", voucheeId: "0xcarol", issuedAt: now, expiresAt: now + 1000n }, // dave (depth 2) -> carol (depth 2): not lower, excluded
     ],
   );
-  const scored = scoreGraph(g);
-  const { breakdown } = deriveBreakdown("0xcarol", g, scored, (a) => a);
+  const engineIO = computeEngine(g, now);
+  const { breakdown } = deriveBreakdown("0xcarol", g, engineIO, (a) => a);
   const daveRow = breakdown.find((r) => r.voucher === "0xdave")!;
   assert.equal(daveRow.counted, false);
   assert.equal(daveRow.reason, "voucher_depth_not_lower");
