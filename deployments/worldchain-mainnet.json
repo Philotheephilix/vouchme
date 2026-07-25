@@ -5,7 +5,7 @@
   "deployer": "0x87Ee33B2B9D46E0ACEab852550bDB891A3403864",
   "governor": "0x87Ee33B2B9D46E0ACEab852550bDB891A3403864",
   "attestor": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
-  "deployedAtBlock": 32833180,
+  "deployedAtBlock": 32833177,
   "whyMainnetExists": "MiniKit refuses to send a transaction on any chain but World Chain mainnet. From @worldcoin/minikit-js 2.0.3's own send-transaction source: `var WORLD_CHAIN_ID = 480; ... if (chainId !== WORLD_CHAIN_ID) throw new SendTransactionError('invalid_operation', { reason: 'World App only supports World Chain (chainId: 480)' })`. The check is client-side and unconditional, and MiniKit's EIP-1193 provider also hardcodes eth_chainId to 0x1e0. So a Mini App user on World Chain Sepolia (4801) could sign in but could never transact \u2014 enroll, vouch and claim all failed with 'invalid_operation'. No flag or config changes this; the only fix is contracts on 480.",
   "contracts": {
     "AvalToken": "0xdF0cdF53981bdbcCF25cC0d51E8948579adA82Ef",
@@ -24,7 +24,7 @@
     "method": "eth_getCode on every address, plus getters read back with cast \u2014 not taken from the deploy script's own output.",
     "codeBytes": {
       "AvalToken": 2137,
-      "AvalRegistry": 7637,
+      "AvalRegistry": 7645,
       "CredibilityVault": 7199,
       "PlatformRegistry": 7692,
       "ReportRegistry": 9938,
@@ -43,7 +43,8 @@
       "isAnchor(0xB23a3B2384D721d7C487a3ACc6405a1d36672B47)": true,
       "isAnchor(0x000000000000000000000000000000000000dEaD)": false,
       "note": "Read with cast against the redeployed AvalRegistry. Proves the corrected addressVerifiedUntil interface resolves real Orb status instead of reverting."
-    }
+    },
+    "correction": "deployedAtBlock and AvalRegistry codeBytes were both wrong in the first version of this file: 32833180 and 7637. 7637 is the SUPERSEDED pre-E-18 registry's size, carried over by mistake; the live one is 7645 because the isAnchor fix changed the bytecode. The deploy receipt puts the constructor in block 32833177. Both re-read from chain (eth_getCode, cast receipt), not edited by hand."
   },
   "gas": {
     "estimated": "0.0000137866377 ETH at 0.0011 gwei",
