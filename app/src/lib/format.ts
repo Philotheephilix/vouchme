@@ -8,7 +8,7 @@
  */
 
 import { tenureCenti } from "@aval/engine";
-import type { Tier, PlatformTier } from "./types";
+import type { AnchorSource, Tier, PlatformTier } from "./types";
 
 const CENTI = 100;
 
@@ -73,6 +73,18 @@ export function fmtCountdown(days: number): string {
 
 export function tierLabel(tier: Tier): string {
   return `TIER ${tier}`;
+}
+
+/**
+ * The ONLY place "anchor: …" text is composed. Anchors here are genesis-testnet, not Orb
+ * (contracts/script/GenesisAnchorBook.sol) — presenting one as the other would forge the single
+ * externally-grounded fact the protocol depends on, so every anchor label routes through this
+ * function rather than being typed inline at each call site.
+ */
+export function anchorSourceLabel(source: AnchorSource | undefined): string {
+  if (source === "genesis-testnet") return "anchor: genesis (testnet)";
+  if (source === "orb") return "anchor: orb";
+  return "anchor: unverified provenance";
 }
 
 export function platformTierLabel(tier: PlatformTier): string {
