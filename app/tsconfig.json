@@ -31,9 +31,25 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-dev/types/**/*.ts",
+    ".next-local/types/**/*.ts",
+    ".next-prod/types/**/*.ts",
+    ".next-prod10/types/**/*.ts",
+    ".next-prod11/types/**/*.ts",
+    ".next-prod12/types/**/*.ts",
+    ".next-prod13/types/**/*.ts",
+    ".next-prod2/types/**/*.ts",
+    ".next-prod3/types/**/*.ts",
+    ".next-prod4/types/**/*.ts",
+    ".next-prod5/types/**/*.ts",
+    ".next-prod6/types/**/*.ts",
+    ".next-prod7/types/**/*.ts",
+    ".next-prod8/types/**/*.ts",
+    ".next-prod9/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-dev/types/**/*.ts"
+    ".next-local2/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
