@@ -1,26 +1,49 @@
 // @aval/gateway — src/context.ts
 //
-// Wires subgraph -> engine -> ENS text records.
+// Wires live chain data -> engine -> ENS text records.
 //
 // This is the only place in the gateway that calls @aval/engine, so the
 // gateway and aval-mcp are guaranteed to agree (docs/06-mcp-skills.md §7
 // build checklist: "Engine imported as a library — the same code the
 // gateway runs, so the MCP and ENS never disagree").
+//
+// There is no deployed Aval Subgraph for this task (deployments/worldchain-sepolia.json's own
+// notes) — `getTrustGraph`/`getNamingGraph` below read World Chain Sepolia directly (src/chain.ts)
+// instead of querying one. Every text record this module computes still traces back to real chain
+// events and a real `compute()` call; only the transport underneath changed.
 
 import type { Address } from "viem";
-// `@aval/engine` is an npm workspace package built by another agent in
-// this repo (see engine/). It is depended on as "@aval/engine": "*". At
-// typecheck time, before `npm install` has run the workspace link, this
-// import will not resolve — that is expected (see gateway/README context
-// in the task brief) and does not indicate a bug in this package.
-import { compute, tenureCenti, type Account, type EngineInput, type Vouch } from "@aval/engine";
 import {
+  compute,
+  tenureCenti,
+  BASE as BASE_CENTI,
+  SLOTS_TIER_0,
+  SLOTS_TIER_1,
+  SLOTS_TIER_2,
+  type Account,
+  type EngineInput,
+  type EngineOutput,
+  type Vouch,
+} from "@aval/engine";
+
+/** Display-point (÷100) mirror of @aval/engine's own BASE — never a second, independently-
+ *  hardcoded fallback number. Task requirement: "Never hardcode score thresholds — always call
+ *  @aval/engine's compute() and read constants from the engine." If docs/10-constants.md's BASE
+ *  changes, this follows automatically. */
+const BASE_DISPLAY = BASE_CENTI / 100;
+
+function slotsFor(tier: 0 | 1 | 2): number {
+  return tier === 2 ? SLOTS_TIER_2 : tier === 1 ? SLOTS_TIER_1 : SLOTS_TIER_0;
+}
+import {
+  getAnchorBookAddress,
   getNamingGraph,
   getTrustGraph,
-  type SubgraphClientConfig,
+  type ChainClientConfig,
   type TrustGraphSnapshot,
-} from "./subgraph.js";
+} from "./chain.js";
 import {
+  bareLabel,
   findAllPaths,
   parseName,
   pickCanonicalName,
@@ -28,11 +51,16 @@ import {
   type ParsedName,
 } from "./resolve.js";
 
-// World ID Address Book — docs/10-constants.md §7 (verified, World Chain mainnet).
-export const ADDRESS_BOOK_ADDRESS: Address = "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D";
+/** GenesisAnchorBook — this deployment's testnet stand-in for World ID's Address Book, which does
+ *  not exist on World Chain Sepolia (deployments/worldchain-sepolia.json). Read from the
+ *  deployment record, never hardcoded; the real mainnet Address Book address
+ *  (0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D) would be actively wrong here. */
+export function getAnchorBookAddressForHealth(): Address {
+  return getAnchorBookAddress();
+}
 
 export interface GatewayConfig {
-  subgraph: SubgraphClientConfig;
+  chain: ChainClientConfig;
   ttlMs?: number;
   mcpEndpointBase?: string;
   a2aEndpointBase?: string;
@@ -73,30 +101,31 @@ function toEngineInput(snapshot: TrustGraphSnapshot, now: bigint): EngineInput {
       vouches.push({
         voucher: edge.voucherId,
         vouchee: account.id,
-        // docs/05-graph-data-layer.md §2.2's `inbound(where: { revoked: false, expiresAt_gt:
-        // $now })` (see subgraph.ts's TRUST_GRAPH_QUERY) already excludes revoked and expired
-        // edges at query time, so every edge reaching this function is active by construction.
+        // chain.ts's live read already excludes revoked and expired edges at fetch time
+        // (docs/01-trust-math.md §14, §18: expiry is a query-time predicate, evaluated against
+        // the read block's own timestamp) and resolves any duplicate Vouched/Reaffirmed/Revoked
+        // records for the same pair to exactly one edge before this function ever sees it, so
+        // every edge reaching this function is active by construction.
         active: true,
       });
     }
   }
   const accounts: Account[] = snapshot.accounts.map((a) => ({
     id: a.id,
-    // This scaffold's 4 subgraph.yaml data sources only index AvalRegistry (human) accounts —
-    // PlatformRegistry accounts are a separate, unqueried data source (see this file's and
-    // mcp/engine.ts's matching module comments) — so every account reaching this function is
-    // human.
+    // chain.ts reads only AvalRegistry (human) accounts — PlatformRegistry accounts are a
+    // separate contract this gateway does not read (see this file's and mcp/engine.ts's matching
+    // module comments) — so every account reaching this function is human.
     kind: "human" as const,
     isAnchor: a.isAnchor,
   }));
   return {
     accounts,
     vouches,
-    // docs/05-graph-data-layer.md §2.2's query (the one this gateway uses,
-    // per the task brief) does not select platform vouches or reports, so
-    // these are empty here. Net effect: `score` below is equivalent to the
-    // engine's pre-report `s⁺` — an accurate simplification for a fresh
-    // demo graph, flagged rather than silently assumed.
+    // chain.ts's live read does not include platform vouches or reports (ReportRegistry /
+    // PlatformRegistry are separate contracts this gateway does not read), so these are empty
+    // here. Net effect: `score` below is equivalent to the engine's pre-report `s⁺` — an accurate
+    // simplification for this deployment's graph (no reports exist), flagged rather than silently
+    // assumed.
     platformVouches: [],
     reports: [],
     now: bigintSecondsToEngineNow(now),
@@ -104,28 +133,27 @@ function toEngineInput(snapshot: TrustGraphSnapshot, now: bigint): EngineInput {
 }
 
 /**
- * Loose, defensive shape of what compute() returns. The real @aval/engine
- * export is authored by another agent in this repo and its exact return
- * type isn't known at the time this file is written, so every field is
- * read optionally with a documented fallback rather than assumed.
+ * The authoritative score/tier/depth for one address, straight off @aval/engine's own
+ * `compute()` output — never reimplemented. `output.score` is integer centi-points
+ * (score × 100, engine/src/types.ts); `/ 100` here is the one place that unit crosses into the
+ * decimal points every `aval.score` text record and docs/04-ens.md's own example ("62.5") use.
+ * `depth` may be `Infinity` for an address with no active path to any origin — callers render
+ * that case explicitly rather than let it silently stringify as "Infinity".
  */
-interface EngineOutputShape {
-  score?: Record<string, number>;
-  tier?: Record<string, number>;
-  tiers?: Record<string, number>;
-  depth?: Record<string, number>;
-}
-
-function readEngineAccountResult(
-  output: unknown,
-  address: string,
-): { score: number; tier: 0 | 1 | 2; depth: number } {
-  const out = (output ?? {}) as EngineOutputShape;
-  const score = out.score?.[address] ?? 10.0; // BASE, docs/10 §1
-  const tierMap = out.tier ?? out.tiers ?? {};
-  const tier = (tierMap[address] ?? (score >= 100 ? 2 : score >= 30 ? 1 : 0)) as 0 | 1 | 2;
-  const depth = out.depth?.[address] ?? 0;
-  return { score, tier, depth };
+function readEngineAccountResult(output: EngineOutput, address: string): { score: number; tier: 0 | 1 | 2; depth: number } {
+  const scoreCenti = output.score[address];
+  if (scoreCenti === undefined) {
+    // Not present in this computation — shouldn't happen, since `address` was already confirmed
+    // to be in trustGraph.accounts, which is exactly what built engineInput.accounts. BASE_DISPLAY
+    // (derived from @aval/engine's own BASE, docs/10-constants.md §1) rather than a hardcoded
+    // literal — this fallback tracks a constants change automatically.
+    return { score: BASE_DISPLAY, tier: 0, depth: 0 };
+  }
+  return {
+    score: scoreCenti / 100,
+    tier: output.tier[address] ?? 0,
+    depth: output.depth[address] ?? Number.POSITIVE_INFINITY,
+  };
 }
 
 export async function resolveByName(
@@ -134,8 +162,8 @@ export async function resolveByName(
 ): Promise<ResolvedRecords | null> {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const [trustGraph, namingGraph] = await Promise.all([
-    getTrustGraph(config.subgraph, { ttlMs: config.ttlMs, now }),
-    getNamingGraph(config.subgraph, { ttlMs: config.ttlMs, now }),
+    getTrustGraph(config.chain, { ttlMs: config.ttlMs, now }),
+    getNamingGraph(config.chain, { ttlMs: config.ttlMs, now }),
   ]);
 
   const identity = resolveNameToAddress(parsed, namingGraph);
@@ -150,8 +178,8 @@ export async function resolveByAddress(
 ): Promise<ResolvedRecords | null> {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const [trustGraph, namingGraph] = await Promise.all([
-    getTrustGraph(config.subgraph, { ttlMs: config.ttlMs, now }),
-    getNamingGraph(config.subgraph, { ttlMs: config.ttlMs, now }),
+    getTrustGraph(config.chain, { ttlMs: config.ttlMs, now }),
+    getNamingGraph(config.chain, { ttlMs: config.ttlMs, now }),
   ]);
   return buildRecords(address, trustGraph, namingGraph, config, now);
 }
@@ -180,7 +208,7 @@ async function buildRecords(
 
   const namingAccount = namingGraph.accounts.find((a) => a.id === account.id);
   const outboundCount = namingGraph.edges.filter((e) => e.voucherId === account.id).length;
-  const slots = tier === 2 ? 10 : tier === 1 ? 3 : 0;
+  const slots = slotsFor(tier);
 
   const earliestInboundExpiry = account.inbound.reduce<bigint | null>(
     (min, e) => (min === null || e.expiresAt < min ? e.expiresAt : min),
@@ -201,7 +229,11 @@ async function buildRecords(
   const records: Record<string, string> = {
     "aval.score": score.toFixed(2),
     "aval.tier": String(tier),
-    "aval.depth": String(depth || canonical?.depth || 0),
+    // Depth 0 means "origin" (an anchor, or a promoted Tier-2 account) in this protocol — the MOST
+    // trusted position in the graph. Falling back to 0 for an unreachable account (as this line
+    // used to) would render a ring member indistinguishable from an anchor. "unreachable" is the
+    // honest value, matching @aval/mcp's depthForJson() convention.
+    "aval.depth": Number.isFinite(depth) ? String(depth) : "unreachable",
     "aval.path": canonicalName,
     "aval.vouches.in": String(account.inbound.length),
     "aval.vouches.out": `${outboundCount}/${slots}`,
@@ -257,7 +289,7 @@ function pathAddressBeforeLeaf(
   if (pathLabels.length < 2) return "";
   const operatorHandle = pathLabels[pathLabels.length - 2];
   const operatorAccount = namingGraph.accounts.find(
-    (a) => a.handle === operatorHandle && a.id !== leaf.toLowerCase(),
+    (a) => bareLabel(a.handle) === operatorHandle && a.id !== leaf.toLowerCase(),
   );
   return operatorAccount?.id ?? "";
 }
@@ -280,7 +312,8 @@ function buildAgentContext(
     "**Delegated authority:** this name inherits its operator's tier and CANNOT issue vouches",
     "(vouching requires human presence — see docs/04-ens.md §4.3).",
     "",
-    `**Verify:** recompute from Subgraph deployment referenced in \`aval.subgraph\` using the Aval engine.`,
+    `**Verify:** recompute from the source referenced in \`aval.subgraph\` (World Chain Sepolia, ` +
+      `read directly — no subgraph deployed) using the Aval engine.`,
   ].join("\n");
 }
 

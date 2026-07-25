@@ -140,6 +140,24 @@ export function parseName(nameBytes: Uint8Array): ParsedName | null {
 
 // ── walking the trust graph by handle ----------------------------------
 
+/**
+ * The bare ENS label a `handle` should be matched/displayed as.
+ *
+ * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
+ * off-chain" — i.e. a bare label like "alice" — but this live deployment's actual enrollment
+ * script (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL
+ * name on-chain instead, e.g. "alice.aval.eth". Live chain data caught this: without stripping
+ * the suffix, every `carol.alice.aval.eth`-style resolution failed with "does not resolve" even
+ * though the underlying vouch edges were exactly right — matching a bare label against
+ * "carol.aval.eth" is never equal to "carol". Tolerating both conventions here (bare label
+ * unchanged; "<label>.aval.eth" stripped to its first segment) resolves this deployment's actual
+ * data without assuming every future enrollment repeats the same (spec-deviating) convention.
+ */
+export function bareLabel(handle: string): string {
+  const suffix = ".aval.eth";
+  return handle.endsWith(suffix) ? handle.slice(0, -suffix.length) : handle;
+}
+
 export interface ResolvedIdentity {
   address: Address;
   depth: number;
@@ -177,7 +195,8 @@ export function resolveNameToAddress(
     let best: { edge: (typeof graph.edges)[number] } | null = null;
     for (const edge of graph.edges) {
       if (!frontier.has(edge.voucherId)) continue;
-      if (handleById.get(edge.voucheeId) !== label) continue;
+      const handle = handleById.get(edge.voucheeId);
+      if (handle === undefined || bareLabel(handle) !== label) continue;
       if (
         !best ||
         edge.issuedAt < best.edge.issuedAt ||
@@ -246,7 +265,7 @@ export function findAllPaths(address: Address, graph: NamingSnapshot): NamedPath
       if (!handle) continue;
       walk(
         edge.voucheeId,
-        [...labelsRootFirst, handle],
+        [...labelsRootFirst, bareLabel(handle)],
         oldestIssuedAt < edge.issuedAt ? oldestIssuedAt : edge.issuedAt,
         depth + 1,
       );
