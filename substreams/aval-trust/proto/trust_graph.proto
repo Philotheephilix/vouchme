@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+// trust_graph.proto — the wire format of the standard, docs/14-substreams.md §2.
+//
+// ANY contract that emits events following the trust-graph v0.1.0 event shape
+// (an indexed `from`/`to` address pair, plus optional weight/expiry fields) can
+// be indexed by this SAME composable module — the module never forks per chain
+// or per contract, only `params` (contract address, topic0s, trust model) do.
+package aval.trust.v1;
+
+// TrustEvents / TrustEvent are copied verbatim from docs/14-substreams.md §2 —
+// field names, numbers, and the Kind enum are unchanged from the spec.
+message TrustEvents {
+  repeated TrustEvent events = 1;
+}
+
+message TrustEvent {
+  string protocol   = 1;  // "aval" | "circles" | "ens" | platform slug
+  string network    = 2;
+  Kind   kind        = 3;
+  bytes  from        = 4;
+  bytes  to          = 5;
+  string weight_raw = 6;  // protocol-native, unnormalized
+  uint64 issued_at  = 7;
+  uint64 expires_at = 8;  // 0 = perpetual
+  bytes  tx_hash    = 9;
+  uint64 block_num  = 10;
+
+  enum Kind {
+    VOUCH           = 0;
+    REVOKE          = 1;
+    REAFFIRM        = 2;
+    REPORT          = 3;
+    REPORT_RESOLVED = 4;
+  }
+}
+
+// Edge — the accumulated, current state of a single (protocol, from, to) trust
+// edge, held by the `store_edges` module (docs/14-substreams.md §2's module
+// graph names this store's `valueType: proto:aval.trust.v1.Edge` but does not
+// inline its fields — it is derived here, field-for-field, from the
+// `TrustEdge` entity in docs/05-graph-data-layer.md §3.2 and the `trust_edges`
+// sink table in docs/14-substreams.md §4, so store state, delta CDC output,
+// and the SQL sink schema all describe the same record.
+//
+// `kind` reuses `TrustEvent.Kind` (proto3 permits referencing another
+// message's nested enum) rather than redeclaring it, so a REVOKE always means
+// the same thing whether it is read off the wire or off the store.
+message Edge {
+  string          protocol    = 1;
+  string          network     = 2;
+  bytes           from         = 3;
+  bytes           to           = 4;
+  string          weight_raw  = 5;
+  uint64          issued_at   = 6;
+  uint64          expires_at  = 7;
+  bool            revoked      = 8;
+  uint32          renew_count = 9;
+  TrustEvent.Kind kind        = 10;  // kind of the most recent event applied
+  bytes           tx_hash     = 11;  // tx of the most recent event applied
+  uint64          block_num   = 12;  // block of the most recent event applied
+}

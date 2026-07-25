@@ -1,0 +1,109 @@
+specVersion: v0.1.0
+
+package:
+  name: aval_trust_graph
+  version: v0.2.0
+  url: https://github.com/aval-protocol/aval
+  description: |
+    Composable trust-graph extractor. Emits standardized TrustEvent (VOUCH /
+    REVOKE / REAFFIRM / REPORT / REPORT_RESOLVED) for ANY contract that
+    follows the trust-graph v0.1.0 event shape (docs/14-substreams.md §2).
+    This deployment's params target AvalRegistry on World Chain Sepolia
+    (chainId 4801); the same .spkg indexes Circles on Gnosis or any
+    platform's registry on any EVM chain with different params only.
+
+imports:
+  # Provides sf.substreams.sink.database.v1.DatabaseChanges — map_edge_deltas/db_out's output
+  # type. Without this, `substreams pack` fails: "proto message type
+  # ...DatabaseChanges not found in package proto definitions" (found by actually running
+  # `substreams pack`, not by inspection).
+  database: https://github.com/streamingfast/substreams-sink-database-changes/releases/download/v4.0.0/substreams-sink-database-changes-v4.0.0.spkg
+  # Provides sf.substreams.sink.sql.v1.Service — the sink.type descriptor below. Without this,
+  # `substreams-sink-sql setup` fails: "could not find protobuf message type
+  # sf.substreams.sink.sql.v1.Service in bundled protobuf descriptors" (found by actually running
+  # `setup`, not by inspection). Note: the substreams-sql skill's own manifest example names this
+  # type `sf.substreams.sink.sql.service.v1.Service` and calls the `.sql.v1.Service` form
+  # "DEPRECATED" — but `substreams inspect` on the actual protodefs-v1.0.7 release shows the
+  # package is `sf.substreams.sink.sql.v1` with message `Service`, and `...service.v1.Service`
+  # doesn't exist in this release at all. Verified against the real downloaded spkg, not the doc.
+  sql: https://github.com/streamingfast/substreams-sink-sql/releases/download/protodefs-v1.0.7/substreams-sink-sql-protodefs-v1.0.7.spkg
+
+protobuf:
+  files:
+    - trust_graph.proto
+  importPaths:
+    - ./proto
+  excludePaths:
+    - sf/substreams
+    - google
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/aval_trust_graph.wasm
+
+# NETWORK NOTE (read before running):
+# World Chain Sepolia (chainId 4801) is NOT in StreamingFast's network
+# registry as of 2026-07-25 — verified live against
+# https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json,
+# which lists only `worldchain` (World Chain MAINNET). There is no
+# `worldchain-sepolia` Firehose/Substreams endpoint to point `-e` at.
+# `network:` below is set to the registered mainnet id purely so `substreams
+# info` / `substreams graph` resolve a known network for inspection; it does
+# NOT mean this package indexes mainnet. The actual indexing target — chain,
+# contract, topics — is entirely determined by `params.map_trust_events`
+# below, which says `network=worldchain-sepolia` for the data itself. Running
+# this against real Sepolia data requires either (a) a World Chain Sepolia
+# Firehose endpoint from another provider, or (b) a local Firehose fed by a
+# Sepolia archive node. See ../PROOF.md for exactly what was substituted to
+# still prove decode correctness against real chain data without one.
+network: worldchain
+
+params:
+  map_trust_events: "contract=0x1d9955cb9f2a531fa6d4f43e712c9b1fa9a44514&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain-sepolia"
+
+modules:
+  - name: map_trust_events # raw block -> TrustEvents
+    kind: map
+    initialBlock: 32216305 # AvalRegistry deployment block, deployments/worldchain-sepolia.json
+    inputs:
+      - params: string
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:aval.trust.v1.TrustEvents
+
+  - name: store_edges # accumulate live edge state
+    kind: store
+    updatePolicy: set
+    valueType: proto:aval.trust.v1.Edge
+    inputs:
+      - map: map_trust_events
+
+  - name: map_edge_deltas # store deltas -> database changes (CDC)
+    kind: map
+    initialBlock: 32216305
+    inputs:
+      - store: store_edges
+        mode: deltas
+    output:
+      type: proto:sf.substreams.sink.database.v1.DatabaseChanges
+
+  - name: db_out
+    # Stable-name passthrough (docs/14 §2 lists db_out as its own module with
+    # the same DatabaseChanges output as map_edge_deltas). Kept as a distinct
+    # module — not inlined into map_edge_deltas — so `sink.module: db_out`
+    # below is a fixed target unaffected by how the CDC transform evolves
+    # upstream.
+    kind: map
+    initialBlock: 32216305
+    inputs:
+      - map: map_edge_deltas
+    output:
+      type: proto:sf.substreams.sink.database.v1.DatabaseChanges
+
+sink:
+  module: db_out
+  type: sf.substreams.sink.sql.v1.Service
+  config:
+    schema: ./schema.sql
+    engine: clickhouse

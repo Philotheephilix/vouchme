@@ -1,0 +1,29 @@
+[workspace]
+
+[package]
+name = "aval_trust_graph"
+version = "0.2.0"
+edition = "2021"
+description = "Composable trust-graph extractor for the Aval Substreams pipeline (docs/14-substreams.md)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+substreams = "0.7"
+substreams-ethereum = "0.11"
+substreams-database-change = "4"
+prost = "0.13"
+prost-types = "0.13"
+hex = "0.4"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[dev-dependencies]
+base64 = "0.22"
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = "debuginfo"
