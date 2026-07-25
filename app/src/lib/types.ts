@@ -10,13 +10,17 @@ export type Address = `0x${string}`;
 export type EnsName = string;
 
 export type AccountKind = "anchor" | "member" | "platform" | "agent";
-/** "orb" is the fixture's fictional demo anchor; "genesis-testnet" is what the LIVE
- *  `GenesisAnchorBook.anchorSource()` actually returns on World Chain Sepolia — a testnet
- *  stand-in for World ID's Address Book, not Orb verification. The UI must never conflate the
- *  two (docs/07-app-api.md, contracts/script/GenesisAnchorBook.sol). */
-export type AnchorSource = "orb" | "genesis-testnet";
+/** Three distinct things, deliberately not collapsed:
+ *  - "orb" — the FIXTURE's fictional demo anchor. Not real verification.
+ *  - "genesis-testnet" — what `GenesisAnchorBook.anchorSource()` returns on World Chain Sepolia.
+ *    A testnet stand-in for World ID's Address Book; nobody behind it was ever Orb-verified.
+ *  - "world-id-orb" — World Chain MAINNET, where `AvalRegistry.addressBook` is World ID's real
+ *    Address Book (0x57b930D5…0330D). Anchor status here IS genuine Orb verification.
+ *  The UI must never conflate them (docs/07-app-api.md, contracts/script/GenesisAnchorBook.sol). */
+export type AnchorSource = "orb" | "genesis-testnet" | "world-id-orb";
 
-/** docs/01-trust-math.md §11 — T1 = 30, T2 = 100. */
+/** docs/01-trust-math.md §11 — T1 = 55, T2 = 140 (errata E-16 raised both with `base`). The
+ *  authoritative values are `@aval/engine`'s `T1` / `T2`; never retype them. */
 export type Tier = 0 | 1 | 2;
 export type PlatformTier = "P0" | "P1" | "P2";
 
@@ -25,9 +29,10 @@ export type Credential = "orb" | "selfie" | "document";
 
 /** docs/01-trust-math.md §11 — the four human promotion gates. */
 export interface Gates {
-  /** score >= 30 (T1) / >= 100 (T2) */
+  /** score >= T1 (55) / >= T2 (140) — errata E-16 */
   g1ScoreThreshold: boolean;
-  /** >= 2 distinct active inbound vouches */
+  /** >= MIN_VOUCHERS distinct *contributing* inbound vouches — counting raw inbound edges here is
+   *  the hole errata E-14 closed. */
   g2TwoDistinctVouchers: boolean;
   /** path of <= 3 active vouches to an origin exists */
   g3PathToOrigin: boolean;
@@ -120,15 +125,22 @@ export interface ScoreResult {
 }
 
 export interface PlatformScoreResult {
+  /** False when no platform exists on this graph — which, in live mode, is because
+   *  PlatformRegistry is never read at all. The console renders "not read on this deployment"
+   *  instead of a screen of zeros that reads as a measured result. */
+  registered: boolean;
   address: Address;
   ensName: EnsName;
   score: number;
   tier: PlatformTier;
   voucherCount: number;
-  bondAval: number;
-  requestsLast30d: number;
-  upheldRatePct: number;
-  gates: { g1ScoreThreshold: boolean; g2TwoDistinctVouchers: boolean; g3BondPosted: boolean };
+  /** `null` where the value has no source in this mode: the bond lives in CredibilityVault,
+   *  request counts in the gateway, the upheld ratio in ReportRegistry — none of which the live
+   *  reader touches. `null` renders as "not tracked"; it must never be flattened to 0. */
+  bondAval: number | null;
+  requestsLast30d: number | null;
+  upheldRatePct: number | null;
+  gates: { g1ScoreThreshold: boolean; g2TwoDistinctVouchers: boolean; g3BondPosted: boolean | null };
 }
 
 export type ReportStatus = "pending" | "upheld" | "rejected" | "decayed";
@@ -270,6 +282,11 @@ export interface ExploreScenario {
   label: string;
   exhibit: string;
   description: string;
+  /** False when this deployment's graph contains no such structure. The column then shows the
+   *  reason and NOTHING else — no score, no tier, no narrative. A scenario with zero nodes that
+   *  still prints "Six phones on a table" and a score is the exact defect this flag closes. */
+  available: boolean;
+  unavailableReason: string | null;
   nodes: ExploreNode[];
   edges: ExploreEdge[];
   finalScore: number;
@@ -277,8 +294,15 @@ export interface ExploreScenario {
   gates: Gates;
 }
 
-/** docs/04-ens.md §4, docs/07-app-api.md §2.5 — agent subnames. */
+/** docs/04-ens.md §4, docs/07-app-api.md §2.5 — agent subnames.
+ *
+ *  NOTHING in this record is published. There is no ENSIP-26/25 registrar call in this repo, and
+ *  mcp.aval.xyz / a2a.aval.xyz / aval.xyz do not serve this app. `published` is false everywhere
+ *  today; `exampleLabel` is the placeholder label the preview is composed with, and the UI must
+ *  present it as an example rather than as a name the operator chose. */
 export interface AgentRecord {
+  published: boolean;
+  exampleLabel: string;
   subname: EnsName;
   operator: EnsName;
   operatorScore: number;

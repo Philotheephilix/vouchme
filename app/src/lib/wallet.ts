@@ -10,8 +10,8 @@
 
 "use client";
 
-import { createPublicClient, createWalletClient, custom, decodeErrorResult, getAddress, http, type Address, type Hex, type PublicClient } from "viem";
-import { KNOWN_ERRORS_ABI, WORLDCHAIN_SEPOLIA, WORLDCHAIN_SEPOLIA_ID } from "./worldchain";
+import { createPublicClient, createWalletClient, custom, decodeErrorResult, getAddress, http, stringToHex, type Address, type Hex, type PublicClient } from "viem";
+import { KNOWN_ERRORS_ABI, WORLDCHAIN, WORLDCHAIN_ID } from "./worldchain";
 
 interface Eip1193Provider {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -50,7 +50,7 @@ function requireProvider(): Eip1193Provider {
 }
 
 function getWalletClient() {
-  return createWalletClient({ chain: WORLDCHAIN_SEPOLIA, transport: custom(requireProvider()) });
+  return createWalletClient({ chain: WORLDCHAIN, transport: custom(requireProvider()) });
 }
 
 /** Prompts the wallet's account picker and returns the selected address. */
@@ -72,20 +72,33 @@ export async function getAuthorizedAccount(): Promise<Address | null> {
   }
 }
 
+/** EIP-191 `personal_sign` over a plain-text message (docs/96-ux-audit.md U-24: this, not just an
+ *  address, is what a real sign-in requires). Params are `[message, address]` per the JSON-RPC
+ *  spec, message hex-encoded as every wallet expects. */
+export async function personalSign(message: string, account: Address): Promise<Hex> {
+  const provider = requireProvider();
+  const signature = (await provider.request({
+    method: "personal_sign",
+    params: [stringToHex(message), account],
+  })) as Hex;
+  return signature;
+}
+
 export async function getChainIdDecimal(): Promise<number> {
   const provider = requireProvider();
   const hex = (await provider.request({ method: "eth_chainId" })) as string;
   return parseInt(hex, 16);
 }
 
-/** Switches (or, if the wallet has never seen it, adds) World Chain Sepolia. Never silently
+/** Switches (or, if the wallet has never seen it, adds) the configured World Chain — mainnet
+ *  (480) on this deployment; the name is kept for its callers. Never silently
  *  proceeds on the wrong network — a tx signed against the wrong chain either fails outright or,
  *  worse, succeeds against a contract that doesn't exist there. */
 export async function ensureWorldChainSepolia(): Promise<void> {
   const provider = requireProvider();
   const current = await getChainIdDecimal();
-  if (current === WORLDCHAIN_SEPOLIA_ID) return;
-  const chainIdHex = `0x${WORLDCHAIN_SEPOLIA_ID.toString(16)}`;
+  if (current === WORLDCHAIN_ID) return;
+  const chainIdHex = `0x${WORLDCHAIN_ID.toString(16)}`;
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
   } catch (err) {
@@ -96,15 +109,20 @@ export async function ensureWorldChainSepolia(): Promise<void> {
         params: [
           {
             chainId: chainIdHex,
-            chainName: WORLDCHAIN_SEPOLIA.name,
-            nativeCurrency: WORLDCHAIN_SEPOLIA.nativeCurrency,
-            rpcUrls: WORLDCHAIN_SEPOLIA.rpcUrls.default.http,
-            blockExplorerUrls: [WORLDCHAIN_SEPOLIA.blockExplorers.default.url],
+            chainName: WORLDCHAIN.name,
+            nativeCurrency: WORLDCHAIN.nativeCurrency,
+            rpcUrls: WORLDCHAIN.rpcUrls.default.http,
+            blockExplorerUrls: [WORLDCHAIN.blockExplorers.default.url],
           },
         ],
       });
     } else {
-      throw new WalletError("wrong_network", "Please switch your wallet to World Chain Sepolia (chain 4801) and try again.");
+      // Was hardcoded "World Chain Sepolia (chain 4801)". This deployment is World Chain MAINNET
+      // (480) — the message named a chain the app does not use and told the user to switch to it.
+      throw new WalletError(
+        "wrong_network",
+        `Please switch your wallet to ${WORLDCHAIN.name} (chain ${WORLDCHAIN_ID}) and try again.`,
+      );
     }
   }
 }
@@ -114,7 +132,7 @@ export async function ensureWorldChainSepolia(): Promise<void> {
  *  that as its own visible step. */
 export async function sendFromInjected(account: Address, to: Address, data: Hex): Promise<Hex> {
   const client = getWalletClient();
-  return client.sendTransaction({ account, to, data, chain: WORLDCHAIN_SEPOLIA });
+  return client.sendTransaction({ account, to, data, chain: WORLDCHAIN });
 }
 
 /** Best-effort decode of a contract revert into the real Solidity error name
@@ -144,7 +162,7 @@ let cachedPublicClient: PublicClient | null = null;
 
 export function getPublicClient(): PublicClient {
   if (!cachedPublicClient) {
-    cachedPublicClient = createPublicClient({ chain: WORLDCHAIN_SEPOLIA, transport: http(WORLDCHAIN_SEPOLIA.rpcUrls.default.http[0]) });
+    cachedPublicClient = createPublicClient({ chain: WORLDCHAIN, transport: http(WORLDCHAIN.rpcUrls.default.http[0]) });
   }
   return cachedPublicClient;
 }

@@ -24,19 +24,26 @@
  */
 
 import {
+  ANCHOR,
   BASE,
   CAP_NEG,
+  CAP_POS,
   GATE4_WINDOW_DAYS,
   MAX_DEPTH,
+  MAX_UNCLAIMED_EPOCHS,
   MIN_VOUCHERS,
   M_POS_NUM,
   M_POS_DEN,
   P1,
   SECONDS_PER_DAY,
+  SECONDS_PER_EPOCH,
   SLOTS_TIER_1,
   SLOTS_TIER_2,
   T1,
   T2,
+  TIER_0_DRIP_RATE_PERCENT,
+  TIER_1_PLUS_DRIP_RATE_PERCENT,
+  T_MAX_CENTI,
   breakdown,
   compute,
 } from "@aval/engine";
@@ -76,7 +83,7 @@ import {
   getContractAddressSet,
   getDemoAddress,
   getLiveGraph,
-  WORLDCHAIN_SEPOLIA_ID,
+  WORLDCHAIN_ID,
 } from "./chain";
 
 // ─── the "now" the fixture is dated relative to; LIVE mode uses the latest block's own timestamp
@@ -93,9 +100,29 @@ const FIXTURE_GRAPH_NOW = Math.floor(FIXTURE_NOW.getTime() / 1000);
  *  rather than a hardcoded 0.25, so this can't drift from the real multiplier either. */
 const DISPLAY_M_POS = M_POS_NUM / M_POS_DEN;
 
-/** Score 10, tier 0 — what enrollment alone buys you (docs/07-app-api.md §2.1). Pure engine
+/** What enrollment alone buys you (docs/07-app-api.md §2.1) — `BASE`, tier 0. Pure engine
  *  constant, independent of graph source, so this stays a plain sync export in both modes. */
 export const ENROLLMENT_BASE_SCORE = centiToScore(BASE);
+
+/** An anchor's floor is NOT `BASE`: its score is fixed at `ANCHOR` and ignores every inbound edge
+ *  (errata E-6). Printing `base 20.0` under a dial reading `100` — which is exactly what Home did
+ *  for the one Orb-verified account on this deployment — is the U-3 defect all over again. */
+export const ANCHOR_SCORE = centiToScore(ANCHOR);
+
+/** Tier 1 threshold, in display points — used to *compute* the "what do I still need" copy instead
+ *  of hardcoding a voucher count that stopped being true when `base`/`T1` moved (errata E-16). */
+export const TIER_1_THRESHOLD_SCORE = centiToScore(T1);
+
+/** What one vouch from an anchor is worth: min(100 × 0.25, cap⁺) = 20.00. Derived, not typed. */
+export const ANCHOR_VOUCH_CONTRIBUTION = centiToScore(Math.min((ANCHOR * M_POS_NUM) / M_POS_DEN, CAP_POS));
+
+/** `PresenceDrip.DRIP_NOMINAL` is 0.25 AVAL per 6h epoch, i.e. 1 AVAL/day at the full rate
+ *  (contracts/src/PresenceDrip.sol §2). Derived from the epoch length rather than retyped. */
+const NOMINAL_DRIP_AVAL_PER_EPOCH = 0.25;
+const EPOCHS_PER_DAY = SECONDS_PER_DAY / SECONDS_PER_EPOCH;
+const NOMINAL_DRIP_AVAL_PER_DAY = NOMINAL_DRIP_AVAL_PER_EPOCH * EPOCHS_PER_DAY;
+const MAX_UNCLAIMED_DAYS = MAX_UNCLAIMED_EPOCHS / EPOCHS_PER_DAY;
+const TENURE_MAX_BONUS = centiToScore(T_MAX_CENTI);
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
 // ─── the fixture graph, in @aval/engine's own input shape ───────────────────────────────────────
@@ -263,6 +290,17 @@ interface GraphContext {
   addressFor: (id: string) => Address;
   ensNameFor: (id: string) => string;
   anchorSourceFor: (id: string) => AnchorSource | undefined;
+  /** What backs anchor status on THIS graph, independent of whether any anchor is present.
+   *  Live mode reads it off the configured Address Book (`chain.ts` `getAnchorSource`), so prose
+   *  about anchors can't call a mainnet Orb anchor "genesis (testnet)" — which is exactly what
+   *  /explore printed on World Chain mainnet. */
+  graphAnchorSource: AnchorSource;
+  /** False when this graph source never asks the chain about reports / platforms at all — the
+   *  live reader builds its `EngineInput` with `reports: []` and `platformVouches: []`
+   *  (`chain.ts`). An empty list is then "we didn't look", NOT "there are none", and any screen
+   *  built on it has to say which. */
+  reportsAvailable: boolean;
+  platformsAvailable: boolean;
   edgeTiming: (voucherId: string, voucheeId: string) => EdgeTiming;
   /** Which counted inbound voucher of `meId` is its "weakest link" for the Home-screen warning.
    *  Fixture pins this to the authored narrative ("bob"); live mode picks the counted voucher
@@ -317,6 +355,9 @@ function buildFixtureContext(): GraphContext {
     addressFor: fixtureAddressFor,
     ensNameFor: (id) => id,
     anchorSourceFor: (id) => (FIXTURE_ACCOUNTS.find((a) => a.id === id)?.isAnchor ? "orb" : undefined),
+    graphAnchorSource: "orb",
+    reportsAvailable: true,
+    platformsAvailable: true,
     edgeTiming: (voucherId, voucheeId) => {
       const known = edgeDays[`${voucherId}::${voucheeId}`];
       const { issuedAgoDays, expiresInDays } = known ?? { issuedAgoDays: 10 + ((genericIndex++ * 17) % 60), expiresInDays: 0 };
@@ -324,7 +365,14 @@ function buildFixtureContext(): GraphContext {
       return { issuedAt: fixtureIso(-issuedAgoDays), expiresAt: fixtureIso(expires), daysUntilExpiry: expires };
     },
     weakestLinkVoucherId: () => "bob.aval.eth",
-    slotsFor: (id) => (id === FIXTURE_ME_ID ? { total: 3, used: 2, free: 1 } : { total: 0, used: 0, free: 0 }),
+    // Tier-derived and counted off the fixture's own edges, so an anchor with four outbound
+    // vouches never renders "0 of 10 free" (or, as it used to for anchors, a flat literal that
+    // ignored the vouches it had actually issued).
+    slotsFor: (id, tier) => {
+      const total = tier >= 2 ? SLOTS_TIER_2 : tier >= 1 ? SLOTS_TIER_1 : 0;
+      const used = Math.min(total, FIXTURE_VOUCHES.filter((v) => v.voucher === id && v.active).length);
+      return { total, used, free: total - used };
+    },
     credentialFor: () => ({ status: "active", expiresAt: fixtureIso(60), credential: "selfie" }),
     candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.aval.eth", HENRY_ID] : []),
     platformId: FIXTURE_PLATFORM_ID,
@@ -401,6 +449,13 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     return { total, used, free: total - used };
   };
 
+  /** Anchor status on this deployment IS an Orb verification, read live from World ID's Address
+   *  Book (errata E-18). Reporting every account's credential as "selfie" therefore said something
+   *  false about the accounts the protocol is grounded on. Non-anchors really are selfie-check
+   *  enrollments — that is the only credential `/api/enroll` ever attests. */
+  const credentialKindFor = (id: string): Credential =>
+    graph.engineInput.accounts.find((a) => a.id === id)?.isAnchor ? "orb" : "selfie";
+
   const credentialFor = (id: string): { status: CredentialStatus; expiresAt: string; credential: Credential } => {
     const m = graph.members.get(id as Address);
     const expiresAt = m ? new Date(m.credentialExpiresAt * 1000).toISOString() : nowDate.toISOString();
@@ -412,7 +467,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
         : nowSeconds <= graceEndsAt
           ? "grace"
           : "suspended";
-    return { status, expiresAt, credential: "selfie" };
+    return { status, expiresAt, credential: credentialKindFor(id) };
   };
 
   // Prospective vouchers for any id: real enrolled humans, computed tier >= 1 (FR-3: tier 0
@@ -435,7 +490,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     return {
       id: a.id,
       kind: a.isAnchor ? "anchor" : "member",
-      credential: "selfie",
+      credential: credentialKindFor(a.id),
       registeredAgoDays,
     };
   });
@@ -457,12 +512,12 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
   return {
     mode: "live",
     meta: {
-      subgraphDeployment: `direct-chain-read:${WORLDCHAIN_SEPOLIA_ID}`,
+      subgraphDeployment: `direct-chain-read:${WORLDCHAIN_ID}`,
       computedAtBlock: Number(graph.block),
       indexerLagBlocks: 0, // no separate indexer in live mode — this app reads AvalRegistry directly
       engineVersion: "0.1.0",
       mode: "live",
-      chainId: WORLDCHAIN_SEPOLIA_ID,
+      chainId: WORLDCHAIN_ID,
       contracts: getContractAddressSet(),
     },
     now: nowDate,
@@ -475,6 +530,11 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     addressFor: (id) => id as Address,
     ensNameFor,
     anchorSourceFor,
+    graphAnchorSource: graph.anchorSource,
+    // `chain.ts` builds its EngineInput with `reports: []` / `platformVouches: []` — neither
+    // ReportRegistry nor PlatformRegistry is read. Empty here means "not read", not "none".
+    reportsAvailable: false,
+    platformsAvailable: false,
     edgeTiming,
     weakestLinkVoucherId,
     slotsFor,
@@ -495,6 +555,12 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
 export interface AvalData {
   mode: "live" | "fixture";
   meta: ApiMeta;
+  /** See `GraphContext.reportsAvailable` / `.platformsAvailable`: false means this graph source
+   *  never queried that registry, so `REPORTS` / `PLATFORM` being empty is not evidence of
+   *  anything. `/reports` and `/platform` render an explicit "not read on this deployment" state
+   *  rather than an empty list that reads as a clean bill of health. */
+  reportsAvailable: boolean;
+  platformsAvailable: boolean;
   /** True when `ME` is the signed-in viewer's own data; false when nobody is signed in and this
    *  fell back to the read-only `ME_ADDRESS` demo identity (task correction §1). */
   viewerIsSelf: boolean;
@@ -543,6 +609,17 @@ function deriveAvalData(ctx: GraphContext): AvalData {
   }
   function tierOf(id: string): Tier {
     return (result.tier[id] ?? 0) as Tier;
+  }
+  function isAnchorId(id: string): boolean {
+    return ctx.accounts.find((a) => a.id === id)?.isAnchor ?? false;
+  }
+  /** An anchor's floor is `ANCHOR` (100.00), not `BASE` — errata E-6. This used to be two separate
+   *  literals: `ENROLLMENT_BASE_SCORE` for `ME` (so Home printed `base 20.0 + 0.0 = 20.0` under a
+   *  dial reading `100` for the Orb-verified account on this deployment) and a hardcoded
+   *  `acc.isAnchor ? 100.0 : 10.0` in `getScoreResult` (whose `10.0` had been stale since
+   *  errata E-16 raised `base` to 20). One derivation now, for every caller. */
+  function baseScoreFor(id: string): number {
+    return isAnchorId(id) ? ANCHOR_SCORE : ENROLLMENT_BASE_SCORE;
   }
   function platformTierFromEngine(t: number | undefined): "P0" | "P1" | "P2" {
     return (t ?? 0) >= 2 ? "P2" : (t ?? 0) >= 1 ? "P1" : "P0";
@@ -675,18 +752,25 @@ function deriveAvalData(ctx: GraphContext): AvalData {
 
   function presenceStateForId(id: string, tier: Tier): PresenceState {
     const p = ctx.presenceFor(id);
-    const presentDays = p.epochsClaimed / 4; // 6h epochs, 4/day
-    const tierRatePct = tier >= 1 ? 100 : 25;
-    const dailyRateAval = tier >= 1 ? 1.0 : 0.25;
-    const accruedAval = p.accruedAval;
+    const presentDays = p.epochsClaimed / EPOCHS_PER_DAY;
+    // Engine constants, not retyped percentages (docs/16-presence-drip.md §3).
+    const tierRatePct = tier >= 1 ? TIER_1_PLUS_DRIP_RATE_PERCENT : TIER_0_DRIP_RATE_PERCENT;
+    const dailyRateAval = (NOMINAL_DRIP_AVAL_PER_DAY * tierRatePct) / 100;
+    // `PresenceDrip.accrued()` is deliberately NOMINAL and tier-blind — it counts epochs, and the
+    // tier discount is applied inside `claim()` (contracts/src/PresenceDrip.sol NOTE(deviation) 2).
+    // Rendering the raw figure under the words "accrued, unclaimed" next to a "25% rate" badge
+    // therefore overstated a Tier 0 account's claimable balance by 4x. Show what `claim()` would
+    // actually mint; keep the nominal figure for the cap countdown, which IS tier-blind.
+    const nominalAccruedAval = p.accruedAval;
+    const accruedAval = (nominalAccruedAval * tierRatePct) / 100;
     return {
       dailyRateAval,
       accruedAval,
-      maxUnclaimedDays: 30,
-      daysUntilCap: Math.max(0, 30 - accruedAval / dailyRateAval),
+      maxUnclaimedDays: MAX_UNCLAIMED_DAYS,
+      daysUntilCap: Math.max(0, MAX_UNCLAIMED_DAYS - nominalAccruedAval / NOMINAL_DRIP_AVAL_PER_DAY),
       presentDays,
       tenureBonus: tenureFromDays(presentDays),
-      tenureMaxBonus: 5.0,
+      tenureMaxBonus: TENURE_MAX_BONUS,
       tierRatePct,
       curve: tenureCurve(720, 72),
     };
@@ -703,11 +787,19 @@ function deriveAvalData(ctx: GraphContext): AvalData {
   const meSlots = ctx.slotsFor(ctx.meId, meTier);
   const meCredential = ctx.credentialFor(ctx.meId);
 
+  const meIsAnchor = isAnchorId(ctx.meId);
   const ME: ScoreResult = {
     address: ctx.addressFor(ctx.meId),
     ensName: ctx.ensNameFor(ctx.meId),
-    kind: "member",
-    base: 10.0,
+    // Was hardcoded "member". On World Chain mainnet the Address Book is World ID's real one, so
+    // the signed-in user genuinely can be an anchor — and calling one a member downstream is what
+    // let Home print base 20.0 for an account whose score is fixed at 100.
+    kind: meIsAnchor ? "anchor" : "member",
+    ...(meIsAnchor ? { anchorSource: ctx.anchorSourceFor(ctx.meId) } : {}),
+    // Derived from the engine, never a literal: Home prints `base + counted = score` directly
+    // under the dial, so a stale literal here renders arithmetic that contradicts the score
+    // shown above it (docs/96-ux-audit.md U-3).
+    base: baseScoreFor(ctx.meId),
     tenure: centiToScore(meBd.tenure),
     positiveScore: humanSPlus(ctx.meId),
     score: humanScore(ctx.meId),
@@ -723,19 +815,24 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     credentialExpiresAt: meCredential.expiresAt,
   };
 
-  // ─── explore — honest path vs. six-account collusion ring ─────────────────────────────────────
-  // docs/07-app-api.md §2.4: "both live, both at their real scores." Fixture mode uses its
-  // authored HONEST_IDS/RING_IDS; live mode selects the same shapes generically off the real
-  // graph — the anchors/alice/bob/carol honest path, and the ring1..ring6 cycle — by their real
-  // on-chain `handle` (identical in spirit, not hand-picked addresses).
+  // ─── explore — reachable-from-an-anchor vs. cut off from every anchor ─────────────────────────
+  // docs/07-app-api.md §2.4: "both live, both at their real scores."
+  //
+  // Live mode used to pick both exhibits by MATCHING FIXTURE NAMES against real handles
+  // (`/^(anchor\d+|alice|bob|carol)\.aval\.eth$/`, and `startsWith("ring")`). On World Chain
+  // mainnet nobody is called any of those, so both columns came back with zero nodes and zero
+  // edges — and the page still printed "Six-account collusion ring / Six phones on a table" over
+  // a score of 20.0 that was a literal fallback, plus "Every edge points down from a genesis
+  // (testnet) anchor" on a deployment whose anchors are genuinely Orb-verified.
+  //
+  // Both sets are now derived from the graph's own structure, which is what the exhibits were
+  // always about: reachable from an anchor (finite depth) vs. no path to any anchor at all.
+  const humanIds = ctx.accounts.filter((a) => a.kind === "human").map((a) => a.id);
   const honestIds =
     ctx.mode === "fixture"
       ? ["anchor1.aval.eth", "anchor2.aval.eth", "alice.aval.eth", "bob.aval.eth", ctx.meId, "dave.carol.aval.eth"]
-      : ctx.accounts
-          .map((a) => a.id)
-          .filter((id) => /^(anchor\d+|alice|bob|carol)\.aval\.eth$/.test(ctx.ensNameFor(id)));
-  const ringIds =
-    ctx.mode === "fixture" ? RING_IDS : ctx.accounts.map((a) => a.id).filter((id) => ctx.ensNameFor(id).startsWith("ring"));
+      : humanIds.filter((id) => depthOf(id) !== null);
+  const ringIds = ctx.mode === "fixture" ? RING_IDS : humanIds.filter((id) => depthOf(id) === null);
 
   function edgeContribution(voucher: string, vouchee: string): { contribution: number; counted: boolean; reason: string | null } {
     const row = breakdownFor(vouchee).vouchers.find((v) => v.voucher === voucher);
@@ -747,12 +844,36 @@ function deriveAvalData(ctx: GraphContext): AvalData {
   const ringVouches = ctx.vouches.filter((e) => ringIds.includes(e.voucher) && ringIds.includes(e.vouchee));
 
   // Honesty about provenance extends to prose, not just badges (task requirement #5) — this
-  // description must not call a genesis-testnet anchor "Orb" any more than a badge may.
-  const anchorWord = ctx.mode === "fixture" ? "an Orb anchor" : "a genesis (testnet) anchor";
+  // description must not call a genesis-testnet anchor "Orb", NOR call a real Orb anchor
+  // "genesis (testnet)", which is what the old hardcoded `ctx.mode` branch did on mainnet.
+  // Read from the graph's own anchor source (`chain.ts` decides it by which Address Book is
+  // configured, never by guessing).
+  const anchorWord =
+    ctx.graphAnchorSource === "world-id-orb"
+      ? "an Orb-verified anchor"
+      : ctx.graphAnchorSource === "genesis-testnet"
+        ? "a genesis (testnet) anchor"
+        : "an Orb anchor";
+
+  // The deepest reachable account is the one the "honest path" exhibit is actually about: the far
+  // end of the chain. Was `ctx.meId` — i.e. whoever happened to be signed in (or, signed out, the
+  // ME_ADDRESS fallback), whose score has nothing to do with the exhibit.
+  const deepestHonestId = honestIds.reduce<string | null>(
+    (best, id) => (best === null || (depthOf(id) ?? -1) > (depthOf(best) ?? -1) ? id : best),
+    null,
+  );
+
   const EXPLORE_HONEST: ExploreScenario = {
-    label: "Honest path",
+    label: "Reachable from an anchor",
     exhibit: "EXHIBIT A",
-    description: `Every edge points down from ${anchorWord}. Depth ordering lets each vouch count exactly once.`,
+    available: honestIds.length > 0,
+    unavailableReason:
+      honestIds.length > 0 ? null : "No enrolled account on this deployment has a path to an anchor yet.",
+    description:
+      honestVouches.length > 0
+        ? `Every edge points down from ${anchorWord}. Depth ordering lets each vouch count exactly once.`
+        : `${honestIds.length} account${honestIds.length === 1 ? "" : "s"} reachable from ${anchorWord}, and no vouches ` +
+          `between them yet — so there is no path to trace.`,
     nodes: honestIds.map((id) => ({
       ensName: ctx.ensNameFor(id),
       address: ctx.addressFor(id),
@@ -773,16 +894,33 @@ function deriveAvalData(ctx: GraphContext): AvalData {
         reason: info.counted ? null : (info.reason ?? "same depth or higher — doesn't count"),
       };
     }),
-    finalScore: humanScore(ctx.meId),
-    finalTier: tierOf(ctx.meId),
-    gates: gatesFor(ctx.meId),
+    finalScore: deepestHonestId ? humanScore(deepestHonestId) : 0,
+    finalTier: deepestHonestId ? tierOf(deepestHonestId) : 0,
+    gates: deepestHonestId
+      ? gatesFor(deepestHonestId)
+      : { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3PathToOrigin: false, g4NoRecentUpheldReport: true },
   };
 
   const ringRepresentative = ringIds[0];
   const EXPLORE_RING: ExploreScenario = {
-    label: "Six-account collusion ring",
+    // Was flatly "Six-account collusion ring / Six phones on a table" whether or not any such
+    // cluster existed — on this deployment it does not, and the column still claimed one at a
+    // score of 20.0. Label and count now come from the graph.
+    label:
+      ctx.mode === "fixture"
+        ? "Six-account collusion ring"
+        : `${ringIds.length} account${ringIds.length === 1 ? "" : "s"} with no path to an anchor`,
     exhibit: "EXHIBIT B",
-    description: "Six phones on a table. A valid solution to the scoring equation — and the least fixed point ignores it.",
+    available: ringIds.length > 0,
+    unavailableReason:
+      ringIds.length > 0
+        ? null
+        : "Every enrolled account on this deployment reaches an anchor, so there is no cut-off cluster to show.",
+    description:
+      ctx.mode === "fixture"
+        ? "Six phones on a table. A valid solution to the scoring equation — and the least fixed point ignores it."
+        : "They can vouch for each other all they like: nobody here is closer to an anchor than anybody else, so " +
+          "depth ordering gives every edge between them +0.0 and the score stays at the floor.",
     nodes: ringIds.map((id) => ({
       ensName: ctx.ensNameFor(id),
       address: ctx.addressFor(id),
@@ -802,7 +940,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
         reason: info.counted ? null : (info.reason ?? "no path to any anchor"),
       };
     }),
-    finalScore: ringRepresentative ? humanScore(ringRepresentative) : ENROLLMENT_BASE_SCORE,
+    finalScore: ringRepresentative ? humanScore(ringRepresentative) : 0,
     finalTier: ringRepresentative ? tierOf(ringRepresentative) : 0,
     gates: ringRepresentative ? gatesFor(ringRepresentative) : { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3PathToOrigin: false, g4NoRecentUpheldReport: true },
   };
@@ -855,55 +993,74 @@ function deriveAvalData(ctx: GraphContext): AvalData {
         const platformSpCenti = result.sPlatform[ctx.platformId!] ?? 0;
         const platformVouchesFor = ctx.platformVouches.filter((pv) => pv.platform === ctx.platformId);
         return {
+          registered: true,
           address: ctx.addressFor(ctx.platformId!),
           ensName: ctx.ensNameFor(ctx.platformId!),
           score: centiToScore(platformSpCenti),
           tier: platformTierFromEngine(result.platformTier[ctx.platformId!]),
           voucherCount: platformVouchesFor.length,
-          bondAval: ctx.mode === "fixture" ? 5_200 : 0, // no engine equivalent — token-vault fact
-          requestsLast30d: ctx.mode === "fixture" ? 812 : 0, // no engine equivalent — gateway metric
-          upheldRatePct: ctx.mode === "fixture" ? 82 : 0, // no engine equivalent — historical ratio
+          // `null`, not 0. None of these three has a source in live mode — the bond lives in
+          // CredibilityVault (never read here), request counts in the gateway (not deployed), and
+          // the upheld ratio in ReportRegistry (never read). Rendering 0 / 0 / 0% presented three
+          // measurements that were never taken as if they had been. The fixture's figures stay,
+          // because the fixture is explicitly a demo graph and says so.
+          bondAval: ctx.mode === "fixture" ? 5_200 : null,
+          requestsLast30d: ctx.mode === "fixture" ? 812 : null,
+          upheldRatePct: ctx.mode === "fixture" ? 82 : null,
           gates: {
             g1ScoreThreshold: platformSpCenti >= P1,
             g2TwoDistinctVouchers: new Set(platformVouchesFor.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
-            g3BondPosted: ctx.mode === "fixture",
+            // Unknown in live mode for the same reason `bondAval` is: CredibilityVault is not read.
+            g3BondPosted: ctx.mode === "fixture" ? true : null,
           },
         };
       })()
     : {
-        // No platform registered on this live deployment (PlatformRegistry is a different
-        // agent's surface, and no `registerPlatform` call has landed) — the honest empty state,
-        // still computed the same way an unvouched platform's s_P would be: base_P = 0, P0.
+        // No platform on this graph. In live mode that is because PlatformRegistry is never read
+        // at all (`chain.ts` builds `platformVouches: []`), so this is "not read", not "none" —
+        // `registered: false` makes the page say which instead of printing a console full of zeros.
+        registered: false,
         address: "0x0000000000000000000000000000000000000000",
         ensName: "no platform registered",
         score: 0,
         tier: "P0",
         voucherCount: 0,
-        bondAval: 0,
-        requestsLast30d: 0,
-        upheldRatePct: 0,
-        gates: { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3BondPosted: false },
+        bondAval: null,
+        requestsLast30d: null,
+        upheldRatePct: null,
+        gates: { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3BondPosted: null },
       };
 
   // ─── agent — docs/04-ens.md §4, docs/07-app-api.md §2.5 ────────────────────────────────────────
 
   const meHandle = ctx.ensNameFor(ctx.meId);
+  // Nothing in this record exists. Agent subname registration has not shipped: `/api/ens/mint`
+  // only ever mints the operator's own `<handle>.aval.eth`, there is no ENSIP-26/25 registrar
+  // call anywhere in this repo, and none of the hostnames below serve anything. `exampleLabel`
+  // is exactly that — an example, not a name anyone chose or reserved — and `/agents` is required
+  // to say so on screen next to every value it prints (docs/96-ux-audit.md U-9).
+  const AGENT_EXAMPLE_LABEL = "agent";
+  const agentSubname = `${AGENT_EXAMPLE_LABEL}.${meHandle}`;
   const AGENT: AgentRecord = {
-    subname: `trader.${meHandle}`,
+    published: false,
+    exampleLabel: AGENT_EXAMPLE_LABEL,
+    subname: agentSubname,
     operator: meHandle,
     operatorScore: humanScore(ctx.meId),
     inheritedTier: meTier,
-    endpointMcp: `https://mcp.aval.xyz/agent/trader.${meHandle}`,
-    endpointA2a: `https://a2a.aval.xyz/trader.${meHandle}`,
+    endpointMcp: `https://mcp.aval.xyz/agent/${agentSubname}`,
+    endpointA2a: `https://a2a.aval.xyz/${agentSubname}`,
     ensip26: {
-      "agent-context": `# trader.${meHandle}\n\nAutonomous trading agent. Operated by ${meHandle} (Aval tier ${meTier}, score ${humanScore(
+      "agent-context": `# ${agentSubname}\n\nOperated by ${meHandle} (Aval tier ${meTier}, score ${humanScore(
         ctx.meId,
-      ).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${meTier}. It CANNOT issue vouches — vouching requires human presence, and ENSIP-26 agents have none.`,
-      "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/trader.${meHandle}`,
-      "agent-endpoint[a2a]": `https://a2a.aval.xyz/trader.${meHandle}`,
-      "agent-endpoint[web]": `https://aval.xyz/a/trader.${meHandle}`,
+      ).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${meTier}. It CANNOT issue vouches — vouching requires a human, and ENSIP-26 agents are not one.`,
+      "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/${agentSubname}`,
+      "agent-endpoint[a2a]": `https://a2a.aval.xyz/${agentSubname}`,
+      "agent-endpoint[web]": `https://aval.xyz/a/${agentSubname}`,
     },
-    ensip25RegistrationKey: `agent-registration[eip155:480:${ctx.addressFor(ctx.meId)}][0x01]`,
+    // Chain id from the configured chain, not a literal 480 that silently becomes wrong the day
+    // this points anywhere else.
+    ensip25RegistrationKey: `agent-registration[eip155:${WORLDCHAIN_ID}:${ctx.addressFor(ctx.meId)}][0x01]`,
   };
 
   // ─── candidates — prospective vouchers for any id ──────────────────────────────────────────────
@@ -944,8 +1101,10 @@ function deriveAvalData(ctx: GraphContext): AvalData {
       return {
         voucher: ctx.ensNameFor(voucherId),
         target: ctx.ensNameFor(targetId),
-        targetBefore: { score: 10, tier: 0 },
-        targetAfter: { score: 10, tier: 0 },
+        // Was a literal 10 — stale since errata E-16 raised `base` to 20, and rendered in the
+        // vouch wizard's preview step whenever either side wasn't a known human account.
+        targetBefore: { score: humanScore(targetId), tier: tierOf(targetId) },
+        targetAfter: { score: humanScore(targetId), tier: tierOf(targetId) },
         promotes: false,
         voucherSlotsBefore: 0,
         voucherSlotsAfter: 0,
@@ -1027,13 +1186,17 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     const t = tierOf(id);
     const cred = ctx.credentialFor(id);
     const bd = breakdownFor(id);
-    const displayBreakdown = acc.isAnchor ? [] : genericBreakdown(id);
+    // Errata E-6: "Inbound vouches to an anchor are recorded, are VISIBLE IN THE UI, and
+    // contribute nothing." This used to hand back `[]` for anchors, so a profile with real inbound
+    // vouches rendered "No vouches yet." The engine already marks each row `counted: false` with
+    // the reason `anchor_ignores_inbound`, which is what the zero-contribution row is for.
+    const displayBreakdown = genericBreakdown(id);
     return {
       address: ctx.addressFor(id),
       ensName: ctx.ensNameFor(id),
       kind: acc.isAnchor ? "anchor" : "member",
       ...(acc.isAnchor ? { anchorSource: ctx.anchorSourceFor(id) } : {}),
-      base: acc.isAnchor ? 100.0 : 10.0,
+      base: baseScoreFor(id),
       tenure: centiToScore(bd.tenure),
       positiveScore: humanSPlus(id),
       score: humanScore(id),
@@ -1042,7 +1205,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
       depth: depthOf(id),
       gates: gatesFor(id),
       breakdown: displayBreakdown,
-      slots: acc.isAnchor ? { total: 10, used: 0, free: 10 } : ctx.slotsFor(id, t),
+      slots: ctx.slotsFor(id, t),
       // Anchors ignore inbound edges entirely (score fixed at 100) — a weakest-link warning about
       // an edge that can't move their score would be noise, not signal.
       weakestLink: acc.isAnchor ? null : weakestLinkForId(id, t, bd, displayBreakdown),
@@ -1078,8 +1241,8 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     const r = getScoreResult(idOrAddress);
     if (!r) return undefined;
     if (r.kind === "anchor") {
-      const provenance = r.anchorSource === "genesis-testnet" ? "genesis-testnet" : "Orb-verified";
-      return `${r.ensName} is a ${provenance} anchor. Its score is fixed at 100.00 and ignores every inbound edge, positive or negative (docs/01-trust-math.md §2) — it is depth 0 by definition, the externally-grounded floor the rest of the graph is measured from.`;
+      const provenance = r.anchorSource === "world-id-orb" ? "an Orb-verified" : `a ${r.anchorSource ?? "an unlabelled"}`;
+      return `${r.ensName} is ${provenance} anchor. Its score is fixed at 100.00 and ignores every inbound edge, positive or negative (docs/01-trust-math.md §2) — it is depth 0 by definition, the externally-grounded floor the rest of the graph is measured from.`;
     }
     const counted = r.breakdown.filter((b) => b.counted);
     const zero = r.breakdown.filter((b) => !b.counted);
@@ -1088,11 +1251,18 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     parts.push(
       `${r.ensName} is Tier ${r.tier} with a score of ${r.score.toFixed(1)}, at depth ${r.depth ?? "∞"} from the nearest anchor.`,
     );
-    parts.push(
-      `That score is base ${r.base.toFixed(1)} plus ${counted
-        .map((b) => `${b.voucher.ensName} contributing +${b.contribution.toFixed(1)} (${b.voucher.score.toFixed(1)} x 0.25)`)
-        .join(", ")}${counted.length ? ` = ${(r.base + countedSum).toFixed(1)}` : ""}.`,
-    );
+    // Live, for the one enrolled account on this deployment, the old form produced the sentence
+    // "That score is base 20.0 plus ." — a dangling clause under a score of 100. Every branch now
+    // has to name terms that actually sum to the score, or say plainly that there are none.
+    if (counted.length > 0) {
+      parts.push(
+        `That score is base ${r.base.toFixed(1)} plus ${counted
+          .map((b) => `${b.voucher.ensName} contributing +${b.contribution.toFixed(1)} (${b.voucher.score.toFixed(1)} x ${DISPLAY_M_POS})`)
+          .join(", ")} = ${(r.base + countedSum).toFixed(1)}.`,
+      );
+    } else {
+      parts.push(`No vouch counts toward it yet, so the score is its base of ${r.base.toFixed(1)}.`);
+    }
     if (zero.length) {
       parts.push(zero.map((b) => `${b.voucher.ensName} also vouches but contributes +0.0 — ${b.reason}`).join(" "));
     }
@@ -1203,6 +1373,8 @@ function deriveAvalData(ctx: GraphContext): AvalData {
   return {
     mode: ctx.mode,
     meta: ctx.meta,
+    reportsAvailable: ctx.reportsAvailable,
+    platformsAvailable: ctx.platformsAvailable,
     viewerIsSelf: ctx.viewerIsSelf,
     ME,
     PLATFORM,

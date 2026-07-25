@@ -11,17 +11,41 @@
 
 import { getAddress, type Address } from "viem";
 
-export const WORLDCHAIN_SEPOLIA_ID = 4801;
+/**
+ * The chain Aval's contracts live on. NOT a constant any more, and NOT optional to get right:
+ * MiniKit refuses to broadcast on anything but World Chain mainnet. From
+ * @worldcoin/minikit-js 2.0.3's send-transaction source:
+ *
+ *     var WORLD_CHAIN_ID = 480;
+ *     if (chainId !== WORLD_CHAIN_ID)
+ *       throw new SendTransactionError("invalid_operation",
+ *         { reason: `World App only supports World Chain (chainId: ${WORLD_CHAIN_ID})` });
+ *
+ * Passing 4801 here is exactly what made every Mini App transaction fail with
+ * "invalid_operation" — the check is client-side, so nothing even reached World App.
+ *
+ * Written as a literal `process.env.NEXT_PUBLIC_CHAIN_ID` member expression for the inlining
+ * reason documented below; falls back to mainnet, because mainnet is the only value at which the
+ * Mini App works at all.
+ */
+export const WORLDCHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "480");
 
-export const WORLDCHAIN_SEPOLIA = {
-  id: WORLDCHAIN_SEPOLIA_ID,
-  name: "World Chain Sepolia",
+const IS_MAINNET = WORLDCHAIN_ID === 480;
+
+export const WORLDCHAIN = {
+  id: WORLDCHAIN_ID,
+  name: IS_MAINNET ? "World Chain" : "World Chain Sepolia",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.NEXT_PUBLIC_WORLDCHAIN_RPC ?? "https://worldchain-sepolia.gateway.tenderly.co"] },
+    default: {
+      http: [
+        process.env.NEXT_PUBLIC_WORLDCHAIN_RPC ??
+          (IS_MAINNET ? "https://worldchain-mainnet.g.alchemy.com/public" : "https://worldchain-sepolia.gateway.tenderly.co"),
+      ],
+    },
   },
   blockExplorers: {
-    default: { name: "Worldscan", url: "https://sepolia.worldscan.org" },
+    default: { name: "Worldscan", url: IS_MAINNET ? "https://worldscan.org" : "https://sepolia.worldscan.org" },
   },
 } as const;
 
@@ -80,11 +104,11 @@ export function getWorldIdAction(): string {
 }
 
 export function explorerTxUrl(hash: string): string {
-  return `${WORLDCHAIN_SEPOLIA.blockExplorers.default.url}/tx/${hash}`;
+  return `${WORLDCHAIN.blockExplorers.default.url}/tx/${hash}`;
 }
 
 export function explorerAddressUrl(address: string): string {
-  return `${WORLDCHAIN_SEPOLIA.blockExplorers.default.url}/address/${address}`;
+  return `${WORLDCHAIN.blockExplorers.default.url}/address/${address}`;
 }
 
 /** ENSv2 minting (`src/lib/ens.ts`, server-only) happens on Ethereum Sepolia — a different chain
