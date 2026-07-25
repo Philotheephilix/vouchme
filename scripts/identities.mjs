@@ -30,8 +30,11 @@ import { privateKeyToAccount } from "viem/accounts";
 
 export const SEED = "aval/worldchain-sepolia/live-scenario/v1";
 
-export const ANCHOR_LABELS = ["anchor1", "anchor2", "anchor3"];
-export const MEMBER_LABELS = ["alice", "bob", "carol", "dave"];
+// anchor4 was added because 3 anchors cannot supply 4 anchor-vouch-slots in one day
+// (1 vouch/voucher/24h). anchor5+anchor6 were added to create erin, a third depth-1
+// voucher for carol, once base 20 / T1 55 made two ordinary vouchers insufficient.
+export const ANCHOR_LABELS = ["anchor1", "anchor2", "anchor3", "anchor4", "anchor5", "anchor6"];
+export const MEMBER_LABELS = ["alice", "bob", "carol", "dave", "erin"];
 export const RING_LABELS = ["ring1", "ring2", "ring3", "ring4", "ring5", "ring6"];
 
 export const LABELS = [...ANCHOR_LABELS, ...MEMBER_LABELS, ...RING_LABELS];

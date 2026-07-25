@@ -10,6 +10,7 @@
 
 import { createPublicClient, http } from "viem";
 import { readFileSync } from "node:fs";
+import { BASE } from "../engine/dist/constants.js";
 import { compute } from "@aval/engine";
 import { deriveIdentities } from "./identities.mjs";
 
@@ -167,16 +168,24 @@ async function main() {
   // ── expected values, docs/01-trust-math.md §12.1 — kept exactly as specified; NOT adjusted
   // to match whatever the chain says. See the task report for how/why any mismatch happened. ──
   const expectations = [
-    { label: "alice", score: 5000, tier: 1, depth: 1 },
-    { label: "bob", score: 5000, tier: 1, depth: 1 },
-    { label: "carol", score: 3500, tier: 1, depth: 2 },
-    { label: "dave", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring1", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring2", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring3", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring4", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring5", score: 1000, tier: 0, depth: Infinity },
-    { label: "ring6", score: 1000, tier: 0, depth: Infinity },
+    // Derived from the engine's own constants, never hardcoded — the base 10 -> 20
+    // migration silently invalidated the literals that used to live here, and a
+    // verification script that has to be hand-edited after every constants change
+    // is a script that will eventually assert the wrong thing confidently.
+    //   depth-1 (2 anchors)  = BASE + 2*20                       = 60.00
+    //   depth-2 (3 x depth-1) = BASE + 3*min(60*0.25,20) = BASE+45 = 65.00
+    //   unreachable           = BASE                              = 20.00
+    { label: "alice", score: BASE + 4000, tier: 1, depth: 1 },
+    { label: "bob", score: BASE + 4000, tier: 1, depth: 1 },
+    { label: "erin", score: BASE + 4000, tier: 1, depth: 1 },
+    { label: "carol", score: BASE + 4500, tier: 1, depth: 2 },
+    { label: "dave", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring1", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring2", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring3", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring4", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring5", score: BASE, tier: 0, depth: Infinity },
+    { label: "ring6", score: BASE, tier: 0, depth: Infinity },
   ];
 
   console.log(
