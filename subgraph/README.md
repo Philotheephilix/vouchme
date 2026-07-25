@@ -55,10 +55,13 @@ npm run deploy:local
 ## Schema
 
 `schema.graphql` reproduces `Account`, `Vouch`, `FraudEvent`, `Protocol`, `ProtocolDailySnapshot`,
-and `AccountStatus` **exactly** as specified in docs/05 §2.1, plus six new entities for the v2/v3
-surface this indexer also covers: `Report`, `Rebuttal` (docs/12-reporting.md), `Platform`,
-`PlatformVouch`, `ScoreRequest` (docs/13-platforms.md), and `PresenceClaim`
-(docs/16-presence-drip.md).
+and `AccountStatus` as specified in docs/05 §2.1 — with one addition docs/05 §2.1.1 calls out as
+required, not optional: `Account.epochsClaimed` / `Account.lastClaimAt`, the tenure input
+(docs/16-presence-drip.md §4), maintained by `src/presence-drip.ts`. Six further entities cover the
+v2/v3 surface this indexer also covers: `Report` (whose `snapshotWeight` field is the attested
+weight at filing — see the field's own comment in schema.graphql), `Rebuttal`
+(docs/12-reporting.md), `Platform`, `PlatformVouch`, `ScoreRequest` (docs/13-platforms.md), and
+`PresenceClaim` (docs/16-presence-drip.md).
 
 **Expiry is a query-time predicate, everywhere in this schema** — `Vouch.expiresAt` and
 `PlatformVouch.expiresAt` are stored; `expired` is never a stored boolean anywhere. A reader filters
