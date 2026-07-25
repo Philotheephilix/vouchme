@@ -12,11 +12,8 @@ import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { isAddress, isHex, type Address, type Hex } from "viem";
-import {
-  ADDRESS_BOOK_ADDRESS,
-  resolveByName,
-  type GatewayConfig,
-} from "./context.js";
+import { resolveByName, type GatewayConfig } from "./context.js";
+import { CHAIN_PROVENANCE, getAnchorBookAddress, getAvalRegistryAddress } from "./chain.js";
 import {
   decodeCcipRequest,
   encodeAddrResult,
@@ -31,19 +28,18 @@ import {
   signGatewayResponse,
 } from "./sign.js";
 
+/**
+ * No required env var here: there is no deployed Aval Subgraph for this task
+ * (deployments/worldchain-sepolia.json's own notes), so `chain.rpcUrl` is an OPTIONAL override —
+ * chain.ts's own default (Tenderly primary, Alchemy public fallback) is fine for a fresh checkout.
+ * Contract addresses and the deployment block come from deployments/worldchain-sepolia.json
+ * itself, not from env vars, so there is nothing else required to configure here either. The
+ * gateway's only genuinely required config is the signer key (loadSignerKeyFromEnv, below).
+ */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
-  const url = env.AVAL_SUBGRAPH_URL;
-  if (!url) {
-    throw new Error("AVAL_SUBGRAPH_URL is not set (see gateway/.env.example)");
-  }
   return {
-    subgraph: {
-      url,
-      apiKey: env.GRAPH_API_KEY,
-      x402PrivateKey: env.X402_PRIVATE_KEY,
-      x402Chain: env.X402_CHAIN,
-    },
-    ttlMs: env.GATEWAY_SUBGRAPH_TTL_MS ? Number(env.GATEWAY_SUBGRAPH_TTL_MS) : 5000,
+    chain: { rpcUrl: env.WORLDCHAIN_SEPOLIA_RPC },
+    ttlMs: env.GATEWAY_CHAIN_TTL_MS ? Number(env.GATEWAY_CHAIN_TTL_MS) : 5000,
   };
 }
 
@@ -52,15 +48,22 @@ export function createApp(config: GatewayConfig, signerKey: Hex): Hono {
   const signerAddress = gatewaySignerAddress(signerKey);
   const ttlSeconds = Number(process.env.GATEWAY_RESPONSE_TTL_SECONDS ?? 30);
 
-  app.get("/health", (c: Context) =>
-    c.json({
+  app.get("/health", (c: Context) => {
+    return c.json({
       status: "ok",
       service: "@aval/gateway",
       signer: signerAddress,
-      addressBook: ADDRESS_BOOK_ADDRESS,
-      subgraphUrl: config.subgraph.url,
-    }),
-  );
+      chainId: 4801,
+      network: "World Chain Sepolia",
+      avalRegistry: getAvalRegistryAddress(),
+      // GenesisAnchorBook — this deployment's testnet stand-in for World ID's Address Book, which
+      // does not exist on World Chain Sepolia (deployments/worldchain-sepolia.json). Never
+      // reported as the real Address Book — see anchorSource below.
+      anchorBook: getAnchorBookAddress(),
+      anchorSource: "genesis-testnet",
+      subgraphDeployment: CHAIN_PROVENANCE,
+    });
+  });
 
   // ERC-3668 CCIP-Read gateway endpoint: GET /{sender}/{data}.json
   app.get("/:sender/:data", async (c: Context) => {
@@ -157,11 +160,10 @@ async function run(env: NodeJS.ProcessEnv = process.env): Promise<{ server: Retu
 }
 
 function main(): void {
-  // Required config (GATEWAY_SIGNER_PRIVATE_KEY, AVAL_SUBGRAPH_URL) fails
-  // fast with a clear, named-variable message via loadConfig/
-  // loadSignerKeyFromEnv above — caught here so a missing var prints one
-  // line and exits, instead of Node's default full stack-trace dump for an
-  // uncaught exception.
+  // Required config (GATEWAY_SIGNER_PRIVATE_KEY — the only genuinely required env var; see
+  // loadConfig's own doc comment) fails fast with a clear, named-variable message via
+  // loadSignerKeyFromEnv above — caught here so a missing var prints one line and exits, instead
+  // of Node's default full stack-trace dump for an uncaught exception.
   run().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     // eslint-disable-next-line no-console
