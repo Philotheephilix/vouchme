@@ -95,8 +95,12 @@ avalRegistry.roles(0, deployer)     = 0x1111111111111111111111111111111111111111
 
 That last line is `RegistryRolesLib`'s 64-slot nybble-packed bitmap with every nybble set — the
 deployer holds all roles on `aval.eth`'s root resource, which is what lets it `register()`.
-This value was read off chain, not assumed; `ens-core.ts` hardcodes it as `ALL_ROLES` *because* it
-was read back first.
+This value was read off chain, not assumed.
+
+**It now reads `0x111111111111111111111111011111…1111`.** Nybble 39 —
+`ROLE_CAN_TRANSFER_ADMIN`, the bit that gates ERC-1155 transfers — has been permanently revoked on
+every registry in this deployment, which is what makes the names soulbound. See §"Vouches are
+soulbound" below and [`docs/99-errata.md` E-10](../docs/99-errata.md).
 
 Source-verification status, queried from Sourcify while writing this (chainId 11155111):
 
@@ -171,10 +175,10 @@ Both appear verbatim as the `salt` argument of the real `deployProxy` transactio
 
 ## 3. A vouch *is* a subname
 
-Issuing a vouch is `register()` **inside the voucher's own registry** — `ens-core.ts:533`:
+Issuing a vouch is `register()` **inside the voucher's own registry**:
 
 ```solidity
-register(voucheeLabel, deployer, voucheeRegistry, resolver, ALL_ROLES, now + 90 days)
+register(voucheeLabel, deployer, voucheeRegistry, resolver, SOULBOUND_ROLES, now + 90 days)
 ```
 
 Decoded from the real, user-triggered vouch transaction
@@ -185,9 +189,15 @@ to        : 0xdC216d65d13ECF88069d3901B69990ef82bBdD47   ← philoo's registry, 
 label     : romariokavin
 registry  : 0xf86c82f9941680E30746aE83B7977409C76175Ec   ← romariokavin's OWN registry
 resolver  : 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3
-roleBitmap: 0x1111…1111
+roleBitmap: 0x1111…1111                            ← as minted then; see note
 expiry    : 1792782393  (2026-10-23T19:06:33Z)
 ```
+
+That `roleBitmap` is the historical calldata, and it is the bug E-10 records: `ALL_ROLES` includes
+the transfer role. This name has since been retro-fitted to soulbound, and a real
+`safeTransferFrom` of it now reverts on chain —
+[`0x587601b8…76f5`](https://sepolia.etherscan.io/tx/0x587601b8c9f358469fa7576415d314ff137eb3f72fe43c52df2345bd19ed76f5),
+`TransferDisallowed`. New vouches mint with `SOULBOUND_ROLES` from the first block.
 
 Three properties fall out of the data structure rather than out of code we wrote:
 
@@ -427,10 +437,19 @@ Users hold no key to any of it and cannot register, transfer or burn anything th
 real gap between the design and the deployment, not a rounding error — the whole "a member is a
 registry they own" story is currently "a member is a registry we own on their behalf."
 
-**3. Vouches are not soulbound.** `docs/04-ens.md` §7.2 requires `ROLE_CAN_TRANSFER` to be revoked at
-mint, because a transferable vouch is a vouch with a marketplace. The live code passes
-`roleBitmap = ALL_ROLES` (`0x1111…1111`) — verified in the real vouch calldata above — which grants
-the transfer role rather than revoking it. Not implemented.
+**3. ~~Vouches are not soulbound.~~ Fixed — vouches are soulbound.** They were not: the live code
+passed `roleBitmap = ALL_ROLES`, which grants the transfer role rather than revoking it. Two things
+were wrong with the spec as well. The role `docs/04-ens.md` §7.2 named, `ROLE_CAN_TRANSFER`, does not
+exist — the deployed contract gates transfers on `ROLE_CAN_TRANSFER_ADMIN = (1 << 28) << 128`
+(bit 156), checked against the **token owner**, not the operator. And withholding it at mint is not
+enough, because `hasRoles()` ORs in the holder's `ROOT_RESOURCE` roles and the deployer holds
+`ALL_ROLES` there; the registry root grant has to be revoked too, which is one-way.
+
+Both writes are now in `ens-core.ts`, every mint ends in a `hasRoles` read-back that throws rather
+than report a transferable name as minted, and all 24 pre-existing tokens across 20 registries were
+retro-fitted. Four real `safeTransferFrom` transactions were sent and all four reverted with
+`TransferDisallowed`, owner unchanged. Full evidence in
+[`docs/99-errata.md` E-10](../docs/99-errata.md).
 
 **4. No slot limits, no rate limits, no depth cap in ENS.** §7.1/7.3 describe an `AvalMemberRegistry`
 subclass enforcing 3-or-10 outbound slots and a 1-per-day rate limit in the member's own contract.

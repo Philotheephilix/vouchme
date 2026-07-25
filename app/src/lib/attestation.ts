@@ -16,7 +16,11 @@ import "server-only";
 
 import { privateKeyToAccount } from "viem/accounts";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
-import { getAvalRegistryAddressServer, getPresenceDripAddressServer } from "./chain";
+import {
+  getAvalRegistryAddressServer,
+  getPresenceDripAddressServer,
+  getReportRegistryAddressServer,
+} from "./chain";
 import { WORLDCHAIN_ID } from "./worldchain";
 
 export class AttestorConfigError extends Error {}
@@ -123,6 +127,61 @@ export async function signVouchAttestation(input: VouchAttestationInput): Promis
     primaryType: "VouchAttestation",
     message: input,
   });
+}
+
+function reportRegistryDomain() {
+  const verifyingContract = getReportRegistryAddressServer();
+  if (!verifyingContract) {
+    throw new AttestorConfigError(
+      "REPORT_REGISTRY_ADDRESS is not set. A report attestation is bound to the verifying contract " +
+        "by its EIP-712 domain, so there is nothing to sign for — see app/.env.example.",
+    );
+  }
+  return {
+    name: "ReportRegistry",
+    version: "1",
+    chainId: BigInt(WORLDCHAIN_ID),
+    verifyingContract,
+  } as const;
+}
+
+export interface ReportAttestationInput {
+  reporter: Address;
+  target: Address;
+  /** Centi-points. The whole-graph fact the EVM must not compute (docs/12-reporting.md §5): the
+   *  reporter's report weight at filing, which also fixes the bond at `10 AVAL × weightPoints`. */
+  weightPoints: number;
+  deadline: bigint;
+  nonce: bigint;
+}
+
+/** `ReportAttestation(address reporter,address target,uint32 weightPoints,uint64 deadline,uint256 nonce)`
+ *  — field order matches `ReportRegistry.sol`'s `REPORT_TYPEHASH` exactly (contracts/src/
+ *  ReportRegistry.sol:72). Distinct domain (`name: "ReportRegistry"`) from the Aval registry's, so
+ *  a vouch attestation can never be replayed as a report or vice versa. */
+export async function signReportAttestation(input: ReportAttestationInput): Promise<Hex> {
+  const attestor = getAttestorAccount();
+  return attestor.signTypedData({
+    domain: reportRegistryDomain(),
+    types: {
+      ReportAttestation: [
+        { name: "reporter", type: "address" },
+        { name: "target", type: "address" },
+        { name: "weightPoints", type: "uint32" },
+        { name: "deadline", type: "uint64" },
+        { name: "nonce", type: "uint256" },
+      ],
+    },
+    primaryType: "ReportAttestation",
+    message: input,
+  });
+}
+
+/** The address whose signature the registries' `attestors` allow-list must contain. Exposed so a
+ *  route can check "is this key actually wired on the deployed contract" before signing something
+ *  the contract would reject. */
+export function getAttestorAddress(): Address {
+  return getAttestorAccount().address;
 }
 
 export interface TierAttestationInput {

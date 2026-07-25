@@ -277,6 +277,30 @@ interface EdgeTiming {
   daysUntilExpiry: number;
 }
 
+interface ReportDisplayMeta {
+  /** Unix seconds. Live: `ReportRegistry.reports(id).filedAt`, the chain's own clock. Fixture:
+   *  derived from the authored `filedAgoDays`. Previously live mode passed `now` here, which made
+   *  every real report claim it had been filed this second. */
+  filedAt: number;
+  /** Free-text, and in live mode NEVER a category: `ReportRegistry` stores an `evidenceHash`, not
+   *  a reason code, so the live value describes the evidence that exists (or says none does).
+   *  Inventing "SUSPECTED_SYBIL" for a real accusation would be putting words in a reporter's
+   *  mouth. */
+  reasonCode: string;
+  challengeWindowHours: number | null;
+  /** The exact `ReportRegistry.State` name (PENDING / ARBITRATION / UPHELD / UNPROVEN / MALICIOUS /
+   *  WITHDRAWN). The engine collapses seven states into four, and UNPROVEN vs MALICIOUS vs
+   *  WITHDRAWN are three genuinely different things (errata E-12) that all render as "rejected"
+   *  without this. `null` in fixture mode, which has no chain to have a state on. */
+  onChainState: string | null;
+  /** `bytes32(0)` when the reporter attached no evidence. `null` off-chain. */
+  evidenceHash: string | null;
+  /** The transaction that filed it — the receipt a person can actually verify. */
+  txHash: string | null;
+  /** AVAL bonded behind the accusation, `10 × weightPoints` (docs/12-reporting.md §3). */
+  bondAval: number | null;
+}
+
 interface GraphContext {
   mode: "live" | "fixture";
   meta: ApiMeta;
@@ -319,7 +343,17 @@ interface GraphContext {
   /** `null` when no platform exists in this graph (true of the live deployment — nobody has
    *  registered one yet). The platform screen renders the honest empty state in that case. */
   platformId: string | null;
-  reportDisplayMeta: (reportId: string) => { filedAgoDays: number; reasonCode: string; challengeWindowHours: number | null };
+  /** AVAL the platform has bonded, or `null` if unknown. Live mode reads it from
+   *  `PlatformRegistry.platforms(addr).bond` — the registry custodies platform bonds itself rather
+   *  than routing them through `CredibilityVault` (PlatformRegistry.sol's own NOTE(deviation) 1),
+   *  so this is a real number now, not the unread one the /platform screen used to print as null. */
+  platformBondAval: (id: string) => number | null;
+  /** The facts about a report that the ENGINE deliberately does not model — when it was filed,
+   *  which of the seven on-chain states it is actually in, what evidence was attached, and which
+   *  transaction filed it. The engine reduces a report to `{state, upheldAt, snapshotWeight}`
+   *  because that is all the math needs; a screen that has to tell a person what happened to them
+   *  needs the rest, and it must come from the chain rather than from this module's imagination. */
+  reportDisplayMeta: (reportId: string) => ReportDisplayMeta;
   directory: DirectoryEntry[];
   /** Real `PresenceDrip` state for `id`. `accruedAval` is only ever non-zero for the address
    *  actually being viewed this request (one live `accrued()` read, not one per account — see
@@ -382,7 +416,21 @@ function buildFixtureContext(): GraphContext {
     credentialFor: () => ({ status: "active", expiresAt: fixtureIso(60), credential: "selfie" }),
     candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.aval.eth", HENRY_ID] : []),
     platformId: FIXTURE_PLATFORM_ID,
-    reportDisplayMeta: (id) => REPORT_DISPLAY_META[id] ?? { filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null },
+    platformBondAval: () => 5_200,
+    reportDisplayMeta: (id) => {
+      const m = REPORT_DISPLAY_META[id] ?? { filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null };
+      return {
+        filedAt: FIXTURE_GRAPH_NOW - m.filedAgoDays * SECONDS_PER_DAY,
+        reasonCode: m.reasonCode,
+        challengeWindowHours: m.challengeWindowHours,
+        // A fixture report was never filed on any chain, so it has no state, no evidence and no
+        // transaction. `null` says that; a plausible-looking hash would not.
+        onChainState: null,
+        evidenceHash: null,
+        txHash: null,
+        bondAval: null,
+      };
+    },
     directory: FIXTURE_DIRECTORY,
     // 214 days present (docs/16-presence-drip.md §9 demo panel) — authored only for the fixture's
     // one narrative identity; every other id honestly has no presence authored, so it's zero.
@@ -515,6 +563,41 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
 
   const isEnrolledId = (id: string): boolean => graph.members.get(id as Address)?.enrolled ?? false;
 
+  /** The 72-hour challenge window is the only window that starts at `filedAt`
+   *  (`ReportRegistry.CHALLENGE_WINDOW`). Arbitration's 7 days start when `resolve()` escalated,
+   *  not when the report was filed, so offering a "filedAt + 7d" deadline for an ARBITRATION
+   *  report would be a countdown to the wrong moment — `onChainState` carries that case instead. */
+  const CHALLENGE_WINDOW_HOURS = 72;
+
+  const ZERO_EVIDENCE = `0x${"0".repeat(64)}`;
+
+  const reportDisplayMeta = (reportId: string): ReportDisplayMeta => {
+    const m = graph.reportMeta.get(reportId);
+    if (!m) {
+      // A report id the engine scored but chain.ts has no record of cannot happen (the engine's
+      // report list is built FROM that record), so rather than invent a filing date, say nothing.
+      return {
+        filedAt: nowSeconds,
+        reasonCode: "UNKNOWN",
+        challengeWindowHours: null,
+        onChainState: null,
+        evidenceHash: null,
+        txHash: null,
+        bondAval: null,
+      };
+    }
+    return {
+      filedAt: m.filedAt,
+      // ReportRegistry stores evidence, not a reason. Say which of the two we have.
+      reasonCode: m.evidenceHash === ZERO_EVIDENCE ? "no evidence attached" : `evidence ${m.evidenceHash.slice(0, 10)}…`,
+      challengeWindowHours: m.state === "PENDING" ? CHALLENGE_WINDOW_HOURS : null,
+      onChainState: m.state,
+      evidenceHash: m.evidenceHash,
+      txHash: m.txHash,
+      bondAval: Number(m.bond / BigInt(10) ** BigInt(14)) / 10_000,
+    };
+  };
+
   return {
     mode: "live",
     meta: {
@@ -537,18 +620,27 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     ensNameFor,
     anchorSourceFor,
     graphAnchorSource: graph.anchorSource,
-    // `chain.ts` builds its EngineInput with `reports: []` / `platformVouches: []` — neither
-    // ReportRegistry nor PlatformRegistry is read. Empty here means "not read", not "none".
-    reportsAvailable: false,
-    platformsAvailable: false,
+    // Both now come from `chain.ts`, which scans ReportRegistry / PlatformRegistry when they are
+    // configured. `false` still means exactly what it always meant — "this deployment does not
+    // read that registry, so an empty list is not evidence of anything" — but it is now a fact
+    // about the configuration rather than a hardcoded admission.
+    reportsAvailable: graph.reportsAvailable,
+    platformsAvailable: graph.platformsAvailable,
     edgeTiming,
     weakestLinkVoucherId,
     slotsFor,
     lastVouchAtFor: (id) => graph.members.get(id as Address)?.lastVouchAt ?? 0,
     credentialFor,
     candidatesFor,
-    platformId: null, // no platform is registered on this deployment (PlatformRegistry untouched)
-    reportDisplayMeta: () => ({ filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null }),
+    // The first ACTIVE registered platform, or null if none is registered. One platform is all the
+    // /platform screen can show; `platformsAvailable` above is what distinguishes "none registered"
+    // from "never asked".
+    platformId: [...graph.platforms.values()].find((p) => p.active)?.address ?? null,
+    platformBondAval: (id) => {
+      const p = graph.platforms.get(id as Address);
+      return p ? Number(p.bond / BigInt(10) ** BigInt(14)) / 10_000 : null;
+    },
+    reportDisplayMeta,
     directory,
     presenceFor,
     isEnrolledId,
@@ -973,7 +1065,10 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     const reporterKind: AccountKind = reporterAcct?.kind === "platform" ? "platform" : reporterAcct?.isAnchor ? "anchor" : "member";
     const baseWeight = rw?.baseWeight ?? 0;
     const decayedW = rw?.decayedWeight ?? 0;
-    const filedAtIso = ctx.mode === "fixture" ? fixtureIso(-meta.filedAgoDays) : ctx.now.toISOString();
+    // One expression for both modes: `filedAt` is a real unix timestamp in live mode (the chain's
+    // own `reports(id).filedAt`) and a derived one in fixture mode. It used to be `ctx.now` in
+    // live mode, i.e. "filed this second" for every report ever filed.
+    const filedAtIso = new Date(meta.filedAt * 1000).toISOString();
 
     return {
       id: r.id,
@@ -990,6 +1085,19 @@ function deriveAvalData(ctx: GraphContext): AvalData {
           ? new Date(new Date(filedAtIso).getTime() + meta.challengeWindowHours * 60 * 60 * 1000).toISOString()
           : null,
       reasonCode: meta.reasonCode,
+      onChainState: meta.onChainState,
+      txHash: meta.txHash,
+      bondAval: meta.bondAval,
+      // Weight the engine credits BEFORE decay, and whether this report is one of the top-3 that
+      // actually move the published score. `countedTowardScore: false` on a valid, upheld report is
+      // the top-K cut doing its job (docs/01-trust-math.md §7.3) — or the target being an anchor,
+      // whose score ignores every inbound edge (errata E-6). Either way the UI must not imply the
+      // report is subtracting points it is not.
+      baseWeight: centiToScore(baseWeight),
+      valid: rw?.valid ?? false,
+      voidReason: rw?.voidReason ?? null,
+      countedTowardScore: rw?.countedTowardScore ?? false,
+      countedTowardRisk: rw?.countedTowardRisk ?? false,
     };
   });
 
@@ -1006,26 +1114,33 @@ function deriveAvalData(ctx: GraphContext): AvalData {
           score: centiToScore(platformSpCenti),
           tier: platformTierFromEngine(result.platformTier[ctx.platformId!]),
           voucherCount: platformVouchesFor.length,
-          // `null`, not 0. None of these three has a source in live mode — the bond lives in
-          // CredibilityVault (never read here), request counts in the gateway (not deployed), and
-          // the upheld ratio in ReportRegistry (never read). Rendering 0 / 0 / 0% presented three
-          // measurements that were never taken as if they had been. The fixture's figures stay,
-          // because the fixture is explicitly a demo graph and says so.
-          bondAval: ctx.mode === "fixture" ? 5_200 : null,
+          // `bondAval` IS read now — `PlatformRegistry` custodies platform bonds itself, and this
+          // module reads that record. The other two stay `null` in live mode because they still
+          // have no source: request counts live in the gateway (not deployed), and "upheld rate"
+          // is not a quantity ReportRegistry exposes for a platform (the reports it holds are
+          // reports FILED BY and AGAINST accounts, with no notion of a platform's hit rate).
+          // Rendering 0 / 0 / 0% would present measurements that were never taken as if they had
+          // been. The fixture's figures stay, because the fixture says it is a demo graph.
+          bondAval: ctx.platformBondAval(ctx.platformId!),
           requestsLast30d: ctx.mode === "fixture" ? 812 : null,
           upheldRatePct: ctx.mode === "fixture" ? 82 : null,
           gates: {
             g1ScoreThreshold: platformSpCenti >= P1,
             g2TwoDistinctVouchers: new Set(platformVouchesFor.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
-            // Unknown in live mode for the same reason `bondAval` is: CredibilityVault is not read.
-            g3BondPosted: ctx.mode === "fixture" ? true : null,
+            // `MIN_REGISTRATION_BOND` is 5 000 AVAL (PlatformRegistry.sol:60), and registration is
+            // impossible below it — but read the bond rather than infer it from "it registered".
+            g3BondPosted: (() => {
+              const b = ctx.platformBondAval(ctx.platformId!);
+              return b === null ? null : b >= 5_000;
+            })(),
           },
         };
       })()
     : {
-        // No platform on this graph. In live mode that is because PlatformRegistry is never read
-        // at all (`chain.ts` builds `platformVouches: []`), so this is "not read", not "none" —
-        // `registered: false` makes the page say which instead of printing a console full of zeros.
+        // No platform on this graph. `registered: false` covers both "PlatformRegistry was read
+        // and nobody has registered" and "this deployment does not read PlatformRegistry at all" —
+        // `AvalData.platformsAvailable` is the field that distinguishes them, and /platform must
+        // use it rather than printing a console full of zeros either way.
         registered: false,
         address: "0x0000000000000000000000000000000000000000",
         ensName: "no platform registered",

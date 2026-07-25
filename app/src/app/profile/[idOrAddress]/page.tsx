@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { CREDENTIAL_GRACE_DAYS, CREDENTIAL_VALIDITY_DAYS } from "@aval/engine";
 import { Header } from "@/components/Header";
+import { ReportStamp, reportEffectLine } from "@/components/ReportStamp";
 import { TierBadge } from "@/components/TierBadge";
 import { VouchRow } from "@/components/VouchRow";
 import { readVerifiedAddress } from "@/lib/authSession";
@@ -52,6 +53,10 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const subject = data.getScoreResult(decoded);
   if (!subject) notFound();
 
+  // `REPORTS` carries every report in the graph (its `direction` is relative to the signed-in
+  // viewer, which is not who this page is about), so select on the target itself.
+  const reportsAgainstSubject = data.REPORTS.filter((r) => r.target === subject.ensName);
+
   const isSelf = viewingAddress ? subject.address.toLowerCase() === viewingAddress.toLowerCase() : false;
   const viewer = viewingAddress ? data.ME : null;
 
@@ -85,6 +90,49 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           {credentialLine(subject)}
         </p>
         <p className="truncate-mono mt-1 font-mono text-2xs text-graphite">{subject.address}</p>
+      </section>
+
+      {/* Reports against THIS account, whoever is looking. A profile that shows a score without
+          showing the accusations already priced into it (or deliberately not priced in, for an
+          anchor) is a profile that omits the one thing a reader most needs. `reportsAvailable`
+          keeps the two empty states apart: "nobody has filed" vs "nobody asked the chain". */}
+      <section className="mt-6 px-4">
+        <h2 className="mb-1 text-2xs uppercase tracking-widest text-graphite">Reports</h2>
+        {!data.reportsAvailable ? (
+          <p className="py-3 text-2xs leading-relaxed text-graphite">
+            Not read on this deployment — no ReportRegistry is configured, so this page cannot say whether anyone
+            has been reported. Silence here is not a clean record.
+          </p>
+        ) : reportsAgainstSubject.length === 0 ? (
+          <p className="py-3 text-2xs leading-relaxed text-graphite">
+            No reports filed against this account. ReportRegistry was read at block {data.meta.computedAtBlock}.
+          </p>
+        ) : (
+          <div className="space-y-3 py-2">
+            {subject.scoreAtRisk !== subject.score ? (
+              <p className="text-2xs leading-relaxed text-graphite">
+                Score {fmtScore(subject.score)} · at risk {fmtScore(subject.scoreAtRisk)} — the second number prices
+                in the open accusations below. Pending reports never change a tier (docs/01-trust-math.md §7.5).
+              </p>
+            ) : (
+              <p className="text-2xs leading-relaxed text-graphite">
+                Score {fmtScore(subject.score)}, unchanged by the report{reportsAgainstSubject.length > 1 ? "s" : ""} below —
+                see why on each one.
+              </p>
+            )}
+            {reportsAgainstSubject.map((r) => (
+              <div key={r.id} className="border border-rule p-3">
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <span className="truncate-mono max-w-[180px] text-2xs text-cream">
+                    from {truncateMiddle(r.reporter.ensName, 22)}
+                  </span>
+                  <ReportStamp report={r} now={data.NOW} />
+                </div>
+                <p className="text-2xs leading-relaxed text-graphite">{reportEffectLine(r)}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mt-6 px-4">

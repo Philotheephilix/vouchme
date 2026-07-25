@@ -4,7 +4,7 @@
   "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
   "deployer": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
   "name": "aval.eth",
-  "notes": "IMPORTANT CORRECTION TO EARLIER ASSUMPTIONS: aval.eth is NOT registered in ENSv1 (the flat ENS Registry at 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e still returns owner(namehash('aval.eth')) = 0x0 there, and its BaseRegistrarImplementation/ETHRegistrarController were never used for this name). aval.eth IS registered under ENSv2, a hierarchical per-name-registry architecture that (per public reporting) ENS Labs deployed directly on Ethereum L1 after cancelling the separate 'Namechain' L2 in Feb 2026. On Sepolia this is reachable today via an alpha stack rooted in a Root Registry -> '.eth' PermissionedRegistry -> per-name PermissionedRegistry clones. This is a DIFFERENT set of contracts from the v1 ones; do not confuse the two. The project's own docs/04-ens.md §7 anticipated this migration path; docs/09-build-plan.md V-7 and docs/98-gap-review-b.md G-B24 flagged ENSv2/Namechain as 'unreleased infra' / 'expected to fail' — that assumption is now out of date for Sepolia as of 2026-07-25.",
+  "notes": "IMPORTANT CORRECTION TO EARLIER ASSUMPTIONS: aval.eth is NOT registered in ENSv1 (the flat ENS Registry at 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e still returns owner(namehash('aval.eth')) = 0x0 there, and its BaseRegistrarImplementation/ETHRegistrarController were never used for this name). aval.eth IS registered under ENSv2, a hierarchical per-name-registry architecture that (per public reporting) ENS Labs deployed directly on Ethereum L1 after cancelling the separate 'Namechain' L2 in Feb 2026. On Sepolia this is reachable today via an alpha stack rooted in a Root Registry -> '.eth' PermissionedRegistry -> per-name PermissionedRegistry clones. This is a DIFFERENT set of contracts from the v1 ones; do not confuse the two. The project's own docs/04-ens.md \u00a77 anticipated this migration path; docs/09-build-plan.md V-7 and docs/98-gap-review-b.md G-B24 flagged ENSv2/Namechain as 'unreleased infra' / 'expected to fail' \u2014 that assumption is now out of date for Sepolia as of 2026-07-25.",
   "ensv1": {
     "registry": "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
     "baseRegistrar": "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85",
@@ -14,7 +14,7 @@
     "conclusion": "aval.eth has no forward record in the v1 flat registry. The two setName('aval.eth') transactions referenced at the start of this task only ever set a v1 reverse record (an unverified claim from the address side); they never touched this registry and are irrelevant to actual name ownership under either v1 or v2."
   },
   "ensv2": {
-    "architecture": "Each name with children is its own UUPS-upgradeable PermissionedRegistry contract (ERC1155Singleton + EnhancedAccessControl), addressed via the shared IRegistry interface (getSubregistry(label), getResolver(label), getParent()). Per-account registry/resolver instances are deployed as minimal proxy clones (EIP-1167 delegatecall stub -> shared UUPS 'proxyLogic' stub -> per-clone ERC-1967 implementation slot) via a shared VerifiableFactory, so their addresses are deterministic from (factory, proxyLogic, deployer, salt). Access control uses a 64-slot nybble-packed roles bitmap (EnhancedAccessControl / RegistryRolesLib); ROLE_REGISTRAR (bit 0, value 1) on a registry's ROOT_RESOURCE (=0) is required to call register() on that registry. This differs from the still-in-draft 'RegistryDatastore singleton' design described in ENS's public ENSv2 architecture docs as of this writing — the deployed alpha instead gives each registry its own internal _entries mapping, backed by a shared ILabelStore and IHCAFactoryBasic ('HCA') for cross-registry equivalence checks.",
+    "architecture": "Each name with children is its own UUPS-upgradeable PermissionedRegistry contract (ERC1155Singleton + EnhancedAccessControl), addressed via the shared IRegistry interface (getSubregistry(label), getResolver(label), getParent()). Per-account registry/resolver instances are deployed as minimal proxy clones (EIP-1167 delegatecall stub -> shared UUPS 'proxyLogic' stub -> per-clone ERC-1967 implementation slot) via a shared VerifiableFactory, so their addresses are deterministic from (factory, proxyLogic, deployer, salt). Access control uses a 64-slot nybble-packed roles bitmap (EnhancedAccessControl / RegistryRolesLib); ROLE_REGISTRAR (bit 0, value 1) on a registry's ROOT_RESOURCE (=0) is required to call register() on that registry. This differs from the still-in-draft 'RegistryDatastore singleton' design described in ENS's public ENSv2 architecture docs as of this writing \u2014 the deployed alpha instead gives each registry its own internal _entries mapping, backed by a shared ILabelStore and IHCAFactoryBasic ('HCA') for cross-registry equivalence checks.",
     "rootRegistry": {
       "address": "0xc960F7217d3643B525Ef36Bec8Adf86953CD9aB8",
       "verifiedBy": "Read as the parent of the .eth registry via ethRegistry.getParent() -> (0xc960F7217d3643B525Ef36Bec8Adf86953CD9aB8, \"eth\"). Not independently source-verified in this pass beyond that live cross-reference."
@@ -23,7 +23,7 @@
       "address": "0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67",
       "contractName": "PermissionedRegistry",
       "bytecodeBytes": 15453,
-      "verifiedBy": "Sourcify exact_match (chainId 11155111) with full source (project/src/registry/PermissionedRegistry.sol and all imports). Live-called owner(namehash('eth')) on the v1 ENS Registry independently returns the v1 BaseRegistrar, NOT this address — this .eth registry is purely a v2 construct, reached instead by walking getSubregistry(\"aval\") calls starting from this contract, which is itself presumably wired as .eth's v2 entry point (its own parent-chain to the v2 Root Registry was read directly via getParent(), not inferred from v1 state).",
+      "verifiedBy": "Sourcify exact_match (chainId 11155111) with full source (project/src/registry/PermissionedRegistry.sol and all imports). Live-called owner(namehash('eth')) on the v1 ENS Registry independently returns the v1 BaseRegistrar, NOT this address \u2014 this .eth registry is purely a v2 construct, reached instead by walking getSubregistry(\"aval\") calls starting from this contract, which is itself presumably wired as .eth's v2 entry point (its own parent-chain to the v2 Root Registry was read directly via getParent(), not inferred from v1 state).",
       "labelStore": "0x23Ea712Da760c4e09fC9be108F1f1DA6d5d6D053",
       "note": "Same LABEL_STORE address confirmed shared with the aval registry clone below, corroborating both are part of the same coherent v2 deployment rather than unrelated contracts."
     },
@@ -40,7 +40,7 @@
         "address": "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33",
         "kind": "EIP-1167-style minimal clone (77 bytes), delegates to shared proxyLogic 0x917c561a74df398646e06f3ffaa51db8e8330c5a, which itself UUPS-delegates to the implementation stored in this clone's own ERC-1967 slot",
         "implementation": "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917",
-        "implementationVerifiedBy": "Not verified on Sourcify. Confirmed functionally by successfully executing register(), hasRoles(), roles(), getSubregistry(), getResolver(), findOwner(), findTokenId(), findExpiry() against the clone using the exact PermissionedRegistry ABI pulled from the verified .eth registry source — every call succeeded with semantically correct results, which is stronger evidence than static verification alone."
+        "implementationVerifiedBy": "Not verified on Sourcify. Confirmed functionally by successfully executing register(), hasRoles(), roles(), getSubregistry(), getResolver(), findOwner(), findTokenId(), findExpiry() against the clone using the exact PermissionedRegistry ABI pulled from the verified .eth registry source \u2014 every call succeeded with semantically correct results, which is stronger evidence than static verification alone."
       },
       "resolver": {
         "address": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
@@ -57,7 +57,7 @@
         "ethRegistry.getResolver('aval') live-read == resolver.address above",
         "ethRegistry.findExpiry('aval') live-read == 1848158652",
         "resolver.addr(namehash('aval.eth')) live-read == 0x69827C0FEF274C63Ac4806106F2BA544E6129050 (forward resolution independently confirmed working end-to-end)",
-        "avalRegistry.hasRoles(ROOT_RESOURCE=0, ROLE_REGISTRAR=1, deployer) live-read == true; avalRegistry.roles(ROOT_RESOURCE, deployer) == ALL_ROLES bitmask (0x1111...1111), i.e. the deployer holds full root control of aval.eth's own registry, matching the docs/04-ens.md §7 model of 'a member = a PermissionedRegistry they own'"
+        "avalRegistry.hasRoles(ROOT_RESOURCE=0, ROLE_REGISTRAR=1, deployer) live-read == true; avalRegistry.roles(ROOT_RESOURCE, deployer) == ALL_ROLES bitmask (0x1111...1111), i.e. the deployer holds full root control of aval.eth's own registry, matching the docs/04-ens.md \u00a77 model of 'a member = a PermissionedRegistry they own'"
       ]
     },
     "carolAvalEth": {
@@ -78,48 +78,48 @@
           "roleBitmap": "0x1111111111111111111111111111111111111111111111111111111111111111 (ALL_ROLES, mirrors the full root control the deployer already holds on aval's own registry, so the new owner can self-service a subregistry/records later)",
           "expiry": 1816516536
         },
-        "requiredCallerRole": "ROLE_REGISTRAR (bit 0) on ROOT_RESOURCE (0) of the target registry (0xb8C3d3AD...) — confirmed the deployer already held this (see avalEth.verifiedBy above) before sending the transaction; no separate grantRoles call was needed.",
-        "value": "0 (register() is nonpayable on this alpha deployment — no ETH rent/fee, gas only)"
+        "requiredCallerRole": "ROLE_REGISTRAR (bit 0) on ROOT_RESOURCE (0) of the target registry (0xb8C3d3AD...) \u2014 confirmed the deployer already held this (see avalEth.verifiedBy above) before sending the transaction; no separate grantRoles call was needed.",
+        "value": "0 (register() is nonpayable on this alpha deployment \u2014 no ETH rent/fee, gas only)"
       },
       "resultingState": {
         "owner": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
         "resolver": "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3 (pointer wired; no addr record populated yet)",
-        "subregistry": "0x3f04Cac222A9627F9De911b274CdF289bbA008d9 (backfilled later — see `memberRegistries`; it was 0x0 at the time of this mint, which is the defect that made nested vouch names impossible)",
+        "subregistry": "0x3f04Cac222A9627F9De911b274CdF289bbA008d9 (backfilled later \u2014 see `memberRegistries`; it was 0x0 at the time of this mint, which is the defect that made nested vouch names impossible)",
         "expiry": 1816516536,
         "expiryISO": "2027-07-25T11:55:36.000Z",
         "tokenId": "20046778210887091122393997403894044484021514954076855380656162745478507659264",
-        "deployerRolesOnCarolResource": "ALL_ROLES (0x1111...1111) — full self-control, same pattern as aval's own root roles"
+        "deployerRolesOnCarolResource": "ALL_ROLES (0x1111...1111) \u2014 full self-control, same pattern as aval's own root roles"
       },
       "readbackVerification": [
         "avalRegistry.findOwner('carol') == 0x69827C0FEF274C63Ac4806106F2BA544E6129050",
         "avalRegistry.getResolver('carol') == 0x211D6CC339C7C6E4B4448c04cD034E363d9994d3",
-        "avalRegistry.getSubregistry('carol') == 0x0 AT THE TIME (no subregistry deployed for carol in that pass) — since backfilled, see `memberRegistries`",
+        "avalRegistry.getSubregistry('carol') == 0x0 AT THE TIME (no subregistry deployed for carol in that pass) \u2014 since backfilled, see `memberRegistries`",
         "avalRegistry.findExpiry('carol') == 1816516536",
-        "resolver.addr(namehash('carol.aval.eth')) == 0x0 (expected — the register() call only wires the resolver POINTER on the registry entry; it does not itself write an address record into the resolver, that is a separate setAddr call, see nextSteps)"
+        "resolver.addr(namehash('carol.aval.eth')) == 0x0 (expected \u2014 the register() call only wires the resolver POINTER on the registry entry; it does not itself write an address record into the resolver, that is a separate setAddr call, see nextSteps)"
       ],
       "nextStepsSince": {
-        "status": "BOTH DONE — see `memberRegistries` below.",
+        "status": "BOTH DONE \u2014 see `memberRegistries` below.",
         "carolAvalEthNowResolves": "setAddr(namehash('carol.aval.eth'), 0x23761b08eD8Cd51f43de13CB97F691be7D28ed59) was executed; the deployer's ALL_ROLES on the resolver's own ROOT_RESOURCE turned out to apply to every node, so no per-node grant was needed.",
-        "carolOwnsARegistry": "carol's own PermissionedRegistry clone was deployed through the VerifiableFactory and attached with avalRegistry.setSubregistry(findTokenId('carol'), clone) — the backfill path, because register() on a taken label reverts. carol was never re-registered."
+        "carolOwnsARegistry": "carol's own PermissionedRegistry clone was deployed through the VerifiableFactory and attached with avalRegistry.setSubregistry(findTokenId('carol'), clone) \u2014 the backfill path, because register() on a taken label reverts. carol was never re-registered."
       }
     },
     "memberRegistries": {
-      "why": "docs/04-ens.md §7.1 maps 'a member' onto 'a PermissionedRegistry they own' and 'issuing a vouch' onto register(label, vouchee) IN YOUR OWN REGISTRY. Until this pass every aval.eth subname was registered with registry=0x0, so no member owned a registry and `<vouchee>.<voucher>.aval.eth` was structurally impossible. Every member now owns a distinct, real clone.",
-      "implementation": "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917 — the same PermissionedRegistry implementation the aval.eth clone itself runs.",
+      "why": "docs/04-ens.md \u00a77.1 maps 'a member' onto 'a PermissionedRegistry they own' and 'issuing a vouch' onto register(label, vouchee) IN YOUR OWN REGISTRY. Until this pass every aval.eth subname was registered with registry=0x0, so no member owned a registry and `<vouchee>.<voucher>.aval.eth` was structurally impossible. Every member now owns a distinct, real clone.",
+      "implementation": "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917 \u2014 the same PermissionedRegistry implementation the aval.eth clone itself runs.",
       "deployedVia": "VerifiableFactory.deployProxy(implementation, salt, data) at 0xD2a632D8a8b67c2c4398c255CbD7aF8dd7236198, with data = initialize(address owner, uint256 roleBitmap) (selector 0xcd6dc687) = (deployer, ALL_ROLES). Both the initializer signature and the argument shape were read off the real deployProxy calldata that created the aval.eth registry clone itself (tx 0xd30a5d9444a47df6db2d08f59ef74069777b2496a192b263ac0707f25e08131a), not guessed.",
-      "saltDerivation": "salt(label) = uint256(keccak256(utf8('aval.eth/member-registry/v1::' + label))) — a pure function of the label, so any member's registry address can be recomputed offline from their name alone.",
-      "addressDerivation": "outerSalt = keccak256(abi.encode(deployer, salt)); runtime = 0x363d3d373d3d3d363d73 ‖ proxyLogic(0x917c561a…) ‖ 0x5af43d82803e903d91602b57fd5bf3 ‖ outerSalt; creation = 0x3d604d80600a3d3981f3 ‖ runtime; address = CREATE2(verifiableFactory, outerSalt, keccak256(creation)). Reverse-derived from the real aval.eth clone and confirmed to reproduce 0xb8C3d3AD…eF33 exactly; outerSalt also appears verbatim as the clone's appended 32-byte immutable argument on chain, an independent check.",
-      "attachment": "For a NEW label: register(label, deployer, memberRegistry, resolver, ALL_ROLES, expiry) — the clone goes in as the `registry` argument, so Entry.subregistry is correct from the first block. For an EXISTING label (carol, dave): setSubregistry(findTokenId(label), memberRegistry). register() is never called twice on a taken label — it reverts.",
+      "saltDerivation": "salt(label) = uint256(keccak256(utf8('aval.eth/member-registry/v1::' + label))) \u2014 a pure function of the label, so any member's registry address can be recomputed offline from their name alone.",
+      "addressDerivation": "outerSalt = keccak256(abi.encode(deployer, salt)); runtime = 0x363d3d373d3d3d363d73 \u2016 proxyLogic(0x917c561a\u2026) \u2016 0x5af43d82803e903d91602b57fd5bf3 \u2016 outerSalt; creation = 0x3d604d80600a3d3981f3 \u2016 runtime; address = CREATE2(verifiableFactory, outerSalt, keccak256(creation)). Reverse-derived from the real aval.eth clone and confirmed to reproduce 0xb8C3d3AD\u2026eF33 exactly; outerSalt also appears verbatim as the clone's appended 32-byte immutable argument on chain, an independent check.",
+      "attachment": "For a NEW label: register(label, deployer, memberRegistry, resolver, ALL_ROLES, expiry) \u2014 the clone goes in as the `registry` argument, so Entry.subregistry is correct from the first block. For an EXISTING label (carol, dave): setSubregistry(findTokenId(label), memberRegistry). register() is never called twice on a taken label \u2014 it reverts.",
       "membersProvisioned": 17,
       "distinctRegistries": 17,
-      "labels": "alice, bob, carol, dave, erin, anchor1-6, ring1-6 — the exact population the app renders on /explore, in search and in the candidate lists. Before this pass 15 of the 17 had never been registered at all and the other 2 (carol, dave) owned no registry.",
-      "perMemberLedger": "deployments/ens-members-sepolia.json — label -> { salt, registry, txs }, written by scripts/dev/ens-provision.mts.",
+      "labels": "alice, bob, carol, dave, erin, anchor1-6, ring1-6 \u2014 the exact population the app renders on /explore, in search and in the candidate lists. Before this pass 15 of the 17 had never been registered at all and the other 2 (carol, dave) owned no registry.",
+      "perMemberLedger": "deployments/ens-members-sepolia.json \u2014 label -> { salt, registry, txs }, written by scripts/dev/ens-provision.mts.",
       "proofRequired": "A deployProxy receipt is not proof. Every member is accepted only after a FRESH client re-reads getSubregistry(label) != 0, eth_getCode(subregistry).length > 2, and addr(namehash('<label>.aval.eth')) == the intended address.",
-      "codePath": "app/src/lib/ens-core.ts — shared verbatim by /api/ens/mint, /api/vouch/ens and scripts/dev/ens-provision.mts, so the script cannot drift from the app."
+      "codePath": "app/src/lib/ens-core.ts \u2014 shared verbatim by /api/ens/mint, /api/vouch/ens and scripts/dev/ens-provision.mts, so the script cannot drift from the app."
     },
     "nestedVouchNames": {
-      "shape": "<vouchee>.<voucher>.aval.eth, created by register(voucheeLabel, deployer, voucheeRegistry, resolver, ALL_ROLES, now+90d) INSIDE the voucher's own registry. The 90 days matches AvalRegistry.VOUCH_EXPIRY, so Entry.expiry is the vouch expiry, natively (docs/04-ens.md §7.1).",
-      "trustEdge": "Entry.subregistry of the nested entry is the VOUCHEE's own registry — the same contract that is also the subregistry of <vouchee>.aval.eth. That is what makes the trust path walkable: getSubregistry() repeatedly IS the BFS.",
+      "shape": "<vouchee>.<voucher>.aval.eth, created by register(voucheeLabel, deployer, voucheeRegistry, resolver, ALL_ROLES, now+90d) INSIDE the voucher's own registry. The 90 days matches AvalRegistry.VOUCH_EXPIRY, so Entry.expiry is the vouch expiry, natively (docs/04-ens.md \u00a77.1).",
+      "trustEdge": "Entry.subregistry of the nested entry is the VOUCHEE's own registry \u2014 the same contract that is also the subregistry of <vouchee>.aval.eth. That is what makes the trust path walkable: getSubregistry() repeatedly IS the BFS.",
       "resolverNote": "The resolver is node-keyed. Registry traversal makes a deeper path like erin.carol.alice.aval.eth structurally valid, but each distinct fully-qualified name still needs its own setAddr to return an address.",
       "appPath": "POST /api/vouch/ens {voucher, vouchee}, called by the vouch wizard only after the World Chain vouch transaction lands. When the voucher owns no registry the route returns 409 vouch_name_unavailable and the wizard says the name was NOT minted.",
       "minted": [
@@ -141,11 +141,51 @@
         },
         {
           "name": "erin.carol.alice.aval.eth",
-          "note": "Depth 3. No extra register() — carol's ONE registry is both the subregistry of carol.aval.eth and of carol.alice.aval.eth, so the erin entry inside it is reachable by both paths. Only the leaf's own address record had to be written, because the resolver is node-keyed.",
+          "note": "Depth 3. No extra register() \u2014 carol's ONE registry is both the subregistry of carol.aval.eth and of carol.alice.aval.eth, so the erin entry inside it is reachable by both paths. Only the leaf's own address record had to be written, because the resolver is node-keyed.",
           "setAddrTx": "0xdea4291e5571c13b0740905e2b308b5248f6a6d581fa659085c996beb92c32c4",
           "resolvesTo": "0x30F99b23402377BC829e573389c2317f97db8740"
+        },
+        {
+          "name": "ring2.ring1.aval.eth",
+          "registeredIn": "0x5a351bE8C0677E355Ed07052D430A06D3127B7eE (ring1's registry)",
+          "registerTx": "0x455832a689f820af55cf3c46dc0a85fefe44da6f1c0e90041de7487970a50df6",
+          "setAddrTx": "0x679b584e5775cfbed9d946173db4a2182bc6b029502ff8192d143356fedc5075",
+          "resolvesTo": "0x1319501f2075380B06784a19A119525e4dD434bE",
+          "childRegistry": "0x85Dce0876839f6De84ce77723d4600fDa065386b (ring2's registry)",
+          "note": "Minted through the FIXED mintVouchSubname() as the first vouch born soulbound: roleBitmap SOULBOUND_ROLES, ring1's registry root grant already cleared, and assertSoulbound() read hasRoles() back before the call returned. A real safeTransferFrom of this token reverts \u2014 tx 0xad24aebdfe3d91b46d504ab19c1044d10b091eb2da95f546632698477f0e305d, TransferDisallowed. ring1..ring6 are the synthetic sybil-ring fixture (app/src/lib/mock.ts: 'fully mutual (K6) clique'), so this edge is fixture data, not a real member's vouch."
         }
       ]
+    },
+    "soulbound": {
+      "status": "ENFORCED. Every name under aval.eth is a non-transferable ERC-1155. docs/99-errata.md E-10.",
+      "role": "ROLE_CAN_TRANSFER_ADMIN = (1 << 28) << 128 = bit 156 (nybble 39). NOTE: the docs' ROLE_CAN_TRANSFER does not exist in the deployed contract; RegistryRolesLib declares only the admin half, and PermissionedRegistry._update() gates transfers on it, checking the TOKEN OWNER and not the operator, so marketplace approvals cannot route around it.",
+      "soulboundRolesBitmap": "0x1111111111111111111111110111111111111111111111111111111111111111",
+      "whyTheBitmapAloneIsNotEnough": "EnhancedAccessControl.hasRoles() returns (_roles[ROOT_RESOURCE][account] | _roles[resource][account]) & roleBitmap == roleBitmap. Every name here is owned by the deployer, which held ALL_ROLES on every registry root, so a token minted without the bit was STILL transferable. Proven: throwaway token t2 minted with the reduced bitmap simulated a clean transfer until revokeRootRoles was sent. Both writes are required.",
+      "writes": {
+        "atMint": "register(..., SOULBOUND_ROLES, ...)",
+        "perRegistry": "revokeRootRoles(ROLE_CAN_TRANSFER_ADMIN, deployer) \u2014 ONE-WAY: _getSettableRoles() lets an account grant an admin role only if it already holds it, and nybble 39 has no admin above it, so it can never be re-granted on that registry.",
+        "perLegacyToken": "revokeRoles(getResource(tokenId), ROLE_CAN_TRANSFER_ADMIN, owner) \u2014 required because a token minted with ALL_ROLES carries the bit on its own resource, which the root revocation does not reach."
+      },
+      "evidence": [
+        "Sourcify exact_match source of the .eth registry 0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67 (shares PermissionedRegistry with every clone here): RegistryRolesLib.sol:45 and PermissionedRegistry.sol:501-505. Served by Sourcify API v2 \u2014 v1 is in a scheduled brownout until 2027-01-08.",
+        "TransferDisallowed(uint256,address) selector 0xe58f6d5a is present in the runtime bytecode of the unverified clone implementation 0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917.",
+        "Controlled experiment on throwaway registry 0xa2D4ecC05F16f2ca8c9f6FB25f28A539C65f2eA3: token t1 (ALL_ROLES) transferred SUCCESSFULLY in 0x04e60db35bd3cee8a5cf958ab0186a9adbd5658bcf44c8ee724ab245d2f6e9bd, while soulbound token t2 REVERTED in 0x693112e84fc39886183aa2b2ed24a44ee6c9cca00f49bfba232a22b4235df91d with TransferDisallowed. The successful control is what makes the revert evidence rather than coincidence.",
+        "ROLE_REGISTRAR (bit 0) is unaffected: register() succeeded on that registry AFTER the revocation, tx 0x0fdc4d6a41ce5f5045347a3680add0cdbd908e894113c847fdd9de97293402a1."
+      ],
+      "provenOnProductionNames": {
+        "ring2.ring1.aval.eth (minted by the fixed code path)": "0xad24aebdfe3d91b46d504ab19c1044d10b091eb2da95f546632698477f0e305d \u2014 REVERTED, TransferDisallowed",
+        "carol.alice.aval.eth (retro-fitted vouch)": "0x714421b2e14009ebb284978f2a011e965ba2724d9fb17e4f695bb87ef5872c8d \u2014 REVERTED, TransferDisallowed",
+        "alice.aval.eth (member name)": "0x7236e77f51dfc961ad4e24b06d38d118fe31bd3b40ccb3ac226ecd01343a74db \u2014 REVERTED, TransferDisallowed",
+        "romariokavin.philoo.aval.eth (the real user-triggered vouch)": "0x587601b8c9f358469fa7576415d314ff137eb3f72fe43c52df2345bd19ed76f5 \u2014 REVERTED, TransferDisallowed"
+      },
+      "retroFix": {
+        "scope": "24 tokens across 20 registries \u2014 enumerated from LabelRegistered logs, NOT from deployments/ens-members-sepolia.json, which lists only 17 members and omits the real user names philoo and romariokavin entirely. A ledger-driven sweep would have left the only genuine user vouch transferable.",
+        "transactions": "43 (39 role revocations across two passes, plus the ring2.ring1 mint and its setAddr)",
+        "finalState": "0 transferable tokens, 0 registries retaining the root grant \u2014 re-verified by a fresh log-driven walk of the whole tree after the writes.",
+        "logsRpcNote": "ETH_SEPOLIA_RPC (publicnode) refuses eth_getLogs with 'Archive requests require a personal token'. The enumeration used https://sepolia.gateway.tenderly.co for logs only; all writes and state reads went through the configured RPC."
+      },
+      "codePath": "app/src/lib/ens-core.ts \u2014 SOULBOUND_ROLES, ensureRegistrySoulbound(), makeExistingNameSoulbound(), isNameSoulbound(), and assertSoulbound(), which re-reads hasRoles() after every mint and THROWS instead of returning a result if the name is still transferable. E-10's real defect was never the bitmap; it was that nothing checked.",
+      "residualExposure": "The root revocation is irreversible, but the operator can still grant the role to an individual TOKEN resource, so soulboundness is operator-revocable per name. That is the same custody gap the deployment already has \u2014 the deployer key owns every name and could unregister and re-register one. It closes when names are user-held."
     }
   },
   "verificationMethodology": "Every address above was either (a) read live from an already-verified contract in the same call chain (e.g. getSubregistry/getResolver/getParent starting from the Sourcify-verified .eth registry), (b) matched against Sourcify's exact_match verified source and compiled ABI, or (c) confirmed functionally by successfully executing multiple real read/write calls against it using an ABI derived from a verified sibling contract. No address was taken on trust from documentation or from another agent's report without independent on-chain corroboration; where a collaborating agent supplied candidate addresses, every one was independently re-derived and cross-checked before being relied upon (including catching and explaining an apparent bytecode-size discrepancy that turned out to be a JS string-length-vs-byte-count reporting convention, not a wrong address).",

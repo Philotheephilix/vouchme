@@ -27,6 +27,8 @@ import { sepolia } from "viem/chains";
 
 import {
   ALL_ROLES,
+  SOULBOUND_ROLES,
+  isNameSoulbound,
   AVAL_ETH_REGISTRY,
   AVAL_ETH_RESOLVER,
   DEPLOYER_ADDRESS,
@@ -129,8 +131,11 @@ async function verify(label: string, expectAddr: Address, parent: Address = AVAL
   console.log(
     `    verify ${fqdn.padEnd(28)} owner=${owner} addr=${addr} ${addr.toLowerCase() === expectAddr.toLowerCase() ? "OK" : "MISMATCH(expected " + expectAddr + ")"}`,
   );
+  const soulbound = sub === ZERO_ADDRESS ? false : await isNameSoulbound(c, parent, label);
   console.log(
-    `           subregistry=${sub} codeBytes=${(code.length - 2) / 2} rootRoles(deployer)=0x${rolesOnRegistry.toString(16)} ${rolesOnRegistry === ALL_ROLES ? "(ALL_ROLES)" : ""}`,
+    `           subregistry=${sub} codeBytes=${(code.length - 2) / 2} rootRoles(deployer)=0x${rolesOnRegistry.toString(16)} ${
+      rolesOnRegistry === SOULBOUND_ROLES ? "(SOULBOUND_ROLES)" : rolesOnRegistry === ALL_ROLES ? "(ALL_ROLES — TRANSFERABLE)" : ""
+    } soulbound=${soulbound}`,
   );
   if (!ok) throw new Error(`verification FAILED for ${fqdn}`);
   return { sub, addr, code };

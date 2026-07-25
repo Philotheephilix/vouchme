@@ -158,6 +158,29 @@ export interface ReportEntry {
   decayRemainingPct: number;
   challengeDeadline: string | null;
   reasonCode: string;
+  /** The exact `ReportRegistry.State` this report is in on chain — PENDING, ARBITRATION, UPHELD,
+   *  UNPROVEN, MALICIOUS or WITHDRAWN. `status` above is the engine's four-way reduction, in which
+   *  UNPROVEN, MALICIOUS and WITHDRAWN all read as "rejected"; errata E-12 is explicit that those
+   *  are different outcomes, so the screen shows this one when it exists. `null` in fixture mode,
+   *  where no chain state exists to report. */
+  onChainState: string | null;
+  /** The transaction that filed the report. `null` off-chain. */
+  txHash: string | null;
+  /** AVAL the reporter bonded behind the accusation. `null` off-chain. */
+  bondAval: number | null;
+  /** Engine weight before §7.4 decay — `min(snapshotWeight, reporter score × m⁻, cap⁻)`. */
+  baseWeight: number;
+  /** False when the engine voids the report entirely (see `voidReason`). A voided report still
+   *  exists on chain and is still shown; it just does not subtract anything from anyone. */
+  valid: boolean;
+  /** Why it was voided: `reporter_voided`, `platform_did_not_query_subject`, `report_withdrawn`, … */
+  voidReason: string | null;
+  /** True only if this report is among the top-3 upheld reports actually subtracted from `score`
+   *  (docs/01-trust-math.md §7.3). A pending report is never counted here — an accusation is not a
+   *  verdict — and no report is ever counted against an anchor (errata E-6). */
+  countedTowardScore: boolean;
+  /** True if it is subtracted from `scoreAtRisk`, which prices pending accusations in. */
+  countedTowardRisk: boolean;
 }
 
 export interface SimulateVouchStep {
