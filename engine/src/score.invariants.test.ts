@@ -15,8 +15,11 @@ import {
 import type { EngineInput } from "./types.js";
 
 // I-2: A complete subgraph with no anchor path scores exactly BASE + tenure, and never reaches T1.
-test("I-2 — 6-account complete ring, no anchor path, scores exactly BASE + tenure", () => {
-  const ids = ["R0", "R1", "R2", "R3", "R4", "R5"];
+test("I-2 — 7-account complete ring, no anchor path, scores exactly BASE + tenure", () => {
+  // 7, not 6: at base=20/T2=140, the smallest complete-graph clique that would self-certify
+  // Tier 2 if depth ordering did not exclude it is 7 accounts (§5.1, errata E-16), so that is the
+  // canonical illustrative ring size across docs and tests.
+  const ids = ["R0", "R1", "R2", "R3", "R4", "R5", "R6"];
 
   // zero-tenure variant
   const zeroInput = makeInput({
@@ -30,10 +33,10 @@ test("I-2 — 6-account complete ring, no anchor path, scores exactly BASE + ten
     assert.equal(zero.tier[id], 0);
     assert.ok(zero.score[id]! < T1);
     // all three gates fail independently: score < T1 (gate 1), unreachable (gate 3), and —
-    // with the corrected gate 2 (contributing vouchers, not raw edges) — zero of the 5 raw
+    // with the corrected gate 2 (contributing vouchers, not raw edges) — zero of the 6 raw
     // inbound vouches are contributing, so gate 2 fails too, not just gates 1 and 3.
     const bd = breakdown(id, zeroInput, zero);
-    assert.equal(bd.vouchers.length, 5);
+    assert.equal(bd.vouchers.length, 6);
     assert.ok(bd.vouchers.every((v) => !v.counted));
   }
 
@@ -160,16 +163,16 @@ test("I-10 — running compute twice on identical input is idempotent and input 
   assert.equal(JSON.stringify(input), before, "compute() must not mutate its input");
 });
 
-// I-17: an account with unbounded tenure and zero vouches scores exactly 15.00 (1500 centi) and
+// I-17: an account with unbounded tenure and zero vouches scores exactly 25.00 (2500 centi) and
 // is Tier 0 — presence alone can never promote anyone, at any age.
-test("I-17 — 1,000,000 claimed epochs + zero vouches => score 15 (1500 centi), Tier 0", () => {
+test("I-17 — 1,000,000 claimed epochs + zero vouches => score 25 (2500 centi), Tier 0", () => {
   const out = compute(
     makeInput({
       accounts: [human("Lonely", { epochsClaimed: 1_000_000 })],
     }),
   );
-  assert.equal(out.sPlus["Lonely"], 1_500);
-  assert.equal(out.score["Lonely"], 1_500);
-  assert.equal(out.scoreAtRisk["Lonely"], 1_500);
+  assert.equal(out.sPlus["Lonely"], 2_500);
+  assert.equal(out.score["Lonely"], 2_500);
+  assert.equal(out.scoreAtRisk["Lonely"], 2_500);
   assert.equal(out.tier["Lonely"], 0);
 });

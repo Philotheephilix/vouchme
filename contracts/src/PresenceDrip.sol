@@ -8,8 +8,9 @@ import {AvalRegistry} from "./AvalRegistry.sol";
 /// @title PresenceDrip
 /// @notice "Claiming is how the protocol observes that you are still here." docs/16-presence-drip.md.
 ///         Lazy per-6h-epoch accrual, capped at 30 days unclaimed, feeding a hard-capped tenure
-///         bonus that can never by itself promote anyone (`base + T_MAX = 15 < T1 = 30`, invariant
-///         I-17).
+///         bonus that can never by itself promote anyone (`base + T_MAX = 25 < T1 = 55`, invariant
+///         I-17; base and T1 both scale with the errata E-16 base-score change, tenure math (E_HALF,
+///         T_MAX_CENTI) is untouched).
 /// @dev Deviations from the doc's §6 `contract sketch`, documented inline with `NOTE(deviation)`:
 ///        1. `claim()` / `claimAndBond()` gain `(tier, deadline, nonce, attestation)` parameters.
 ///           The doc's own rate table (§3) makes the *actual minted amount* depend on tier

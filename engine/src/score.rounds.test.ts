@@ -12,15 +12,16 @@ import type { Account, Vouch } from "./types.js";
 // depth 0), and `EngineOutput` carried no signal that this happened at all.
 //
 // Building a graph that needs exactly MAX_ROUNDS (8) rounds: a chain of Tier-2 "bridge" nodes
-// O_1..O_8, each vouched by 4 fixed helper anchors (H1-H4, reused for every link) plus the
-// PREVIOUS link in the chain. Every O_i sits at raw BFS depth 1 from H1-H4 alone (so depth never
-// gates the chain), but O_i only reaches s+ >= T2 = 100.00 once O_(i-1) has itself been promoted
+// O_1..O_8, each vouched by 5 fixed helper anchors (H1-H5, reused for every link) plus the
+// PREVIOUS link in the chain. Every O_i sits at raw BFS depth 1 from H1-H5 alone (so depth never
+// gates the chain), but O_i only reaches s+ >= T2 = 140.00 once O_(i-1) has itself been promoted
 // to depth 0 (an origin) — before that, O_(i-1)'s vouch is same-depth and contributes 0, leaving
-// O_i at only 90.00 (4 helpers x 20.00 = 80.00 + base 10.00). O_1 instead gets a 5th real anchor
-// (H5) so it can be promoted in round 0 without depending on any other chain link. This forces
-// the loop to promote exactly one new origin per round, for exactly 8 rounds.
+// O_i at only 120.00 (5 helpers x 20.00 = 100.00 + base 20.00, at base=20/T2=140 — errata E-16;
+// at the old base=10/T2=100 this only needed 4 helpers). O_1 instead gets a 6th real anchor (H6)
+// so it can be promoted in round 0 without depending on any other chain link. This forces the
+// loop to promote exactly one new origin per round, for exactly 8 rounds.
 function buildChain(links: number): { accounts: Account[]; vouches: Vouch[] } {
-  const helperIds = ["H1", "H2", "H3", "H4", "H5"];
+  const helperIds = ["H1", "H2", "H3", "H4", "H5", "H6"];
   const chainIds = Array.from({ length: links }, (_, i) => `O${i + 1}`);
   const accounts: Account[] = [
     ...helperIds.map((id) => anchorAccount(id)),
@@ -28,10 +29,10 @@ function buildChain(links: number): { accounts: Account[]; vouches: Vouch[] } {
   ];
   const vouches: Vouch[] = [];
   for (const chainId of chainIds) {
-    for (const h of ["H1", "H2", "H3", "H4"]) vouches.push(vouch(h, chainId));
+    for (const h of ["H1", "H2", "H3", "H4", "H5"]) vouches.push(vouch(h, chainId));
   }
-  vouches.push(vouch("H5", "O1")); // O1's 5th contributing voucher: a real anchor
-  for (let i = 2; i <= links; i++) vouches.push(vouch(`O${i - 1}`, `O${i}`)); // O_i's 5th: O_(i-1)
+  vouches.push(vouch("H6", "O1")); // O1's 6th contributing voucher: a real anchor
+  for (let i = 2; i <= links; i++) vouches.push(vouch(`O${i - 1}`, `O${i}`)); // O_i's 6th: O_(i-1)
   return { accounts, vouches };
 }
 

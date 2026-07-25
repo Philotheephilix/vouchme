@@ -13,9 +13,10 @@ import {
   vouch,
 } from "./test-helpers.js";
 
-// docs/99-errata.md E-2: a legal voucher (Dave, depth 3, score 36.25) whose vouch is excluded
-// from Carol's (depth 2) score purely because his depth is not strictly lower than hers — the
-// raw contribution (9.06) is still shown, marked not-counted, with the specific reason.
+// docs/99-errata.md E-2: a legal voucher (Dave, depth 3, score 57.50 at base=20 — errata E-16)
+// whose vouch is excluded from Carol's (depth 2) score purely because his depth is not strictly
+// lower than hers — the raw contribution (14.37) is still shown, marked not-counted, with the
+// specific reason.
 test("breakdown() — E-2: excluded voucher shows its raw contribution and the depth reason", () => {
   const accounts = [
     anchorAccount("A1"),
@@ -40,7 +41,7 @@ test("breakdown() — E-2: excluded voucher shows its raw contribution and the d
     vouch("A4", "D1b"),
     vouch("A5", "D1c"),
     vouch("A6", "D1c"),
-    // every d2 node (Carol, D2b, D2c) vouched by exactly 2 distinct d1 nodes => 35.00 each
+    // every d2 node (Carol, D2b, D2c) vouched by exactly 2 distinct d1 nodes => 50.00 each
     vouch("D1a", "Carol"),
     vouch("D1b", "Carol"),
     vouch("D1b", "D2b"),
@@ -54,15 +55,15 @@ test("breakdown() — E-2: excluded voucher shows its raw contribution and the d
   const input = makeInput({ accounts, vouches });
   const out = compute(input);
 
-  assert.equal(out.sPlus["Carol"], 3_500); // unaffected by Dave's vouch
-  assert.equal(out.sPlus["Dave"], 3_625);
+  assert.equal(out.sPlus["Carol"], 5_000); // unaffected by Dave's vouch
+  assert.equal(out.sPlus["Dave"], 5_750);
 
   const bd = breakdown("Carol", input, out);
   const daveRow = bd.vouchers.find((v) => v.voucher === "Dave");
   assert.ok(daveRow);
   assert.equal(daveRow!.counted, false);
   assert.equal(daveRow!.reason, "voucher_depth_not_lower");
-  assert.equal(daveRow!.rawContribution, 906); // trunc(36.25 * 0.25 * 100) = 906 (9.06)
+  assert.equal(daveRow!.rawContribution, 1_437); // trunc(57.50 * 0.25 * 100) = 1437 (14.37)
   assert.equal(daveRow!.contribution, 0);
 
   // and Carol's 2 real d1 vouchers ARE counted

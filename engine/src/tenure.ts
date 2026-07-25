@@ -24,7 +24,8 @@
  *
  * Saturation: the curve's true value approaches T_MAX_CENTI but never reaches it for any finite
  * E, so without a clamp this would return 499 forever, and invariant I-17 ("1,000,000 claimed
- * epochs + zero vouches ⇒ score exactly 1500 centi, Tier 0") would fail at 1499. At k = 16 half-
+ * epochs + zero vouches ⇒ score exactly 2500 centi (BASE=2000 + T_MAX_CENTI=500), Tier 0") would
+ * fail at 2499. At k = 16 half-
  * lives (≈ 7.9 years) the true value is 499.992 — clamping to T_MAX_CENTI there is a deliberate,
  * documented saturation point, not a fudge, and it keeps `1 << k` from ever being evaluated for
  * large k.

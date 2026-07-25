@@ -13,7 +13,7 @@ interface IAvalRegistryCheck {
 /// @title PlatformRegistry
 /// @notice "Humans add trust. Platforms only subtract it." (docs/13-platforms.md §1). A platform is
 ///         a first-class account with its own score, granted by humans who vouch for it, starting
-///         at base 0 rather than a human's base 10. There is, by construction, **no function
+///         at base 0 rather than a human's base 20 (errata E-16). There is, by construction, **no function
 ///         anywhere in this contract that lets a platform vouch for a human** — that absence is a
 ///         spec requirement (docs/13-platforms.md §1, test P-3; docs/10-constants.md §10 "can vouch
 ///         humans: never — no such function"). Platforms live in an entirely separate contract from

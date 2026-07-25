@@ -49,5 +49,5 @@ test("R-6 — a valid, finite integer now/upheldAt still computes normally", () 
       reports: [report("r1", "A1", "U", "upheld", { upheldAt: 500 })],
     }),
   );
-  assert.equal(out.sPlus["U"], 5_000);
+  assert.equal(out.sPlus["U"], 6_000);
 });

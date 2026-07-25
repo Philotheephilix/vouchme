@@ -34,7 +34,7 @@ test("tenureCenti — saturates to exactly T_MAX_CENTI at k=16 half-lives and be
 // Invariant I-17: base + T_MAX < T1, so presence alone can never promote anyone, at any age.
 test("I-17 (tenure half): base + T_MAX_CENTI < T1 — presence alone can never promote", () => {
   assert.ok(BASE + T_MAX_CENTI < T1);
-  assert.equal(BASE + T_MAX_CENTI, 1_500);
+  assert.equal(BASE + T_MAX_CENTI, 2_500);
 });
 
 test("tenureCenti — rejects negative or non-integer input", () => {

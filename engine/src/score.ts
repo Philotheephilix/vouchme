@@ -33,10 +33,11 @@
  *    always `ANCHOR`; a promoted Tier-2 member keeps the s⁺ that proved it crossed `T2`, computed
  *    in the round *before* it became an origin, when it was still an ordinary depth ≥ 1 node).
  *    This is order-independent and does not change any published table value — a qualifying
- *    Tier-2 score is always ≥ `T2` = 8 000 centi, and the positive cap already binds at 8 000, so
- *    the exact persisted number never changes what it contributes to a vouchee (always the
- *    capped 2 000). It only fixes what would otherwise be silent, monotonicity-breaking data loss
- *    across rounds.
+ *    Tier-2 score is always ≥ `T2` (14 000 centi), safely above the 8 000-centi threshold where
+ *    the positive cap starts binding (`CAP_POS_BINDING_THRESHOLD` — this bound is a pure `cap⁺/m⁺`
+ *    ratio and does not move with `base`/`T1`/`T2`, see errata E-16), so the exact persisted
+ *    number never changes what it contributes to a vouchee (always the capped 2 000). It only
+ *    fixes what would otherwise be silent, monotonicity-breaking data loss across rounds.
  * 2. **Report `state` filtering.** The reference `valid()` helper does not filter by `state` at
  *    all, which read literally would let a `rejected` or `withdrawn` report still show up in
  *    `scoreAtRisk`'s "any valid report" set. Resolution: only `pending` and `upheld` reports are
@@ -273,7 +274,8 @@ export function compute(input: EngineInput): EngineOutput {
   // fixes the target at depth 1, plus a second depth-1 voucher whose own depth is not strictly
   // lower and so contributes 0 to the score) — defeating gate 2's entire purpose (no single point
   // of trust). A target with undefined/unreachable depth has zero contributing vouchers by
-  // definition (docs/01-trust-math.md §11; §12.1's corrected "1 anchor + 1 T1@30" row).
+  // definition (docs/01-trust-math.md §11; §12.1's corrected "1 anchor + 1 T1@55" row — the
+  // voucher score at the T1 threshold moved from 30 to 55 at base=20, errata E-16).
   function distinctContributingVoucherCount(id: string, depthMap: Map<string, number>): number {
     const vs = inboundVouches.get(id);
     if (!vs) return 0;

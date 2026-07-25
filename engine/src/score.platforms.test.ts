@@ -43,7 +43,10 @@ test("12.3 — 2 anchors vouch: s_P = 40, P1, reports at weight 20", () => {
   assert.equal(out.platformTier["P"], 1);
 });
 
-test("12.3 — 4 × T1@50 vouch: s_P = 50, P1, reports at weight 25", () => {
+test("12.3 — 4 × T1@60 vouch: s_P = 60, P1, reports at weight 30", () => {
+  // At base=20, a 2-anchor voucher scores 60.00 (not 50.00 — see errata E-16), so each
+  // contributes 15.00 to the platform instead of 12.5. P1/P2 thresholds are unaffected (platform
+  // scoring depends only on human s+ and the unchanged m+/cap+/m-/cap-).
   const anchors = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"];
   const vouchers = ["V0", "V1", "V2", "V3"];
   const out = compute(
@@ -66,8 +69,8 @@ test("12.3 — 4 × T1@50 vouch: s_P = 50, P1, reports at weight 25", () => {
       platformVouches: vouchers.map((id) => platformVouch(id, "P")),
     }),
   );
-  for (const id of vouchers) assert.equal(out.sPlus[id], 5_000);
-  assert.equal(out.sPlatform["P"], 5_000);
+  for (const id of vouchers) assert.equal(out.sPlus[id], 6_000);
+  assert.equal(out.sPlatform["P"], 6_000);
   assert.equal(out.platformTier["P"], 1);
 });
 
@@ -114,6 +117,6 @@ test("I-16 — a platform can never be the source of a positive human edge", () 
       vouches: [vouch("P", "U")],
     }),
   );
-  assert.equal(out.sPlus["U"], 1_000, "the bogus platform-sourced edge must contribute nothing");
+  assert.equal(out.sPlus["U"], 2_000, "the bogus platform-sourced edge must contribute nothing");
   assert.equal(out.tier["U"], 0);
 });

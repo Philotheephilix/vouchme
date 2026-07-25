@@ -92,8 +92,8 @@ contract PresenceDripTest is Test {
     // ─── invariant I-17 spirit: presence alone can never reach Tier 1 ───────
     function test_PresenceAlone_NeverPromotes() public view {
         uint32 tenure = drip.tenureCentiFromEpochs(10_000_000); // enormous, unrealistic epoch count
-        uint256 scoreCenti = 1000 + tenure; // base(10) in centi-points + tenure
-        assertLt(scoreCenti, 3000, "base + T_MAX must stay under T1=30 (I-17)");
+        uint256 scoreCenti = 2000 + tenure; // base(20) in centi-points + tenure
+        assertLt(scoreCenti, 5500, "base + T_MAX must stay under T1=55 (I-17)");
     }
 
     // ─── D-1: accrual for 90 days without claiming ⇒ exactly 30 days' worth ─

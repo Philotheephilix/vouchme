@@ -10,9 +10,9 @@ import { anchorAccount, human, makeInput } from "./test-helpers.js";
 // still being summed once per record. Reproduces the reviewer's own repro
 // (scratchpad/prove_dup_tier2.mjs): 2 REAL distinct anchors vouch for carol; one anchor's single
 // vouch is replayed as 4 duplicate edge records (an indexer replay / re-indexed event, not a
-// contract-level double-vouch). The spec requires 5 distinct anchors for Tier 2 (§12.1) — 2
-// anchors must never be enough, regardless of how many times one of their edges is repeated in
-// the input array.
+// contract-level double-vouch). The spec requires 6 distinct anchors for Tier 2 at base=20
+// (§12.1, errata E-16) — 2 anchors must never be enough, regardless of how many times one of
+// their edges is repeated in the input array.
 test("R-2 — a duplicated vouch edge does not inflate s+ beyond what its distinct source contributes once", () => {
   const out = compute(
     makeInput({
@@ -27,9 +27,9 @@ test("R-2 — a duplicated vouch edge does not inflate s+ beyond what its distin
       ],
     }),
   );
-  // 2 distinct anchors, each contributing capped 20.00: s+ = 10 + 20 + 20 = 50.00 (Tier 1), never
-  // 110.00 / Tier 2 — that would require 5 DISTINCT anchors (§12.1), not 1 anchor's edge summed 4×.
-  assert.equal(out.sPlus["carol"], 5_000);
+  // 2 distinct anchors, each contributing capped 20.00: s+ = 20 + 20 + 20 = 60.00 (Tier 1), never
+  // 140.00 / Tier 2 — that would require 6 DISTINCT anchors (§12.1), not 1 anchor's edge summed 4×.
+  assert.equal(out.sPlus["carol"], 6_000);
   assert.equal(out.tier["carol"], 1);
   assert.ok(!out.origins.includes("carol"), "carol must not become an origin on 2 real anchors");
 });
@@ -49,7 +49,7 @@ test("R-2 — gate 2's distinct-voucher count is unaffected by duplicate edges (
       ],
     }),
   );
-  assert.equal(out.tier["carol"], 1); // 2 distinct contributing vouchers, s+ = 50.00 >= T1
+  assert.equal(out.tier["carol"], 1); // 2 distinct contributing vouchers, s+ = 60.00 >= T1
 });
 
 // Tie-break for conflicting duplicate records of the same pair (one active, one not): the engine
@@ -83,10 +83,10 @@ test("R-2 — conflicting duplicate records for the same pair: the active one wi
       ],
     }),
   );
-  // Both must land on 2 contributing anchors (50.00), because in both cases at least one of the
+  // Both must land on 2 contributing anchors (60.00), because in both cases at least one of the
   // duplicate anchorB->carol records is active.
-  assert.equal(activeFirst.sPlus["carol"], 5_000);
-  assert.equal(inactiveFirst.sPlus["carol"], 5_000);
+  assert.equal(activeFirst.sPlus["carol"], 6_000);
+  assert.equal(inactiveFirst.sPlus["carol"], 6_000);
   assert.equal(JSON.stringify(activeFirst), JSON.stringify(inactiveFirst));
 });
 
