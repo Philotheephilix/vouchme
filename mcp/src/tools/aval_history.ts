@@ -16,7 +16,7 @@
 // file's comment and the final report's "resolved ambiguities" section).
 
 import { z } from "zod";
-import { fetchGraph, getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
+import { BASE, computeEngine, engineScoreResult, fetchGraph, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
@@ -39,8 +39,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "Trace an address's score and tier over a block range by re-running the engine at each " +
     "historical block — no snapshot table, fully re-derived. Powers 'watch the score move'.",
   inputSchema,
-  async handler(args, ctx) {
-    const latest = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const latest = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, latest);
     if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
 
@@ -61,10 +61,14 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       // Each historical point is a full graph refetch pinned to `block`,
       // deliberately bypassing getCachedGraph's cache (which only ever
       // holds the latest block).
-      const graph = block === latest.meta.blockNumber ? latest : await fetchGraph(ctx.client, undefined, block);
-      const scored = scoreGraph(graph);
-      const r = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
+      const graph = block === latest.meta.blockNumber ? latest : await fetchGraph(block);
       const estimatedSeconds = now - (latest.meta.blockNumber - block) * ESTIMATED_BLOCK_TIME_SECONDS;
+      // `graph.vouches` is already active-filtered as of the historical block's own real
+      // timestamp (chain.ts's fetchGraphAtBlock) — `now` here only feeds report-decay/gate-4
+      // windows, moot for this graph (no reports), so the same estimated clock is fine for every
+      // point rather than threading a second per-block timestamp lookup through.
+      const engineIO = computeEngine(graph, BigInt(estimatedSeconds));
+      const r = engineScoreResult(engineIO.output, address) ?? { score: BASE, tier: 0 as const, depth: 0 };
       result.push({
         block,
         timestamp: new Date(estimatedSeconds * 1000).toISOString(),

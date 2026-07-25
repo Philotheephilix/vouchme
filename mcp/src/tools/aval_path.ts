@@ -20,8 +20,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     'anchor (pass to="anchor"). Returns the ENS names along the path and the weakest link — the ' +
     "edge expiring soonest, i.e. the first thing that would break this chain.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const fromAddr = resolveIdentifierToAddress(args.from, graph);
     if (!fromAddr) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.from}"`));
 

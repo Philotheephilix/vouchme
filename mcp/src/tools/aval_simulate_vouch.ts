@@ -3,9 +3,15 @@
 // aval_simulate_vouch(voucher, target) -> { before, after, delta, promotes, cost, downstream }.
 // Read-only, no transaction. "Look before you spend a slot" — including
 // second-order effects on people the voucher has never met.
+//
+// before/after are two real @aval/engine compute() calls (the live graph, then the live graph
+// plus one synthetic edge) — never a local reimplementation of the score delta.
 
 import { z } from "zod";
 import {
+  BASE,
+  computeEngine,
+  engineScoreResult,
   getCachedGraph,
   nameOf,
   resolveIdentifierToAddress,
@@ -14,7 +20,6 @@ import {
   slotsFor,
   T1,
   type GraphVouch,
-  type TrustGraph,
 } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
@@ -34,8 +39,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "before and after, whether it promotes the target, the voucher's slot cost, and downstream " +
     "score changes for people the voucher has never met (target's own vouchees).",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const voucherAddr = resolveIdentifierToAddress(args.voucher, graph);
     const targetAddr = resolveIdentifierToAddress(args.target, graph);
     if (!voucherAddr) return errorResult(new AvalToolError("NotFound", `no Aval account matches voucher "${args.voucher}"`));
@@ -43,9 +48,10 @@ export const tool: ToolDefinition<typeof inputSchema> = {
 
     const voucherAccount = graph.accounts.find((a) => a.id === voucherAddr)!;
 
-    const before = scoreGraph(graph);
-    const beforeTarget = before.scores.get(targetAddr) ?? { score: 10, tier: 0 as const, depth: 0 };
-    const voucherResult = before.scores.get(voucherAddr) ?? { score: 10, tier: 0 as const, depth: 0 };
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const before = computeEngine(graph, now);
+    const beforeTarget = engineScoreResult(before.output, targetAddr) ?? { score: BASE, tier: 0 as const, depth: 0 };
+    const voucherResult = engineScoreResult(before.output, voucherAddr) ?? { score: BASE, tier: 0 as const, depth: 0 };
 
     if (voucherResult.tier === 0) {
       return errorResult(
@@ -59,32 +65,31 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       return errorResult(new AvalToolError("NoSlots", `voucher has ${slotsUsed}/${slotsTotal} slots used`));
     }
 
-    const now = BigInt(Math.floor(Date.now() / 1000));
     const simulatedEdge: GraphVouch = {
       voucherId: voucherAddr,
       voucheeId: targetAddr,
       issuedAt: now,
       expiresAt: now + VOUCH_EXPIRY_SECONDS,
     };
-    const simulatedGraph: TrustGraph = { ...graph, vouches: [...graph.vouches, simulatedEdge] };
-    const after = scoreGraph(simulatedGraph);
-    const afterTarget = after.scores.get(targetAddr)!;
+    const after = computeEngine(graph, now, [simulatedEdge]);
+    const afterTarget = engineScoreResult(after.output, targetAddr)!;
 
-    const lastIssuedAt = (before.outboundByAccount.get(voucherAddr) ?? []).reduce<bigint>(
-      (max, e) => (e.issuedAt > max ? e.issuedAt : max),
-      0n,
-    );
+    // Slot-cost bookkeeping (rate limit, existing outbound edges) is structural graph metadata,
+    // not score math — reads the raw graph.vouches directly, same as before.
+    const scoredForNaming = scoreGraph(graph); // naming only — see engine.ts's module comment
+    const outboundByVoucher = graph.vouches.filter((v) => v.voucherId === voucherAddr);
+    const lastIssuedAt = outboundByVoucher.reduce<bigint>((max, e) => (e.issuedAt > max ? e.issuedAt : max), 0n);
     const rateLimitedUntil = lastIssuedAt > 0n ? lastIssuedAt + RATE_LIMIT_SECONDS : now;
 
-    const beforeVouchees = before.outboundByAccount.get(targetAddr) ?? [];
+    const beforeVouchees = graph.vouches.filter((v) => v.voucherId === targetAddr);
     const downstream = beforeVouchees.map((edge) => {
-      const b = before.scores.get(edge.voucheeId);
-      const a = after.scores.get(edge.voucheeId);
+      const b = engineScoreResult(before.output, edge.voucheeId);
+      const a = engineScoreResult(after.output, edge.voucheeId);
       return {
         address: edge.voucheeId,
-        name: nameOf(edge.voucheeId, graph, before),
-        scoreBefore: b?.score ?? 10,
-        scoreAfter: a?.score ?? 10,
+        name: nameOf(edge.voucheeId, graph, scoredForNaming),
+        scoreBefore: b?.score ?? BASE,
+        scoreAfter: a?.score ?? BASE,
       };
     });
 

@@ -28,8 +28,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "it. Always check eventsFound before calling aval_pipeline_deploy — a preview with 0 events " +
     "found will be refused at deploy time.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
 
     // STUB: a real implementation resolves `description` to a contract +
     // event signature (via an LLM pass over a verified ABI, per docs/14

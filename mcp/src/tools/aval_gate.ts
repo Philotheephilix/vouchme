@@ -6,14 +6,14 @@
 
 import { z } from "zod";
 import {
+  computeEngine,
   deriveBreakdown,
+  engineScoreResult,
   findPath,
   getCachedGraph,
   nameOf,
   resolveIdentifierToAddress,
-  runEngineCompute,
   scoreGraph,
-  preferEngineResult,
 } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
@@ -42,19 +42,24 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "yourself; the gates (score AND >=2 distinct vouchers AND a path to an anchor) are not the " +
     "same thing as the score alone. Use this for any irreversible action toward a counterparty.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) {
       return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
     }
     const account = graph.accounts.find((a) => a.id === address)!;
 
-    const scored = scoreGraph(graph);
-    const local = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
-    const engineOutput = runEngineCompute(graph, BigInt(Math.floor(Date.now() / 1000)));
-    const { score, tier, depth } = preferEngineResult(engineOutput, address, local);
-    const { breakdown } = deriveBreakdown(address, graph, scored, (a) => nameOf(a, graph, scored));
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const engineIO = computeEngine(graph, now);
+    const result = engineScoreResult(engineIO.output, address);
+    if (!result) {
+      return errorResult(new AvalToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
+    }
+    const { score, tier, depth } = result;
+
+    const scored = scoreGraph(graph); // naming/path only — see engine.ts's module comment
+    const { breakdown } = deriveBreakdown(address, graph, engineIO, (a) => nameOf(a, graph, scored));
     const distinctVouchers = breakdown.filter((b) => b.counted).length;
 
     const policy = args.policy;
@@ -70,7 +75,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       reasons.push(`score ${score} < required ${policy.minScore}`);
     }
     if (policy.maxDepth !== undefined && depth > policy.maxDepth) {
-      reasons.push(`depth ${depth} > allowed max ${policy.maxDepth}`);
+      reasons.push(`depth ${Number.isFinite(depth) ? depth : "unreachable"} > allowed max ${policy.maxDepth}`);
     }
     if (policy.minVouchers !== undefined && distinctVouchers < policy.minVouchers) {
       reasons.push(`${distinctVouchers} active voucher${distinctVouchers === 1 ? "" : "s"} < required ${policy.minVouchers}`);

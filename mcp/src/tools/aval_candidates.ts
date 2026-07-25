@@ -24,8 +24,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "free slots, at a depth low enough to actually contribute. Turns \"get more vouches\" into a " +
     "list of names — use this instead of telling a user to vaguely go get vouched for.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
 

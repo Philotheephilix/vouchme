@@ -23,7 +23,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "wastes a bond (only the top 3 count).",
   inputSchema,
   async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
 

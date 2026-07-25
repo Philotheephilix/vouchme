@@ -6,13 +6,13 @@
 
 import { z } from "zod";
 import {
+  computeEngine,
   deriveBreakdown,
+  engineScoreResult,
   getCachedGraph,
   nameOf,
   resolveIdentifierToAddress,
-  runEngineCompute,
   scoreGraph,
-  preferEngineResult,
   T1,
 } from "../engine.js";
 import { AvalToolError, errorResult, textResult } from "../response.js";
@@ -29,19 +29,24 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "promotion gates it does or doesn't pass, and its single weakest link. Use this after " +
     "aval_gate refuses someone, to give the human a reason.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) {
       return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
     }
 
-    const scored = scoreGraph(graph);
-    const local = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
-    const engineOutput = runEngineCompute(graph, BigInt(Math.floor(Date.now() / 1000)));
-    const { score, tier, depth } = preferEngineResult(engineOutput, address, local);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const engineIO = computeEngine(graph, now);
+    const result = engineScoreResult(engineIO.output, address);
+    if (!result) {
+      return errorResult(new AvalToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
+    }
+    const { score, tier, depth } = result;
+
+    const scored = scoreGraph(graph); // naming only — see engine.ts's module comment
     const name = nameOf(address, graph, scored);
-    const { breakdown } = deriveBreakdown(address, graph, scored, (a) => nameOf(a, graph, scored));
+    const { breakdown } = deriveBreakdown(address, graph, engineIO, (a) => nameOf(a, graph, scored));
 
     const counted = breakdown.filter((b) => b.counted);
     const excluded = breakdown.filter((b) => !b.counted);
@@ -60,16 +65,13 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     }
 
     for (const b of excluded) {
-      lines.push(
-        `A vouch from ${b.voucher} does NOT count: it is excluded by the anti-collusion ordering ` +
-          `rule (${b.reason}) — its voucher depth (${b.voucherDepth}) is not lower than this account's depth (${depth}).`,
-      );
+      lines.push(`A vouch from ${b.voucher} does NOT count: ${describeExcludedReason(b.reason, b.voucherDepth, depth)}`);
     }
 
     const gateVouchers = counted.length;
     const passesScore = score >= T1;
     const passesVouchers = gateVouchers >= 2;
-    const passesDepth = depth <= 3 && depth > 0;
+    const passesDepth = Number.isFinite(depth) && depth <= 3 && depth > 0;
     lines.push("");
     if (passesScore && passesVouchers && passesDepth) {
       lines.push(
@@ -80,7 +82,15 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       const failed: string[] = [];
       if (!passesScore) failed.push(`score ${score.toFixed(1)} < ${T1}`);
       if (!passesVouchers) failed.push(`${gateVouchers} active voucher${gateVouchers === 1 ? "" : "s"} < required 2`);
-      if (!passesDepth) failed.push(depth === 0 ? "no active path to an anchor" : `depth ${depth} exceeds max_depth`);
+      if (!passesDepth) {
+        failed.push(
+          !Number.isFinite(depth)
+            ? "unreachable — no active path to an anchor"
+            : depth === 0
+              ? "no active path to an anchor"
+              : `depth ${depth} exceeds max_depth`,
+        );
+      }
       lines.push(`Does not pass Tier 1: ${failed.join("; ")}.`);
     }
 
@@ -93,8 +103,31 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     }
 
     lines.push("");
-    lines.push(`Computed from Subgraph ${graph.meta.deploymentId} at block ${graph.meta.blockNumber}.`);
+    lines.push(`Computed from ${graph.meta.deploymentId} at block ${graph.meta.blockNumber}.`);
 
     return textResult(lines.join("\n"));
   },
 };
+
+/** Prose for one excluded breakdown row, keyed off @aval/engine's own VoucherNotCountedReason
+ *  (explain.ts) — never a single hardcoded "anti-collusion ordering" explanation for every
+ *  exclusion reason, several of which have nothing to do with depth ordering. */
+function describeExcludedReason(reason: string | undefined, voucherDepth: number, depth: number): string {
+  switch (reason) {
+    case "voucher_depth_not_lower":
+      return (
+        `it is excluded by the anti-collusion ordering rule — its voucher depth (${voucherDepth}) ` +
+        `is not lower than this account's depth (${Number.isFinite(depth) ? depth : "unreachable"}).`
+      );
+    case "vouch_inactive":
+      return "the vouch is not currently active (revoked or expired).";
+    case "voucher_not_human":
+      return "the voucher is not a human account.";
+    case "voucher_unreachable":
+      return "the voucher itself has no active path to an anchor.";
+    case "anchor_ignores_inbound":
+      return "this account is an anchor — anchors ignore every inbound vouch by design.";
+    default:
+      return `it does not count (${reason ?? "unknown reason"}).`;
+  }
+}

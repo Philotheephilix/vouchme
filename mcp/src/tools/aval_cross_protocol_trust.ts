@@ -12,7 +12,7 @@
 // is the entire point of the standardized schema.
 
 import { z } from "zod";
-import { getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
+import { BASE, CAP_POS, M_POS, getCachedGraph, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
 
@@ -36,8 +36,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "standardized trust-graph v0.1.0 schema. CONTEXT ONLY — non-Aval edges never contribute to the " +
     "Aval score; never treat them as score when deciding whether to vouch.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.address, graph);
     if (!address) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
 
@@ -58,7 +58,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
             anchorSource: graph.accounts.find((a) => a.id === e.voucherId)?.isAnchor ? "world-id-orb" : null,
             inboundActive: (scored.inboundByAccount.get(e.voucherId) ?? []).length,
           },
-          weight: Math.min(((voucherResult?.score ?? 10) * 0.25) / 20, 1).toFixed(4),
+          weight: Math.min(((voucherResult?.score ?? BASE) * M_POS) / CAP_POS, 1).toFixed(4),
           issuedAt: new Date(Number(e.issuedAt) * 1000).toISOString(),
           expiresAt: new Date(Number(e.expiresAt) * 1000).toISOString(),
         });

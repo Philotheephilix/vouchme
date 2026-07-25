@@ -22,7 +22,7 @@
 
 import { keccak256, toHex } from "viem";
 import { z } from "zod";
-import { getCachedGraph, resolveIdentifierToAddress, runEngineCompute, scoreGraph, preferEngineResult } from "../engine.js";
+import { computeEngine, depthForJson, engineScoreResult, getCachedGraph, resolveIdentifierToAddress } from "../engine.js";
 import { fetchReportsAgainst } from "../reports.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
@@ -48,15 +48,15 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       );
     }
 
-    const graph = await getCachedGraph(ctx.client);
+    const graph = await getCachedGraph();
     const subject = resolveIdentifierToAddress(args.subject, graph);
     if (!subject) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.subject}"`));
 
-    const scored = scoreGraph(graph);
-    const local = scored.scores.get(subject) ?? { score: 10, tier: 0 as const, depth: 0 };
     const now = BigInt(Math.floor(Date.now() / 1000));
-    const engineOutput = runEngineCompute(graph, now);
-    const { score, tier, depth } = preferEngineResult(engineOutput, subject, local);
+    const engineIO = computeEngine(graph, now);
+    const result = engineScoreResult(engineIO.output, subject);
+    if (!result) return errorResult(new AvalToolError("NotFound", `"${args.subject}" resolved to an address the engine did not score`));
+    const { score, tier, depth } = result;
 
     const reportsAgainst = await fetchReportsAgainst(ctx.client, subject);
     const openReports = reportsAgainst.filter((r) => r.state === "PENDING" || r.state === "ARBITRATION").length;
@@ -72,7 +72,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       // scoreAtRisk uses the un-decayed weight of every open/pending report — see docs/12 §5.
       scoreAtRisk: score,
       tier,
-      depth,
+      depth: depthForJson(depth),
       openReports,
       upheldReports,
       subgraphDeployment: graph.meta.deploymentId,

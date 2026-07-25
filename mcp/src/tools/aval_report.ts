@@ -48,7 +48,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       );
     }
 
-    const graph = await getCachedGraph(ctx.client);
+    const graph = await getCachedGraph();
     const targetAddr = resolveIdentifierToAddress(args.target, graph);
     if (!targetAddr) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.target}"`));
 

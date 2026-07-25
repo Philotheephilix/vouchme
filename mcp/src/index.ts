@@ -22,7 +22,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { createGraphClient, loadGraphClientConfigFromEnv } from "./client.js";
+import { createGraphClientSafe } from "./client.js";
 import type { ToolContext, ToolDefinition } from "./tools/types.js";
 
 import { tool as avalResolve } from "./tools/aval_resolve.js";
@@ -44,7 +44,12 @@ import { tool as avalPipelineDeploy } from "./tools/aval_pipeline_deploy.js";
 import { tool as avalQuery } from "./tools/aval_query.js";
 
 function loadToolContext(env: NodeJS.ProcessEnv = process.env): ToolContext {
-  const client = createGraphClient(loadGraphClientConfigFromEnv(env));
+  // createGraphClientSafe never throws — see its own doc comment in client.ts. The 8 tools wired
+  // to live World Chain Sepolia data (aval_resolve, aval_score, aval_explain, aval_gate,
+  // aval_path, aval_candidates, aval_anchor_status, aval_simulate_vouch) never touch this client;
+  // the remaining ones that still need a Subgraph refuse with a named GraphClientConfigError the
+  // moment they're actually invoked, rather than failing the whole server at startup.
+  const client = createGraphClientSafe(env);
   return {
     client,
     operatorAddress: env.AVAL_OPERATOR_ADDRESS,
@@ -116,7 +121,10 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // eslint-disable-next-line no-console
-  console.error("aval-mcp: listening on stdio (17 tools registered; aval_vouch intentionally absent)");
+  console.error(
+    "aval-mcp: listening on stdio (17 tools registered; aval_vouch intentionally absent; " +
+      "trust graph read live from World Chain Sepolia, chainId 4801 — no subgraph deployed)",
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

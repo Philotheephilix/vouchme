@@ -5,14 +5,15 @@
 
 import { z } from "zod";
 import {
+  computeEngine,
+  depthForJson,
+  engineScoreResult,
   findAllPaths,
   getCachedGraph,
   pickCanonicalName,
   resolveIdentifierToAddress,
-  runEngineCompute,
   scoreGraph,
   slotsFor,
-  preferEngineResult,
   secondsToIso,
 } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
@@ -29,8 +30,8 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "credential, vouches, and the Subgraph deployment + block the answer was computed from. " +
     "Use this first for any counterparty lookup.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.identifier, graph);
     if (!address) {
       return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.identifier}"`));
@@ -40,11 +41,15 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.identifier}"`));
     }
 
-    const scored = scoreGraph(graph);
-    const local = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
-    const engineOutput = runEngineCompute(graph, BigInt(Math.floor(Date.now() / 1000)));
-    const { score, tier, depth } = preferEngineResult(engineOutput, address, local);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const engineIO = computeEngine(graph, now);
+    const result = engineScoreResult(engineIO.output, address);
+    if (!result) {
+      return errorResult(new AvalToolError("NotFound", `"${args.identifier}" resolved to an address the engine did not score`));
+    }
+    const { score, tier, depth } = result;
 
+    const scored = scoreGraph(graph); // naming/paths only — see engine.ts's module comment
     const paths = findAllPaths(address, graph, scored);
     const canonical = pickCanonicalName(paths);
     const aliases = paths.filter((p) => p.name !== canonical?.name).map((p) => p.name).sort();
@@ -61,7 +66,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       aliases,
       score,
       tier,
-      depth,
+      depth: depthForJson(depth),
       credential: account.credential,
       credentialExpiresAt: secondsToIso(account.credentialExpiresAt),
       isAnchor: account.isAnchor,

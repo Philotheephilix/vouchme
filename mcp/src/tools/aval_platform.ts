@@ -8,7 +8,7 @@
 // behaving very differently from one that queried 12 and reported 12.
 
 import { z } from "zod";
-import { getCachedGraph, nameOf, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
+import { BASE, CAP_POS, M_POS, P1, P2, getCachedGraph, nameOf, resolveIdentifierToAddress, scoreGraph } from "../engine.js";
 import { countRequestsLast30d, fetchPlatform } from "../platforms.js";
 import { fetchReportsFiledBy } from "../reports.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
@@ -18,10 +18,6 @@ const inputSchema = {
   nameOrAddress: z.string().describe("The platform's ENS name (under aval.eth) or address."),
 };
 
-// docs/13-platforms.md §3
-const M_POS = 0.25;
-const CAP_POS = 20;
-
 export const tool: ToolDefinition<typeof inputSchema> = {
   name: "aval_platform",
   description:
@@ -30,7 +26,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "reportsFiled/reportsUpheld/upheldRate together tell you whether it reports responsibly.",
   inputSchema,
   async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+    const graph = await getCachedGraph();
     const address = resolveIdentifierToAddress(args.nameOrAddress, graph) ?? args.nameOrAddress.toLowerCase();
 
     const result = await fetchPlatform(ctx.client, address);
@@ -51,11 +47,11 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     for (const v of vouches) {
       if (v.expiresAt <= now) continue;
       const humanResult = scored.scores.get(v.human);
-      const humanScore = humanResult?.score ?? 10;
+      const humanScore = humanResult?.score ?? BASE;
       score += Math.min(humanScore * M_POS, CAP_POS);
       voucherRows.push({ human: nameOf(v.human, graph, scored), expiresAt: new Date(Number(v.expiresAt) * 1000).toISOString() });
     }
-    const tier = score >= 150 ? 2 : score >= 40 ? 1 : 0; // P2 / P1 / P0 — docs/13 §3
+    const tier = score >= P2 ? 2 : score >= P1 ? 1 : 0; // docs/13 §3 — P1/P2 read from @aval/engine, never hardcoded
 
     const reportsFiledList = await fetchReportsFiledBy(ctx.client, platform.id);
     const reportsFiled = reportsFiledList.length;

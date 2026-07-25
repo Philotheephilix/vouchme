@@ -8,14 +8,15 @@
 
 import { z } from "zod";
 import {
+  computeEngine,
+  depthForJson,
   deriveBreakdown,
+  engineScoreResult,
   getCachedGraph,
   isLikelyAddress,
   nameOf,
   resolveIdentifierToAddress,
-  runEngineCompute,
   scoreGraph,
-  preferEngineResult,
 } from "../engine.js";
 import { AvalToolError, errorResult, jsonResult } from "../response.js";
 import type { ToolDefinition } from "./types.js";
@@ -32,24 +33,28 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "(voucher must be at a strictly lower depth). Use this, not aval_resolve, when you need to " +
     "explain *why* a score is what it is.",
   inputSchema,
-  async handler(args, ctx) {
-    const graph = await getCachedGraph(ctx.client);
+  async handler(args) {
+    const graph = await getCachedGraph();
     const address = isLikelyAddress(args.address) ? args.address.toLowerCase() : resolveIdentifierToAddress(args.address, graph);
     if (!address || !graph.accounts.some((a) => a.id === address)) {
       return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
     }
 
-    const scored = scoreGraph(graph);
-    const local = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
-    const engineOutput = runEngineCompute(graph, BigInt(Math.floor(Date.now() / 1000)));
-    const { score, tier, depth } = preferEngineResult(engineOutput, address, local);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const engineIO = computeEngine(graph, now);
+    const result = engineScoreResult(engineIO.output, address);
+    if (!result) {
+      return errorResult(new AvalToolError("NotFound", `"${args.address}" resolved to an address the engine did not score`));
+    }
+    const { score, tier, depth } = result;
 
-    const { breakdown, base } = deriveBreakdown(address, graph, scored, (a) => nameOf(a, graph, scored));
+    const scored = scoreGraph(graph); // naming only — see engine.ts's module comment
+    const { breakdown, base } = deriveBreakdown(address, graph, engineIO, (a) => nameOf(a, graph, scored));
 
     return jsonResult({
       score,
       tier,
-      depth,
+      depth: depthForJson(depth),
       breakdown,
       // docs/06 §2.2's example shows an empty `reports: []` — this
       // scaffold's graph query (see engine.ts) doesn't fetch reports, so

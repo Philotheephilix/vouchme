@@ -2,265 +2,151 @@
 //
 // Shared graph fetch + scoring wiring used by every tool in src/tools/*.ts.
 //
-// Per docs/06-mcp-skills.md §7 build checklist ("Engine imported as a
-// library — the same code the gateway runs, so the MCP and ENS never
-// disagree"), the *authoritative* score/tier computation is
-// `@aval/engine`'s `compute(input)`, imported below as a value (its
-// exported type names aren't known yet — see the comment on
-// `EngineOutputShape`). This module also carries a small local
-// re-implementation of the BFS in docs/01-trust-math.md §15
-// ("Still about sixty lines"), used ONLY to produce the granular
-// per-voucher `breakdown` rows docs/06-mcp-skills.md §2.2 requires
-// (`raw`, `capped`, `contribution`, `counted`, `reason`) — a level of
-// detail the engine's opaque return shape may or may not expose the same
-// way. Both paths use the same constants (docs/10-constants.md) and the
-// same graph, so they agree on the number even if @aval/score's internal
-// shape differs; once @aval/engine's real output type is known, the local
-// BFS below can be deleted in favor of reading it straight from `compute()`.
+// The trust graph itself comes from src/chain.ts — live World Chain Sepolia reads, since no
+// Subgraph is deployed (see chain.ts's own module comment). `getCachedGraph`/`fetchGraph` are
+// re-exported from there unchanged so every tool file's existing `import { getCachedGraph } from
+// "../engine.js"` keeps working.
+//
+// Per docs/06-mcp-skills.md §7 build checklist ("Engine imported as a library — the same code the
+// gateway runs, so the MCP and ENS never disagree"), EVERY score/tier/depth number in this server
+// — including the ones `scoreGraph()` further down hands to path-finding (aval_path),
+// candidate-voucher discovery (aval_candidates), and ENS-style naming (aval_resolve's aliases) —
+// comes from `@aval/engine`'s own `compute()` and `breakdown()`. `scoreGraph()` is not a second
+// implementation of the trust math: it only indexes the edge list (inbound/outbound per account,
+// which @aval/engine has no notion of) and then looks up each account's score/tier/depth from a
+// real `computeEngine()` call. No threshold (T1, T2, BASE, CAP_POS, ...) is ever hardcoded here —
+// every constant below is derived from `@aval/engine`'s own exports, so a docs/10-constants.md
+// change is picked up automatically everywhere in this file.
 
-import { compute } from "@aval/engine";
-import type { Account, EngineInput, Vouch } from "@aval/engine";
-import type { GraphClient, SubgraphMeta } from "./client.js";
+import {
+  compute,
+  breakdown as engineBreakdown,
+  CAP_POS_BINDING_THRESHOLD,
+  BASE as BASE_CENTI,
+  ANCHOR as ANCHOR_CENTI,
+  T1 as T1_CENTI,
+  T2 as T2_CENTI,
+  P1 as P1_CENTI,
+  P2 as P2_CENTI,
+  CAP_POS as CAP_POS_CENTI,
+  M_POS_NUM,
+  M_POS_DEN,
+  MAX_DEPTH as ENGINE_MAX_DEPTH,
+  MAX_ROUNDS as ENGINE_MAX_ROUNDS,
+  SLOTS_TIER_0,
+  SLOTS_TIER_1,
+  SLOTS_TIER_2,
+} from "@aval/engine";
+import type { Account, EngineInput, EngineOutput, ScoreBreakdown, Vouch } from "@aval/engine";
+import {
+  fetchGraph as chainFetchGraph,
+  getCachedGraph as chainGetCachedGraph,
+  checkAnchorStatusLive,
+  type GraphAccount,
+  type GraphVouch,
+  type TrustGraph,
+} from "./chain.js";
 
-// ── constants — single source of truth: docs/10-constants.md ────────────
-export const BASE = 10;
-export const ANCHOR_SCORE = 100;
-export const M_POS = 0.25;
-export const CAP_POS = 20;
-export const T1 = 30;
-export const T2 = 100;
-export const MAX_DEPTH = 3;
-export const MAX_ROUNDS = 8;
+export const fetchGraph = chainFetchGraph;
+export const getCachedGraph = chainGetCachedGraph;
+export { checkAnchorStatusLive };
+export type { GraphAccount, GraphVouch, TrustGraph };
 
-export interface GraphAccount {
-  id: string; // lowercase address
-  handle: string;
-  isAnchor: boolean;
-  status: "ACTIVE" | "GRACE" | "SUSPENDED" | "FRAUDULENT";
-  credential: string;
-  credentialExpiresAt: bigint;
-  activeOutboundCount: number;
-}
-
-export interface GraphVouch {
-  voucherId: string;
-  voucheeId: string;
-  issuedAt: bigint;
-  expiresAt: bigint;
-}
-
-export interface TrustGraph {
-  accounts: GraphAccount[];
-  vouches: GraphVouch[]; // already filtered: active (not revoked, not expired) at fetch time
-  meta: SubgraphMeta;
-}
-
-const GRAPH_QUERY = /* GraphQL */ `
-  query McpGraph($first: Int!, $skip: Int!, $now: BigInt!, $block: Block_height) {
-    accounts(first: $first, skip: $skip, block: $block, where: { status_not: FRAUDULENT }) {
-      id
-      handle
-      isAnchor
-      status
-      credential
-      credentialExpiresAt
-      activeOutboundCount
-      outbound(where: { revoked: false, expiresAt_gt: $now }) {
-        vouchee { id }
-        issuedAt
-        expiresAt
-      }
-    }
-  }
-`;
-
-interface GraphQueryResult {
-  accounts: {
-    id: string;
-    handle: string;
-    isAnchor: boolean;
-    status: GraphAccount["status"];
-    credential: string;
-    credentialExpiresAt: string;
-    activeOutboundCount: number;
-    outbound: { vouchee: { id: string }; issuedAt: string; expiresAt: string }[];
-  }[];
-}
-
-const PAGE_SIZE = 1000;
-
-export async function fetchGraph(
-  client: GraphClient,
-  now: bigint = BigInt(Math.floor(Date.now() / 1000)),
-  atBlock?: number,
-): Promise<TrustGraph> {
-  const accounts: GraphAccount[] = [];
-  const vouches: GraphVouch[] = [];
-  let skip = 0;
-  let meta: SubgraphMeta | undefined;
-
-  for (;;) {
-    const { data, meta: pageMeta } = await client.query<GraphQueryResult>(GRAPH_QUERY, {
-      first: PAGE_SIZE,
-      skip,
-      now: now.toString(),
-      // docs/05-graph-data-layer.md §2.5: "time-travel" — run the same
-      // query pinned to a historical block for score history with no
-      // snapshot table. `null`/omitted means "latest", per the Graph's
-      // standard `Block_height` input type.
-      block: atBlock !== undefined ? { number: atBlock } : null,
-    });
-    meta = pageMeta;
-    for (const a of data.accounts) {
-      accounts.push({
-        id: a.id.toLowerCase(),
-        handle: a.handle,
-        isAnchor: a.isAnchor,
-        status: a.status,
-        credential: a.credential,
-        credentialExpiresAt: BigInt(a.credentialExpiresAt),
-        activeOutboundCount: a.activeOutboundCount,
-      });
-      for (const e of a.outbound) {
-        vouches.push({
-          voucherId: a.id.toLowerCase(),
-          voucheeId: e.vouchee.id.toLowerCase(),
-          issuedAt: BigInt(e.issuedAt),
-          expiresAt: BigInt(e.expiresAt),
-        });
-      }
-    }
-    if (data.accounts.length < PAGE_SIZE) break;
-    skip += PAGE_SIZE;
-  }
-
-  if (!meta) throw new Error("subgraph returned no pages");
-  return { accounts, vouches, meta };
-}
-
-// docs/10-constants.md §5: "MCP verdict cache: 5 min max — Revocation is
-// instant." We cache well under that ceiling (5s, matching the gateway's
-// own Subgraph TTL) purely to stop a burst of tool calls in one agent turn
-// from re-fetching the whole graph on every call.
-let cachedGraph: { graph: TrustGraph; cachedAt: number } | null = null;
-const GRAPH_CACHE_TTL_MS = 5000;
-
-export async function getCachedGraph(client: GraphClient): Promise<TrustGraph> {
-  if (cachedGraph && Date.now() - cachedGraph.cachedAt < GRAPH_CACHE_TTL_MS) {
-    return cachedGraph.graph;
-  }
-  const graph = await fetchGraph(client);
-  cachedGraph = { graph, cachedAt: Date.now() };
-  return graph;
-}
-
-// ── local scoring (docs/01-trust-math.md §15, positive side only) ───────
-
-export interface ScoreResult {
-  score: number;
-  tier: 0 | 1 | 2;
-  depth: number; // 0 for anchors, Infinity-ish (MAX_DEPTH+1) if unreached
-}
-
-export interface Scored {
-  scores: Map<string, ScoreResult>;
-  inboundByAccount: Map<string, GraphVouch[]>;
-  outboundByAccount: Map<string, GraphVouch[]>;
-}
-
+// ── constants — DERIVED from @aval/engine's own exports, never a second, independently-hardcoded
+// number (task requirement: "Never hardcode score thresholds — always call @aval/engine's
+// compute() and read constants from the engine"). Decimal-point scale (score, not centi-points) —
+// the scale every tool JSON response and docs/06's own examples (e.g. "62.5") use.
+// `centiToDecimal()` below is the one seam where @aval/engine's centi-point output crosses into
+// this scale. If docs/10-constants.md's thresholds change, every one of these follows
+// automatically because each reads the same @aval/engine import, not a retyped literal. ──────────
+export const BASE = BASE_CENTI / 100;
+export const ANCHOR_SCORE = ANCHOR_CENTI / 100;
+export const M_POS = M_POS_NUM / M_POS_DEN;
+export const CAP_POS = CAP_POS_CENTI / 100;
+export const T1 = T1_CENTI / 100;
+export const T2 = T2_CENTI / 100;
+export const P1 = P1_CENTI / 100; // platform Tier 1 threshold
+export const P2 = P2_CENTI / 100; // platform Tier 2 threshold
+export const MAX_DEPTH = ENGINE_MAX_DEPTH;
+export const MAX_ROUNDS = ENGINE_MAX_ROUNDS;
 export function slotsFor(tier: 0 | 1 | 2): number {
-  return tier === 2 ? 10 : tier === 1 ? 3 : 0;
+  return tier === 2 ? SLOTS_TIER_2 : tier === 1 ? SLOTS_TIER_1 : SLOTS_TIER_0;
 }
 
-function w(score: number): { raw: number; capped: boolean; contribution: number } {
-  const raw = score * M_POS;
-  const capped = raw > CAP_POS;
-  return { raw, capped, contribution: Math.min(raw, CAP_POS) };
-}
+// ── calling the real engine ──────────────────────────────────────────────────────────────────
 
-/**
- * The least fixed point over origins = anchors ∪ Tier2 (docs/01 §4.2),
- * capped at MAX_ROUNDS. Returns depth + score for every account. This
- * mirrors docs/01-trust-math.md §15 exactly (reports/platform vouches are
- * out of scope for this scaffold's graph query — see engine.ts's module
- * comment — so `score` here is the engine's pre-report `s⁺`).
- */
-export function scoreGraph(graph: TrustGraph): Scored {
-  const inboundByAccount = new Map<string, GraphVouch[]>();
-  const outboundByAccount = new Map<string, GraphVouch[]>();
-  for (const v of graph.vouches) {
-    (inboundByAccount.get(v.voucheeId) ?? inboundByAccount.set(v.voucheeId, []).get(v.voucheeId)!).push(v);
-    (outboundByAccount.get(v.voucherId) ?? outboundByAccount.set(v.voucherId, []).get(v.voucherId)!).push(v);
+function bigintSecondsToEngineNow(seconds: bigint): number {
+  if (seconds > BigInt(Number.MAX_SAFE_INTEGER) || seconds < BigInt(-Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError(`timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @aval/engine`);
   }
-
-  const anchors = new Set(graph.accounts.filter((a) => a.isAnchor).map((a) => a.id));
-  let origins = new Set(anchors);
-  let scores = new Map<string, ScoreResult>();
-
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    const depth = bfsDepth(origins, outboundByAccount, graph.accounts);
-    scores = new Map();
-    for (const a of graph.accounts) {
-      if (anchors.has(a.id)) {
-        scores.set(a.id, { score: ANCHOR_SCORE, tier: 2, depth: 0 });
-        continue;
-      }
-      const d = depth.get(a.id) ?? MAX_DEPTH + 1;
-      let sp = BASE;
-      if (d <= MAX_DEPTH) {
-        for (const edge of inboundByAccount.get(a.id) ?? []) {
-          const voucherDepth = depth.get(edge.voucherId) ?? MAX_DEPTH + 1;
-          if (voucherDepth < d) {
-            const voucherScore = anchors.has(edge.voucherId) ? ANCHOR_SCORE : (scores.get(edge.voucherId)?.score ?? BASE);
-            sp += w(voucherScore).contribution;
-          }
-        }
-      }
-      const tier: 0 | 1 | 2 = sp >= T2 ? 2 : sp >= T1 ? 1 : 0;
-      scores.set(a.id, { score: sp, tier, depth: d });
-    }
-    const nextOrigins = new Set(anchors);
-    for (const [id, r] of scores) if (r.tier === 2) nextOrigins.add(id);
-    if (setsEqual(nextOrigins, origins)) break;
-    origins = nextOrigins;
-  }
-
-  return { scores, inboundByAccount, outboundByAccount };
+  return Number(seconds);
 }
 
-function bfsDepth(
-  origins: Set<string>,
-  outboundByAccount: Map<string, GraphVouch[]>,
-  accounts: GraphAccount[],
-): Map<string, number> {
-  const depth = new Map<string, number>();
-  let frontier = new Set(origins);
-  for (const id of frontier) depth.set(id, 0);
-  const validIds = new Set(accounts.map((a) => a.id));
-
-  for (let d = 1; d <= MAX_DEPTH; d++) {
-    const next = new Set<string>();
-    for (const id of frontier) {
-      for (const edge of outboundByAccount.get(id) ?? []) {
-        if (!validIds.has(edge.voucheeId)) continue;
-        if (depth.has(edge.voucheeId)) continue;
-        depth.set(edge.voucheeId, d);
-        next.add(edge.voucheeId);
-      }
-    }
-    frontier = next;
-    if (frontier.size === 0) break;
-  }
-  return depth;
+/** Converts @aval/engine's integer centi-points (score × 100, engine/src/types.ts) into the
+ *  decimal points every tool response uses. The only unit conversion in this file — every other
+ *  function here is unambiguously either centi (talking to @aval/engine) or decimal (talking to a
+ *  tool response). */
+function centiToDecimal(centi: number): number {
+  return centi / 100;
 }
 
-function setsEqual(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const x of a) if (!b.has(x)) return false;
-  return true;
+/** Builds the exact EngineInput @aval/engine's compute() expects from an already-active-filtered,
+ *  already-deduplicated-by-pair TrustGraph (see chain.ts's own doc comment — every graph.vouches
+ *  entry reaching this function is live chain data, not subgraph data). `extraVouches` lets
+ *  aval_simulate_vouch.ts append one synthetic edge without mutating the cached graph. */
+export function buildEngineInput(graph: TrustGraph, now: bigint, extraVouches: GraphVouch[] = []): EngineInput {
+  const accounts: Account[] = graph.accounts.map((a) => ({ id: a.id, kind: "human" as const, isAnchor: a.isAnchor }));
+  const vouches: Vouch[] = [...graph.vouches, ...extraVouches].map((v) => ({
+    voucher: v.voucherId,
+    vouchee: v.voucheeId,
+    // GraphVouch is already active-filtered at fetch time (chain.ts) — see TrustGraph's own doc
+    // comment — so every vouch reaching this function is active by construction.
+    active: true,
+  }));
+  return { accounts, vouches, platformVouches: [], reports: [], now: bigintSecondsToEngineNow(now) };
 }
 
-// ── breakdown rows (docs/06-mcp-skills.md §2.2) ──────────────────────────
+export interface EngineComputation {
+  input: EngineInput;
+  output: EngineOutput;
+}
+
+/** Runs the real @aval/engine compute() — the ONLY place this package computes a score. Returns
+ *  both the EngineInput used and the EngineOutput, since @aval/engine's own breakdown() (used by
+ *  deriveBreakdown() below) needs both. */
+export function computeEngine(graph: TrustGraph, now: bigint, extraVouches: GraphVouch[] = []): EngineComputation {
+  const input = buildEngineInput(graph, now, extraVouches);
+  return { input, output: compute(input) };
+}
+
+export interface EngineScoreResult {
+  score: number; // decimal points
+  tier: 0 | 1 | 2;
+  /** May be `Infinity` for an unreachable account — render as `"unreachable"` at the JSON
+   *  boundary (see depthForJson below), never let it silently become `null` via JSON.stringify. */
+  depth: number;
+}
+
+/** The authoritative score/tier/depth for one address, straight off @aval/engine's own output.
+ *  Returns null if `address` isn't a human account in this computation (callers that already
+ *  confirmed `address` came from `graph.accounts` should never see null here). */
+export function engineScoreResult(output: EngineOutput, address: string): EngineScoreResult | null {
+  const score = output.score[address];
+  if (score === undefined) return null;
+  return {
+    score: centiToDecimal(score),
+    tier: output.tier[address] ?? 0,
+    depth: output.depth[address] ?? Number.POSITIVE_INFINITY,
+  };
+}
+
+/** JSON-safe rendering of a depth that may be `Infinity` — `JSON.stringify(Infinity)` silently
+ *  produces `null`, which would look like a missing field rather than "unreachable." */
+export function depthForJson(depth: number): number | "unreachable" {
+  return Number.isFinite(depth) ? depth : "unreachable";
+}
+
+// ── breakdown rows (docs/06-mcp-skills.md §2.2), engine-backed ──────────────────────────────────
 
 export interface BreakdownRow {
   voucher: string; // canonical name if resolvable, else address
@@ -274,38 +160,44 @@ export interface BreakdownRow {
   reason?: string;
 }
 
+/** Per-voucher breakdown for `address`, straight from @aval/engine's own breakdown() (explain.ts)
+ *  — never a local reimplementation of the contribution math. `expiresAt` for counted rows is
+ *  read back from the raw TrustGraph edges (the engine's Vouch type carries no timestamps by
+ *  design — docs/01-trust-math.md §18 — so this is metadata, not math). */
 export function deriveBreakdown(
   address: string,
   graph: TrustGraph,
-  scored: Scored,
-  nameOf: (address: string) => string,
+  engineIO: EngineComputation,
+  nameFor: (address: string) => string,
 ): { breakdown: BreakdownRow[]; base: number } {
-  const target = scored.scores.get(address);
-  const targetDepth = target?.depth ?? MAX_DEPTH + 1;
-  const rows: BreakdownRow[] = [];
+  const sb: ScoreBreakdown = engineBreakdown(address, engineIO.input, engineIO.output);
 
-  for (const edge of scored.inboundByAccount.get(address) ?? []) {
-    const voucher = scored.scores.get(edge.voucherId);
-    const voucherScore = voucher?.score ?? BASE;
-    const voucherDepth = voucher?.depth ?? MAX_DEPTH + 1;
-    const { raw, capped, contribution } = w(voucherScore);
-    const counted = voucherDepth < targetDepth;
-    const row: BreakdownRow = {
-      voucher: nameOf(edge.voucherId),
-      voucherScore,
-      voucherDepth,
-      raw,
-      capped,
-      contribution: counted ? contribution : 0,
-      counted,
-    };
-    if (counted) {
-      row.expiresAt = secondsToIso(edge.expiresAt);
-    } else {
-      row.reason = "voucher_depth_not_lower";
-    }
-    rows.push(row);
+  const expiresAtByVoucher = new Map<string, bigint>();
+  for (const v of graph.vouches) {
+    if (v.voucheeId === address) expiresAtByVoucher.set(v.voucherId, v.expiresAt);
   }
+
+  const rows: BreakdownRow[] = sb.vouchers.map((v) => {
+    const capped = v.voucherSPlus !== undefined && v.voucherSPlus > CAP_POS_BINDING_THRESHOLD;
+    const voucherDepthFinite =
+      v.voucherDepth !== undefined && Number.isFinite(v.voucherDepth) ? v.voucherDepth : MAX_DEPTH + 1;
+    const row: BreakdownRow = {
+      voucher: nameFor(v.voucher),
+      voucherScore: v.voucherSPlus !== undefined ? centiToDecimal(v.voucherSPlus) : 0,
+      voucherDepth: voucherDepthFinite,
+      raw: centiToDecimal(v.rawContribution),
+      capped,
+      contribution: centiToDecimal(v.contribution),
+      counted: v.counted,
+    };
+    if (v.counted) {
+      const expiresAt = expiresAtByVoucher.get(v.voucher);
+      if (expiresAt !== undefined) row.expiresAt = secondsToIso(expiresAt);
+    } else if (v.reason !== "counted") {
+      row.reason = v.reason;
+    }
+    return row;
+  });
 
   return { breakdown: rows, base: BASE };
 }
@@ -324,6 +216,24 @@ export function isLikelyEnsName(identifier: string): boolean {
   return identifier.endsWith(".aval.eth") || identifier.endsWith(".eth");
 }
 
+/**
+ * The bare ENS label a `handle` should be matched against.
+ *
+ * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
+ * off-chain" — a bare label like "alice" — but this live deployment's actual enrollment script
+ * (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL name
+ * on-chain instead, e.g. "alice.aval.eth". Live chain data caught this: without stripping the
+ * suffix, "carol.aval.eth" (an identifier) never equals "carol.aval.eth" (a handle already
+ * containing the suffix) compared the naive way once the label is re-extracted, and everything
+ * downstream of a name lookup failed. Tolerating both conventions here (bare label unchanged;
+ * "<label>.aval.eth" stripped to its first segment) resolves this deployment's actual data
+ * without assuming every future enrollment repeats the same (spec-deviating) convention.
+ */
+function bareLabel(handle: string): string {
+  const suffix = ".aval.eth";
+  return handle.endsWith(suffix) ? handle.slice(0, -suffix.length) : handle;
+}
+
 /** Resolves an ENS name, a bare handle, or an address to a lowercase address, or null. */
 export function resolveIdentifierToAddress(identifier: string, graph: TrustGraph): string | null {
   if (isLikelyAddress(identifier)) return identifier.toLowerCase();
@@ -334,63 +244,64 @@ export function resolveIdentifierToAddress(identifier: string, graph: TrustGraph
 
   // Prefer an exact handle match; if ambiguous, the caller's `aval_resolve`
   // reports `canonicalName` computed from the full path anyway.
-  const match = graph.accounts.find((a) => a.handle === label);
+  const match = graph.accounts.find((a) => bareLabel(a.handle) === label);
   return match ? match.id : null;
 }
 
-// ── calling the real engine ───────────────────────────────────────────
+// ── edge index + engine-backed scores — path-finding / candidate-discovery / naming support. ────
+//
+// This used to be a SEPARATE local BFS re-scoring pass with its own hardcoded BASE/T1/T2/M_POS/
+// CAP_POS constants (in DISPLAY units, while @aval/engine works in centi-points — a units bug on
+// top of being a second implementation of the trust math). That's gone: `scoreGraph()` now only
+// builds the inbound/outbound edge index (pure graph structure — @aval/engine has no notion of
+// "the edge from X to Y", only aggregate scores) and borrows every score/tier/depth number
+// straight from a real `computeEngine()` call. There is exactly one implementation of the scoring
+// math in this server, in @aval/engine, and it is never re-derived — including for the numbers
+// findPath/findCandidates/aval_platform/aval_report use to rank or gate on.
 
-/**
- * Loose, defensive shape of what @aval/engine's compute() returns — see
- * the module comment above. Every field is read optionally.
- */
-interface EngineOutputShape {
-  score?: Record<string, number>;
-  tier?: Record<string, number>;
-  depth?: Record<string, number>;
+export interface ScoreResult {
+  score: number; // decimal points, from the real engine
+  tier: 0 | 1 | 2;
+  depth: number; // 0 for anchors, Number.POSITIVE_INFINITY if unreachable
 }
 
-/**
- * Converts a unix-seconds timestamp read from the Subgraph (GraphQL `BigInt` scalar) into the
- * plain `number` @aval/engine's `EngineInput.now` expects (engine/src/types.ts — the engine is
- * dependency-free and does all its scoring in integer centi-points, so `bigint` never crosses
- * its boundary). This is the one seam where a Subgraph `BigInt` becomes an engine `number`;
- * throws rather than silently losing precision if the value can't be represented exactly.
- */
-function bigintSecondsToEngineNow(seconds: bigint): number {
-  if (seconds > BigInt(Number.MAX_SAFE_INTEGER) || seconds < BigInt(-Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError(
-      `timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @aval/engine`,
-    );
+export interface Scored {
+  scores: Map<string, ScoreResult>;
+  inboundByAccount: Map<string, GraphVouch[]>;
+  outboundByAccount: Map<string, GraphVouch[]>;
+}
+
+function w(score: number): { raw: number; capped: boolean; contribution: number } {
+  const raw = score * M_POS;
+  const capped = raw > CAP_POS;
+  return { raw, capped, contribution: Math.min(raw, CAP_POS) };
+}
+
+/** Builds the edge index and looks up every account's real score/tier/depth from a fresh
+ *  `computeEngine()` call (`now` defaults to the current wall clock — callers that already have an
+ *  `EngineComputation` from elsewhere in the same request should prefer reading `output` directly
+ *  rather than calling this a second time). */
+export function scoreGraph(graph: TrustGraph, now: bigint = BigInt(Math.floor(Date.now() / 1000))): Scored {
+  const inboundByAccount = new Map<string, GraphVouch[]>();
+  const outboundByAccount = new Map<string, GraphVouch[]>();
+  for (const v of graph.vouches) {
+    (inboundByAccount.get(v.voucheeId) ?? inboundByAccount.set(v.voucheeId, []).get(v.voucheeId)!).push(v);
+    (outboundByAccount.get(v.voucherId) ?? outboundByAccount.set(v.voucherId, []).get(v.voucherId)!).push(v);
   }
-  return Number(seconds);
-}
 
-export function runEngineCompute(graph: TrustGraph, now: bigint): unknown {
-  const accounts: Account[] = graph.accounts.map((a) => ({
-    id: a.id,
-    // GRAPH_QUERY above only indexes AvalRegistry (human) accounts — PlatformRegistry accounts
-    // are a separate, unqueried data source (see this file's module comment and context.ts's
-    // matching note in @aval/gateway) — so every account reaching this function is human.
-    kind: "human" as const,
-    isAnchor: a.isAnchor,
-  }));
-  const vouches: Vouch[] = graph.vouches.map((v) => ({
-    voucher: v.voucherId,
-    vouchee: v.voucheeId,
-    // GRAPH_QUERY's `outbound(where: { revoked: false, expiresAt_gt: $now })` already excludes
-    // revoked and expired edges at query time, so every vouch reaching this function is active
-    // by construction (see this file's `TrustGraph.vouches` doc comment).
-    active: true,
-  }));
-  const input: EngineInput = {
-    accounts,
-    vouches,
-    platformVouches: [],
-    reports: [],
-    now: bigintSecondsToEngineNow(now),
-  };
-  return compute(input);
+  const output = computeEngine(graph, now).output;
+  const scores = new Map<string, ScoreResult>();
+  for (const a of graph.accounts) {
+    const centi = output.score[a.id];
+    if (centi === undefined) continue; // not scored by the engine (e.g. filtered as inactive)
+    scores.set(a.id, {
+      score: centiToDecimal(centi),
+      tier: output.tier[a.id] ?? 0,
+      depth: output.depth[a.id] ?? Number.POSITIVE_INFINITY,
+    });
+  }
+
+  return { scores, inboundByAccount, outboundByAccount };
 }
 
 // ── naming: canonical name, aliases, paths (docs/04-ens.md §1.1, §3.1) ──
@@ -424,7 +335,7 @@ export function findAllPaths(address: string, graph: TrustGraph, scored: Scored)
       if (!handle) continue;
       walk(
         edge.voucheeId,
-        [...labelsRootFirst, handle],
+        [...labelsRootFirst, bareLabel(handle)],
         [...addrs, edge.voucheeId],
         oldest < edge.issuedAt ? oldest : edge.issuedAt,
         depth + 1,
@@ -468,10 +379,6 @@ export interface PathResult {
 /**
  * Shortest active-vouch path from `from` to `to` (or, when `to ===
  * "anchor"`, to the nearest anchor), via plain BFS over outbound edges.
- * docs/06 §2.6: "the ENS names along the path... just the target's
- * canonical name decomposed" — for a direct anchor-rooted path that's
- * literally true; for an arbitrary from->to pair (which need not start at
- * an anchor) we still return address + best-effort name per hop.
  */
 export function findPath(from: string, to: string, graph: TrustGraph, scored: Scored): PathResult | null {
   const start = from.toLowerCase();
@@ -601,13 +508,4 @@ export function findCandidates(address: string, graph: TrustGraph, scored: Score
   }
 
   return results.sort((a, b) => b.sharedNeighbours - a.sharedNeighbours);
-}
-
-export function preferEngineResult(engineOutput: unknown, address: string, fallback: ScoreResult): ScoreResult {
-  const out = (engineOutput ?? {}) as EngineOutputShape;
-  const score = out.score?.[address];
-  if (score === undefined) return fallback;
-  const tier = out.tier?.[address] ?? (score >= T2 ? 2 : score >= T1 ? 1 : 0);
-  const depth = out.depth?.[address] ?? fallback.depth;
-  return { score, tier: tier as 0 | 1 | 2, depth };
 }

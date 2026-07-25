@@ -24,7 +24,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
   async handler(args, ctx) {
     // Included for the subgraphDeployment/computedAtBlock envelope even
     // on a raw query — see docs/06 §3's design rule table.
-    const cached = await getCachedGraph(ctx.client);
+    const cached = await getCachedGraph();
     const { data } = await ctx.client.query<unknown>(args.graphql, args.variables ?? {});
     return jsonResult({
       data,

@@ -45,7 +45,7 @@ export const tool: ToolDefinition<typeof inputSchema> = {
       );
     }
 
-    const graph = await getCachedGraph(ctx.client);
+    const graph = await getCachedGraph();
     const preview = getPreview(args.previewId);
     if (!preview) {
       return errorResult(new AvalToolError("PreviewNotFound", `no preview "${args.previewId}" (previews expire after 30 minutes)`));
