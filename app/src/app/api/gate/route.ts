@@ -1,4 +1,4 @@
-import { checkGate } from "@/lib/mock";
+import { loadAvalData } from "@/lib/mock";
 import type { GatePolicy } from "@/lib/types";
 import { isJsonObject, ok, fail } from "@/app/api/_lib/respond";
 
@@ -6,6 +6,9 @@ interface GateRequestBody {
   address?: string;
   policy?: GatePolicy;
 }
+
+// LIVE mode reads World Chain Sepolia on every request — never cache this route.
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
   let parsed: unknown;
@@ -20,6 +23,12 @@ export async function POST(req: Request): Promise<Response> {
   if (!isJsonObject(parsed)) return fail(400, "invalid_body", "Request body must be a JSON object.");
   const body = parsed as GateRequestBody;
   if (!body.address) return fail(400, "missing_address", "`address` is required.");
-  const result = checkGate(body.address, body.policy ?? {});
-  return ok(result);
+  let data;
+  try {
+    data = await loadAvalData();
+  } catch (err) {
+    return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
+  }
+  const result = data.checkGate(body.address, body.policy ?? {});
+  return ok(result, data.meta);
 }

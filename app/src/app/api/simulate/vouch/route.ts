@@ -1,10 +1,13 @@
-import { simulateVouch } from "@/lib/mock";
+import { loadAvalData } from "@/lib/mock";
 import { isJsonObject, ok, fail } from "@/app/api/_lib/respond";
 
 interface SimulateVouchBody {
   voucher?: string;
   target?: string;
 }
+
+// LIVE mode reads World Chain Sepolia on every request — never cache this route.
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
   let parsed: unknown;
@@ -21,6 +24,12 @@ export async function POST(req: Request): Promise<Response> {
   if (!body.voucher || !body.target) {
     return fail(400, "missing_fields", "`voucher` and `target` are both required.");
   }
-  const result = simulateVouch(body.voucher, body.target);
-  return ok(result);
+  let data;
+  try {
+    data = await loadAvalData();
+  } catch (err) {
+    return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
+  }
+  const result = data.simulateVouch(body.voucher, body.target);
+  return ok(result, data.meta);
 }

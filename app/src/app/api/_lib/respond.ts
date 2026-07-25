@@ -7,16 +7,25 @@
  */
 
 import { NextResponse } from "next/server";
-import { MOCK_META } from "@/lib/mock";
-import type { ApiEnvelope, ApiErrorBody } from "@/lib/types";
+import type { ApiEnvelope, ApiErrorBody, ApiMeta } from "@/lib/types";
 
-export function ok<T>(data: T, status = 200): NextResponse<ApiEnvelope<T>> {
-  const body: ApiEnvelope<T> = { data, meta: MOCK_META };
+/** Used only when `meta` can't be obtained at all (the live chain read itself failed) — every
+ *  successful response carries the real `meta` from `loadAvalData()`, never this. */
+export const FALLBACK_META: ApiMeta = {
+  subgraphDeployment: "unavailable",
+  computedAtBlock: 0,
+  indexerLagBlocks: 0,
+  engineVersion: "0.1.0",
+  mode: "live",
+};
+
+export function ok<T>(data: T, meta: ApiMeta, status = 200): NextResponse<ApiEnvelope<T>> {
+  const body: ApiEnvelope<T> = { data, meta };
   return NextResponse.json(body, { status });
 }
 
-export function fail(status: number, code: string, message: string): NextResponse<ApiErrorBody> {
-  const body: ApiErrorBody = { error: { code, message }, meta: MOCK_META };
+export function fail(status: number, code: string, message: string, meta: ApiMeta = FALLBACK_META): NextResponse<ApiErrorBody> {
+  const body: ApiErrorBody = { error: { code, message }, meta };
   return NextResponse.json(body, { status });
 }
 

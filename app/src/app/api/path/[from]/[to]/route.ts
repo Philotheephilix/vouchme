@@ -1,5 +1,8 @@
-import { findPath } from "@/lib/mock";
+import { loadAvalData } from "@/lib/mock";
 import { decodeParam, ok, fail } from "@/app/api/_lib/respond";
+
+// LIVE mode reads World Chain Sepolia on every request — never cache this route.
+export const dynamic = "force-dynamic";
 
 export async function GET(
   _req: Request,
@@ -12,7 +15,13 @@ export async function GET(
   if (!decodedTo.ok) return decodedTo.response;
   const fromName = decodedFrom.value;
   const toName = decodedTo.value; // may be the literal "anchor" — docs/07-app-api.md §3
-  const result = findPath(fromName, toName);
-  if (result.hops.length === 0) return fail(404, "identity_not_found", `No Aval identity for "${fromName}".`);
-  return ok(result);
+  let data;
+  try {
+    data = await loadAvalData();
+  } catch (err) {
+    return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
+  }
+  const result = data.findPath(fromName, toName);
+  if (result.hops.length === 0) return fail(404, "identity_not_found", `No Aval identity for "${fromName}".`, data.meta);
+  return ok(result, data.meta);
 }
