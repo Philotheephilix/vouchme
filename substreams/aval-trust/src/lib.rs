@@ -43,6 +43,66 @@ struct Params {
     model: String,
     protocol: String,
     network: String,
+    /// Which indexed topic carries the ASSERTER (`from`) and which the SUBJECT (`to`).
+    ///
+    /// trust-graph v0.1.0 hardcoded `from = topics[1]`, `to = topics[2]`, which silently assumed
+    /// every protocol declares its indexed address params asserter-first. Aval does
+    /// (`Vouched(address indexed voucher, address indexed vouchee, ...)`); **EAS does not** —
+    /// `Attested(address indexed recipient, address indexed attester, bytes32, bytes32 indexed)`
+    /// puts the SUBJECT first. Under v0.1.0 every EAS edge therefore pointed backwards: the
+    /// person being attested about was recorded as the one doing the attesting. Real bug, real
+    /// rows, caught by reading EAS's own event declaration against the emitted data rather than
+    /// trusting that two indexed addresses mean the same two things everywhere.
+    ///
+    /// v0.2.0 makes the mapping explicit and per-deployment: `from_topic` / `to_topic`, 1-based
+    /// topic indices. Defaults (1, 2) preserve v0.1.0 behaviour for Aval and anything else that
+    /// already declared asserter-first, so no existing deployment changes meaning.
+    from_topic: usize,
+    to_topic: usize,
+    /// Optional 1-based topic index carrying the `scope` discriminator (EAS: `schemaUID` at
+    /// topics[3]). `None` -> scope is the empty string. See trust_graph.proto's `scope` doc.
+    scope_topic: Option<usize>,
+    /// Per-kind layout of the NON-INDEXED event tail. See `TailLayout`.
+    vouch_tail: TailLayout,
+    revoke_tail: TailLayout,
+    reaffirm_tail: TailLayout,
+    report_tail: TailLayout,
+    report_resolved_tail: TailLayout,
+}
+
+/// How to read a kind's non-indexed ABI tail for timing information.
+///
+/// v0.1.0 inferred this from `Kind` alone — VOUCH means "two uint64 words, issuedAt then
+/// expiresAt", REVOKE means "one uint64 word, `at`", and so on. That inference is only valid for
+/// contracts shaped like AvalRegistry. Applied to EAS, whose single non-indexed word is a
+/// content-addressed `uid`, it read a hash as a clock: PROOF.md §8.2 records the resulting
+/// `expires_at = 2106-02-07` on live rows, and `clamp_unix_timestamp` exists purely to stop that
+/// garbage from wedging the sink. The fix is to stop guessing — a deployment DECLARES its tail
+/// layout, and `None` is a first-class, honest answer meaning "this log carries no timing data;
+/// use the block clock and leave expiry unset".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TailLayout {
+    /// word[0] = issuedAt, word[1] = expiresAt  (AvalRegistry `Vouched`)
+    IssuedExpires,
+    /// word[0] = expiresAt; issuedAt falls back to the block clock (AvalRegistry `Reaffirmed`)
+    Expires,
+    /// word[0] = the moment the action happened, read as issuedAt (AvalRegistry `Revoked`)
+    At,
+    /// No timing data in the log at all. issuedAt = block clock, expiresAt = 0 (= perpetual as
+    /// far as THIS log can prove). EAS `Attested` / `Revoked`, whose tail is a `uid`.
+    None,
+}
+
+impl TailLayout {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "issued_expires" => Some(Self::IssuedExpires),
+            "expires" => Some(Self::Expires),
+            "at" => Some(Self::At),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
 }
 
 fn strip0x(s: &str) -> &str {
@@ -77,6 +137,16 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
     let mut model = "WEIGHTED".to_string();
     let mut protocol = "aval".to_string();
     let mut network = String::new();
+    // Defaults reproduce trust-graph v0.1.0 exactly, so every deployment written against v0.1.0
+    // keeps its meaning under v0.2.0 without editing its params.
+    let mut from_topic = 1usize;
+    let mut to_topic = 2usize;
+    let mut scope_topic: Option<usize> = None;
+    let mut vouch_tail = TailLayout::IssuedExpires;
+    let mut revoke_tail = TailLayout::At;
+    let mut reaffirm_tail = TailLayout::Expires;
+    let mut report_tail = TailLayout::At;
+    let mut report_resolved_tail = TailLayout::At;
 
     for pair in raw.split('&') {
         if pair.is_empty() {
@@ -95,8 +165,57 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
             "model" => model = val.to_string(),
             "protocol" => protocol = val.to_string(),
             "network" => network = val.to_string(),
+            "from_topic" => {
+                from_topic = val
+                    .parse()
+                    .map_err(|_| Error::msg(format!("from_topic must be a topic index, got {val:?}")))?
+            }
+            "to_topic" => {
+                to_topic = val
+                    .parse()
+                    .map_err(|_| Error::msg(format!("to_topic must be a topic index, got {val:?}")))?
+            }
+            "scope_topic" => {
+                scope_topic = if val.is_empty() {
+                    None
+                } else {
+                    Some(val.parse().map_err(|_| {
+                        Error::msg(format!("scope_topic must be a topic index, got {val:?}"))
+                    })?)
+                }
+            }
+            // An UNRECOGNISED tail value is fatal, not silently defaulted: a typo like
+            // `vouch_tail=nil` would otherwise fall back to reading a `uid` as a timestamp —
+            // exactly the class of silent-garbage bug v0.2.0 exists to remove.
+            "vouch_tail" => {
+                vouch_tail = TailLayout::parse(val)
+                    .ok_or_else(|| Error::msg(format!("unknown vouch_tail {val:?}")))?
+            }
+            "revoke_tail" => {
+                revoke_tail = TailLayout::parse(val)
+                    .ok_or_else(|| Error::msg(format!("unknown revoke_tail {val:?}")))?
+            }
+            "reaffirm_tail" => {
+                reaffirm_tail = TailLayout::parse(val)
+                    .ok_or_else(|| Error::msg(format!("unknown reaffirm_tail {val:?}")))?
+            }
+            "report_tail" => {
+                report_tail = TailLayout::parse(val)
+                    .ok_or_else(|| Error::msg(format!("unknown report_tail {val:?}")))?
+            }
+            "report_resolved_tail" => {
+                report_resolved_tail = TailLayout::parse(val)
+                    .ok_or_else(|| Error::msg(format!("unknown report_resolved_tail {val:?}")))?
+            }
             _ => {} // forward-compatible: unknown keys are ignored, not fatal
         }
+    }
+
+    if from_topic == 0 || to_topic == 0 {
+        return Err(Error::msg("from_topic/to_topic are 1-based topic indices; 0 is topic0"));
+    }
+    if from_topic == to_topic {
+        return Err(Error::msg("from_topic and to_topic must differ"));
     }
 
     let contract = contract.ok_or_else(|| Error::msg("params missing required `contract`"))?;
@@ -121,6 +240,14 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
         model,
         protocol,
         network,
+        from_topic,
+        to_topic,
+        scope_topic,
+        vouch_tail,
+        revoke_tail,
+        reaffirm_tail,
+        report_tail,
+        report_resolved_tail,
     })
 }
 
@@ -169,29 +296,33 @@ fn word_u64(word: &[u8]) -> u64 {
 /// itself, recover an *original* VOUCH's `issued_at` when a REAFFIRM follows it — that gap is the
 /// separate, already-documented `store_edges` KNOWN LIMITATION below (this event-level value is
 /// correct; carrying it forward across events in the store is the unrelated, unresolved part).
-fn decode_timing(kind: EventKind, data: &[u8], block_timestamp: u64) -> (u64, u64) {
-    match kind {
-        EventKind::Vouch => {
+fn decode_timing(layout: TailLayout, data: &[u8], block_timestamp: u64) -> (u64, u64) {
+    match layout {
+        TailLayout::IssuedExpires => {
             if data.len() >= 64 {
                 (word_u64(&data[0..32]), word_u64(&data[32..64]))
             } else {
                 (block_timestamp, 0)
             }
         }
-        EventKind::Reaffirm => {
+        TailLayout::Expires => {
             if data.len() >= 32 {
                 (block_timestamp, word_u64(&data[0..32]))
             } else {
                 (block_timestamp, 0)
             }
         }
-        EventKind::Revoke | EventKind::Report | EventKind::ReportResolved => {
+        TailLayout::At => {
             if data.len() >= 32 {
                 (word_u64(&data[0..32]), 0)
             } else {
                 (block_timestamp, 0)
             }
         }
+        // The whole point of v0.2.0: a deployment can say "there is no timing data here" and get
+        // the block clock plus an explicit `expires_at = 0` (perpetual-as-far-as-this-log-proves),
+        // instead of a `uid` hash silently decoded as a year-2106 expiry.
+        TailLayout::None => (block_timestamp, 0),
     }
 }
 
@@ -237,28 +368,42 @@ fn map_trust_events(params: String, block: eth::Block) -> Result<TrustEvents, Er
             if log.address != p.contract {
                 continue; // cheapest reject: not our contract
             }
-            if log.topics.is_empty() || log.topics.len() < 3 {
-                continue; // must have topic0 + two indexed address params
+            if log.topics.is_empty() {
+                continue; // not even a topic0 — anonymous event, never ours
             }
 
             let topic0 = log.topics[0].as_slice();
-            let kind = if topic0_matches(topic0, &p.vouch_topic) {
-                EventKind::Vouch
+            let (kind, tail) = if topic0_matches(topic0, &p.vouch_topic) {
+                (EventKind::Vouch, p.vouch_tail)
             } else if topic0_matches(topic0, &p.revoke_topic) {
-                EventKind::Revoke
+                (EventKind::Revoke, p.revoke_tail)
             } else if topic0_matches(topic0, &p.reaffirm_topic) {
-                EventKind::Reaffirm
+                (EventKind::Reaffirm, p.reaffirm_tail)
             } else if topic0_matches(topic0, &p.report_topic) {
-                EventKind::Report
+                (EventKind::Report, p.report_tail)
             } else if topic0_matches(topic0, &p.report_resolved_topic) {
-                EventKind::ReportResolved
+                (EventKind::ReportResolved, p.report_resolved_tail)
             } else {
                 continue; // not one of the configured trust-graph topics
             };
 
-            let from = addr_from_topic(&log.topics[1]);
-            let to = addr_from_topic(&log.topics[2]);
-            let (issued_at, expires_at) = decode_timing(kind, &log.data, block_timestamp);
+            // Bounds-check against the CONFIGURED indices, not a hardcoded `len() < 3`. A
+            // deployment reading `scope` from topics[3] needs four topics; one that maps
+            // from/to to topics[2]/topics[1] still needs three. Checking the actual indices
+            // this deployment uses keeps a misconfigured params string from panicking the WASM
+            // module on a real block.
+            let max_topic = p.from_topic.max(p.to_topic).max(p.scope_topic.unwrap_or(0));
+            if log.topics.len() <= max_topic {
+                continue;
+            }
+
+            let from = addr_from_topic(&log.topics[p.from_topic]);
+            let to = addr_from_topic(&log.topics[p.to_topic]);
+            let scope = p
+                .scope_topic
+                .map(|i| hex0x(&log.topics[i]))
+                .unwrap_or_default();
+            let (issued_at, expires_at) = decode_timing(tail, &log.data, block_timestamp);
 
             events.push(TrustEvent {
                 protocol: p.protocol.clone(),
@@ -271,6 +416,7 @@ fn map_trust_events(params: String, block: eth::Block) -> Result<TrustEvents, Er
                 expires_at,
                 tx_hash: tx_hash.clone(),
                 block_num: block.number,
+                scope,
             });
         }
     }
@@ -280,8 +426,23 @@ fn map_trust_events(params: String, block: eth::Block) -> Result<TrustEvents, Er
 
 // ─── store_edges ───────────────────────────────────────────────────────────
 
-fn edge_key(protocol: &str, from: &[u8], to: &[u8]) -> String {
-    format!("edge:{protocol}:{}:{}", hex::encode(from), hex::encode(to))
+/// The edge identity under trust-graph v0.2.0: (protocol, network, scope, from, to).
+///
+/// v0.1.0 keyed on (protocol, from, to) only. Two real collisions that hid behind that:
+///   * **network** — the SAME protocol indexed on two chains (EAS on Base and EAS on Optimism)
+///     shares `protocol=eas`, so an edge on one chain would overwrite the identically-addressed
+///     edge on the other. Addresses are not chain-scoped; the key has to be.
+///   * **scope**   — one EAS attester routinely holds several live attestations about the same
+///     recipient under different schemas. Without `scope`, revoking one collapsed all of them
+///     into a single revoked edge.
+/// Both are only reachable once the module actually runs on more than one chain and more than
+/// one protocol, which is exactly what v0.2.0 does. schema.sql's ORDER BY mirrors this tuple.
+fn edge_key(protocol: &str, network: &str, scope: &str, from: &[u8], to: &[u8]) -> String {
+    format!(
+        "edge:{protocol}:{network}:{scope}:{}:{}",
+        hex::encode(from),
+        hex::encode(to)
+    )
 }
 
 // KNOWN LIMITATION — read this before changing store_edges:
@@ -323,7 +484,7 @@ fn edge_key(protocol: &str, from: &[u8], to: &[u8]) -> String {
 #[substreams::handlers::store]
 fn store_edges(events: TrustEvents, store: StoreSetProto<Edge>) {
     for (ordinal, ev) in events.events.into_iter().enumerate() {
-        let key = edge_key(&ev.protocol, &ev.from, &ev.to);
+        let key = edge_key(&ev.protocol, &ev.network, &ev.scope, &ev.from, &ev.to);
         let kind = EventKind::try_from(ev.kind).unwrap_or(EventKind::Vouch);
 
         let mut edge = Edge {
@@ -347,6 +508,7 @@ fn store_edges(events: TrustEvents, store: StoreSetProto<Edge>) {
             kind: EventKind::Vouch as i32,
             tx_hash: vec![],
             block_num: 0,
+            scope: ev.scope.clone(),
         };
 
         // Applies to every kind, not just VOUCH: `ev.issued_at` is now always well-defined
@@ -430,8 +592,14 @@ fn map_edge_deltas(deltas: Deltas<DeltaProto<Edge>>) -> Result<DatabaseChanges, 
     for delta in deltas.deltas {
         let edge = &delta.new_value;
         let kind = EventKind::try_from(edge.kind).unwrap_or(EventKind::Vouch);
+        // MUST match schema.sql's `ORDER BY (protocol, network, scope, to_addr, from_addr)`
+        // column-for-column: that ORDER BY is the ReplacingMergeTree dedupe key, so any column
+        // in it that is NOT in this CDC key would let two genuinely different edges collapse
+        // into one on merge (or, worse, dedupe non-deterministically).
         let key = [
             ("protocol", edge.protocol.as_str()),
+            ("network", edge.network.as_str()),
+            ("scope", edge.scope.as_str()),
             ("to_addr", &hex0x(&edge.to)),
             ("from_addr", &hex0x(&edge.from)),
         ];
@@ -448,7 +616,8 @@ fn map_edge_deltas(deltas: Deltas<DeltaProto<Edge>>) -> Result<DatabaseChanges, 
                 // read via `FINAL` (schema.sql doc comment).
                 tables
                     .create_row("trust_edges", key)
-                    .set("network", edge.network.as_str())
+                    // `network` and `scope` are supplied by `key` above — setting them again
+                    // here would send the same column twice in one INSERT.
                     .set("kind", kind.as_str_name())
                     .set("weight_raw", edge.weight_raw.as_str())
                     .set("issued_at", clamp_unix_timestamp(edge.issued_at))
@@ -893,5 +1062,288 @@ mod tests {
         let str_len = word_u64(&data[str_offset..str_offset + 32]) as usize;
         let handle = std::str::from_utf8(&data[str_offset + 32..str_offset + 32 + str_len]).unwrap();
         assert_eq!(handle, "romariokavin.aval.eth");
+    }
+
+    // ── trust-graph v0.2.0: the EAS adapter profile ────────────────────────
+    //
+    // Every log below is REAL, captured from EAS on Base
+    // (0x4200000000000000000000000000000000000021) via base.blockscout.com's log API —
+    // addresses, topics, data, tx hashes and block numbers verbatim, nothing edited. See
+    // ../PROOF.md §9.3 for the capture and the independent cross-check.
+
+    /// The EAS adapter profile, exactly as docs/17-trust-graph-standard.md §6.2 registers it and
+    /// as substreams.yaml's `networks:` block ships it. Read `from_topic=2&to_topic=1` carefully:
+    /// that is the whole point — EAS declares the SUBJECT first.
+    const EAS_BASE_PARAMS: &str = "contract=0x4200000000000000000000000000000000000021\
+        &vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35\
+        &revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615\
+        &reaffirm_topic=&report_topic=&report_resolved_topic=\
+        &from_topic=2&to_topic=1&scope_topic=3\
+        &vouch_tail=none&revoke_tail=none\
+        &model=ISSUANCE&protocol=eas&network=base";
+
+    /// A real `Attested` log, block 49109539, tx 0x174b15fa…745f.
+    ///
+    /// EAS's declaration is
+    /// `Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
+    /// — SUBJECT first, asserter second. The two assertions that matter here are the `from`/`to`
+    /// pair: `from` must be the ATTESTER (0x357458…d7ee, topics[2]) and `to` the RECIPIENT
+    /// (0xf46f5d…5e50, topics[1]). Under trust-graph v0.1.0's hardcoded
+    /// `from = topics[1], to = topics[2]` this edge pointed the other way — see
+    /// `v0_1_0_topic_order_would_reverse_this_eas_edge` below, which pins that exact regression.
+    #[test]
+    fn decodes_a_real_eas_attested_log_with_the_attester_as_from() {
+        let block = block_with_real_log(
+            49109539,
+            1_785_003_000, // real Base block clock; EAS's log carries no timing word of its own
+            "0x174b15fa836b87a91fa0d0e626b7056e92a355a660c4c7cbf43fae763593745f",
+            "0x4200000000000000000000000000000000000021",
+            &[
+                "0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35",
+                "0x000000000000000000000000f46f5d2eeb4d9085d6bd67c38a5b622f7e8e5e50", // recipient
+                "0x000000000000000000000000357458739f90461b99789350868cd7cf330dd7ee", // attester
+                "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4", // schemaUID
+            ],
+            // the whole non-indexed tail: the attestation `uid`. A content hash, not a clock.
+            "0x67ac403444d485a7f0a851acbde2dae1dc3b8b8acb0c2b904b58609ff5c659b3",
+        );
+
+        let out = testing::map!(map_trust_events(EAS_BASE_PARAMS.to_string(), block)).unwrap();
+        assert_eq!(out.events.len(), 1);
+        let ev = &out.events[0];
+
+        assert_eq!(ev.protocol, "eas");
+        assert_eq!(ev.network, "base");
+        // An attestation being issued IS a trust assertion — VOUCH, not REAFFIRM. v0.1.0 had no
+        // topic slot free for it and routed `Attested` through `reaffirm_topic`, which is why
+        // PROOF.md §7.3's rows all read REAFFIRM. That was a workaround, not a mapping.
+        assert_eq!(ev.kind, EventKind::Vouch as i32);
+        assert_eq!(
+            hex::encode(&ev.from),
+            "357458739f90461b99789350868cd7cf330dd7ee",
+            "`from` must be the ATTESTER (topics[2]) — the party making the assertion"
+        );
+        assert_eq!(
+            hex::encode(&ev.to),
+            "f46f5d2eeb4d9085d6bd67c38a5b622f7e8e5e50",
+            "`to` must be the RECIPIENT (topics[1]) — the party being asserted about"
+        );
+        assert_eq!(
+            ev.scope, "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4",
+            "scope carries EAS's schemaUID so parallel same-pair attestations stay distinct"
+        );
+        // `vouch_tail=none`: no timing in the log, so issuance is the block's own clock and
+        // expiry is the standard's perpetual sentinel 0 — NOT a `uid` misread as a year-2106
+        // timestamp, which is what v0.1.0 produced (PROOF.md §8.2).
+        assert_eq!(ev.issued_at, 1_785_003_000);
+        assert_eq!(ev.expires_at, 0);
+        assert_eq!(ev.block_num, 49109539);
+    }
+
+    /// The regression pin for the reversed-edge bug. Same real log, same everything, except the
+    /// params keep v0.1.0's implicit `from_topic=1&to_topic=2`. The decode still "succeeds" and
+    /// still produces two real, plausible-looking addresses — it just names the wrong one as the
+    /// asserter. That is precisely why this had to be made explicit rather than inferred: there
+    /// is no ABI-level signal that distinguishes the two orderings, and the wrong answer is
+    /// indistinguishable from the right one by inspection of the output alone.
+    #[test]
+    fn v0_1_0_topic_order_would_reverse_this_eas_edge() {
+        let block = block_with_real_log(
+            49109539,
+            1_785_003_000,
+            "0x174b15fa836b87a91fa0d0e626b7056e92a355a660c4c7cbf43fae763593745f",
+            "0x4200000000000000000000000000000000000021",
+            &[
+                "0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35",
+                "0x000000000000000000000000f46f5d2eeb4d9085d6bd67c38a5b622f7e8e5e50",
+                "0x000000000000000000000000357458739f90461b99789350868cd7cf330dd7ee",
+                "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4",
+            ],
+            "0x67ac403444d485a7f0a851acbde2dae1dc3b8b8acb0c2b904b58609ff5c659b3",
+        );
+        let v0_1_0_style = EAS_BASE_PARAMS.replace("&from_topic=2&to_topic=1", "");
+
+        let out = testing::map!(map_trust_events(v0_1_0_style, block)).unwrap();
+        let ev = &out.events[0];
+
+        // The recipient ends up in `from` — the edge points backwards.
+        assert_eq!(hex::encode(&ev.from), "f46f5d2eeb4d9085d6bd67c38a5b622f7e8e5e50");
+        assert_eq!(hex::encode(&ev.to), "357458739f90461b99789350868cd7cf330dd7ee");
+    }
+
+    /// A real `Revoked` log, block 49109984, tx 0xc91462bc…fa18 — same schema
+    /// (0x254bd1…f9f4) and same attester as the `Attested` above, so it exercises the kind
+    /// dispatch and the role mapping together.
+    #[test]
+    fn decodes_a_real_eas_revoked_log_as_revoke() {
+        let block = block_with_real_log(
+            49109984,
+            1_785_003_890,
+            "0xc91462bcdcd454238b631172216747e91bbef3490da81ffa2723ce1e9d7bfa18",
+            "0x4200000000000000000000000000000000000021",
+            &[
+                "0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615",
+                "0x000000000000000000000000fde64995acd78435c63505a066273abdd979386c", // recipient
+                "0x000000000000000000000000357458739f90461b99789350868cd7cf330dd7ee", // attester
+                "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4",
+            ],
+            "0xa07e8d5110c0cac807ee07d263d22747a0d6a8b68759e34ec34f3d01f6a67fa9",
+        );
+
+        let out = testing::map!(map_trust_events(EAS_BASE_PARAMS.to_string(), block)).unwrap();
+        assert_eq!(out.events.len(), 1);
+        let ev = &out.events[0];
+        assert_eq!(ev.kind, EventKind::Revoke as i32);
+        assert_eq!(hex::encode(&ev.from), "357458739f90461b99789350868cd7cf330dd7ee");
+        assert_eq!(hex::encode(&ev.to), "fde64995acd78435c63505a066273abdd979386c");
+        // `revoke_tail=none`: v0.1.0 would have read the `uid` as this revocation's `at`,
+        // producing an absurd `issued_at`. The block clock is the real, checkable answer.
+        assert_eq!(ev.issued_at, 1_785_003_890);
+        assert_eq!(ev.expires_at, 0);
+    }
+
+    /// `scope` is part of the edge IDENTITY, not decoration. Two attestations from the same
+    /// attester about the same recipient under DIFFERENT schemas must be two edges — otherwise
+    /// revoking one silently revokes the other. Both schema UIDs below are real ones seen on
+    /// Base in the captured window.
+    #[test]
+    fn scope_keeps_same_pair_different_schema_edges_distinct() {
+        let attester = hex_bytes("0x357458739f90461b99789350868cd7cf330dd7ee");
+        let recipient = hex_bytes("0xfde64995acd78435c63505a066273abdd979386c");
+        let schema_a = "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4";
+        let schema_b = "0xf8b05c79f090979bf4a80270aba232dff11a10d9ca55c4f88de95317970f0de9";
+
+        let key_a = edge_key("eas", "base", schema_a, &attester, &recipient);
+        let key_b = edge_key("eas", "base", schema_b, &attester, &recipient);
+        assert_ne!(key_a, key_b, "different schemaUID must mean a different edge");
+
+        // …and the SAME edge on a different chain is also a different edge. Addresses are not
+        // chain-scoped, so without `network` in the key EAS-on-Base would overwrite
+        // EAS-on-Optimism.
+        let key_op = edge_key("eas", "optimism", schema_a, &attester, &recipient);
+        assert_ne!(key_a, key_op, "same protocol on another chain must be a different edge");
+
+        // Aval's empty scope is still a well-formed, distinct key — not a degenerate case.
+        let aval = edge_key("aval", "worldchain", "", &attester, &recipient);
+        assert!(aval.starts_with("edge:aval:worldchain::"));
+    }
+
+    /// A params typo must fail loudly. `vouch_tail=nil` is not a layout; accepting it and
+    /// falling back to "guess from the kind" is how a `uid` becomes a year-2106 expiry.
+    #[test]
+    fn parse_params_rejects_an_unknown_tail_layout() {
+        let bad = EAS_BASE_PARAMS.replace("vouch_tail=none", "vouch_tail=nil");
+        let err = parse_params(&bad).unwrap_err().to_string();
+        assert!(err.contains("unknown vouch_tail"), "unexpected error: {err}");
+    }
+
+    /// Role indices must be sane. Both of these are silent-corruption vectors if allowed:
+    /// index 0 is topic0 (the event signature, not an address), and identical indices would
+    /// make every edge a self-loop.
+    #[test]
+    fn parse_params_rejects_degenerate_role_indices() {
+        let zero = EAS_BASE_PARAMS.replace("from_topic=2", "from_topic=0");
+        assert!(parse_params(&zero).unwrap_err().to_string().contains("1-based"));
+
+        let same = EAS_BASE_PARAMS.replace("from_topic=2", "from_topic=1");
+        assert!(parse_params(&same).unwrap_err().to_string().contains("must differ"));
+    }
+
+    /// Every `map_trust_events: "..."` params value declared in a manifest, in file order.
+    /// Works for both manifests: `substreams.yaml` names the module `map_trust_events`,
+    /// `substreams.sink.yaml` names it `main:map_trust_events` after the import.
+    fn manifest_param_values(manifest: &str) -> Vec<String> {
+        manifest
+            .lines()
+            .map(str::trim_start)
+            .filter(|l| l.starts_with("map_trust_events:") || l.starts_with("main:map_trust_events:"))
+            .filter_map(|l| {
+                let start = l.find('"')?;
+                let end = l.rfind('"')?;
+                (end > start).then(|| l[start + 1..end].to_string())
+            })
+            .collect()
+    }
+
+    /// The two manifests must declare the SAME five adapter profiles.
+    ///
+    /// `substreams.sink.yaml` cannot inherit `networks:` from the package it imports — importing
+    /// namespaces every module name — so the profiles are physically duplicated. Duplication that
+    /// nothing checks is duplication that drifts, and a drifted sink profile is the worst kind of
+    /// bug here: it would write real, plausible rows decoded under the WRONG protocol's rules.
+    /// This test is the check.
+    #[test]
+    fn sink_profiles_match_the_streaming_manifest() {
+        let stream = manifest_param_values(include_str!("../substreams.yaml"));
+        let sink = manifest_param_values(include_str!("../substreams.sink.yaml"));
+
+        assert_eq!(stream.len(), 6, "1 default + 5 network profiles in substreams.yaml");
+        assert_eq!(sink.len(), 6, "1 default + 5 network profiles in substreams.sink.yaml");
+        assert_eq!(stream, sink, "sink manifest profiles have drifted from the streaming manifest");
+
+        // …and every one of them must actually parse, with the protocol/network pair it claims.
+        let seen: Vec<(String, String)> = stream
+            .iter()
+            .map(|raw| {
+                let p = parse_params(raw).expect("every shipped profile must parse");
+                (p.protocol, p.network)
+            })
+            .collect();
+        for expected in [
+            ("aval", "worldchain"),
+            ("eas", "base"),
+            ("eas", "optimism"),
+            ("eas", "arbitrum"),
+            ("eas", "mainnet"),
+        ] {
+            assert!(
+                seen.iter().any(|(pr, nw)| pr == expected.0 && nw == expected.1),
+                "missing registered adapter profile {expected:?}; found {seen:?}"
+            );
+        }
+    }
+
+    /// Every EAS profile must carry the three corrections that make EAS edges mean the right
+    /// thing. Pinned as a test because getting any one of them wrong produces output that still
+    /// looks entirely plausible (real addresses, real hashes) while being wrong.
+    #[test]
+    fn every_eas_profile_declares_the_corrected_role_scope_and_tail_mapping() {
+        let profiles: Vec<Params> = manifest_param_values(include_str!("../substreams.yaml"))
+            .iter()
+            .map(|raw| parse_params(raw).unwrap())
+            .filter(|p| p.protocol == "eas")
+            .collect();
+        assert_eq!(profiles.len(), 4, "EAS is registered on four chains");
+
+        for p in &profiles {
+            assert_eq!(p.from_topic, 2, "{}: `from` must be the attester", p.network);
+            assert_eq!(p.to_topic, 1, "{}: `to` must be the recipient", p.network);
+            assert_eq!(p.scope_topic, Some(3), "{}: scope must be schemaUID", p.network);
+            assert_eq!(p.vouch_tail, TailLayout::None, "{}: Attested has no timing word", p.network);
+            assert_eq!(p.revoke_tail, TailLayout::None, "{}: Revoked has no timing word", p.network);
+            assert!(p.vouch_topic.is_some() && p.revoke_topic.is_some());
+        }
+    }
+
+    /// A log with too few topics for the CONFIGURED indices is skipped, not panicked on.
+    /// `scope_topic=3` needs four topics; an `Attested`-shaped log with only three would have
+    /// indexed out of bounds inside the WASM module on a real block.
+    #[test]
+    fn skips_logs_with_too_few_topics_for_the_configured_indices() {
+        let block = block_with_real_log(
+            49109539,
+            1_785_003_000,
+            "0x174b15fa836b87a91fa0d0e626b7056e92a355a660c4c7cbf43fae763593745f",
+            "0x4200000000000000000000000000000000000021",
+            &[
+                "0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35",
+                "0x000000000000000000000000f46f5d2eeb4d9085d6bd67c38a5b622f7e8e5e50",
+                "0x000000000000000000000000357458739f90461b99789350868cd7cf330dd7ee",
+                // no topics[3] — scope_topic=3 cannot be satisfied
+            ],
+            "0x67ac403444d485a7f0a851acbde2dae1dc3b8b8acb0c2b904b58609ff5c659b3",
+        );
+        let out = testing::map!(map_trust_events(EAS_BASE_PARAMS.to_string(), block)).unwrap();
+        assert_eq!(out.events.len(), 0);
     }
 }

@@ -41,7 +41,65 @@ imports:
 network: worldchain
 
 params:
-  main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain"
+  main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+
+# The same five adapter profiles as ./substreams.yaml, re-declared here under the `main:` import
+# prefix. They have to be restated rather than inherited: `networks:` entries key on the module
+# names as this manifest sees them, and importing the package namespaces every module
+# (`map_trust_events` -> `main:map_trust_events`). Keep the two lists in sync — the params
+# strings are byte-identical to ./substreams.yaml's by design, and
+# `sink_profiles_match_the_streaming_manifest` in src/lib.rs fails the build if they drift.
+#
+# `substreams-sink-sql run` accepts `--network` (verified on v4.13.1: "Specify the network to use
+# for params and initialBlocks, overriding the 'network' field in the substreams package"). That
+# is what closes ../PROOF.md §7.3's documented limitation — the store-backed half of the pipeline
+# no longer needs a hand-edited `initialBlock` to move chains, so "one .spkg, params only" now
+# holds for the SINK as well as the map.
+networks:
+  worldchain:
+    initialBlock:
+      main:map_trust_events: 32833177
+      main:store_edges: 32833177
+      main:map_edge_deltas: 32833177
+      main:db_out: 32833177
+    params:
+      main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+
+  base:
+    initialBlock:
+      main:map_trust_events: 49110120
+      main:store_edges: 49110120
+      main:map_edge_deltas: 49110120
+      main:db_out: 49110120
+    params:
+      main:map_trust_events: "contract=0x4200000000000000000000000000000000000021&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=base"
+
+  optimism:
+    initialBlock:
+      main:map_trust_events: 154673910
+      main:store_edges: 154673910
+      main:map_edge_deltas: 154673910
+      main:db_out: 154673910
+    params:
+      main:map_trust_events: "contract=0x4200000000000000000000000000000000000021&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=optimism"
+
+  arbitrum:
+    initialBlock:
+      main:map_trust_events: 487448500
+      main:store_edges: 487448500
+      main:map_edge_deltas: 487448500
+      main:db_out: 487448500
+    params:
+      main:map_trust_events: "contract=0xbd75f629a22dc1ced33dda0b68c546a1c035c458&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=arbitrum"
+
+  mainnet:
+    initialBlock:
+      main:map_trust_events: 25601310
+      main:store_edges: 25601310
+      main:map_edge_deltas: 25601310
+      main:db_out: 25601310
+    params:
+      main:map_trust_events: "contract=0xa1207f3bba224e2c9c3c6d5af63d0eb1582ce587&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=mainnet"
 
 sink:
   module: main:db_out

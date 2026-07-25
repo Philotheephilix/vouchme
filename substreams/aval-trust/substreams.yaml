@@ -67,11 +67,100 @@ binaries:
 network: worldchain
 
 params:
+  # DEFAULT PROFILE — Aval on World Chain mainnet. Mirrored by `networks.worldchain.params`
+  # below; this top-level block is what a bare `substreams run`/`pack` with no `--network`
+  # uses.
+  #
   # AvalRegistry on World Chain mainnet — deployments/worldchain-mainnet.json's
   # `contracts.AvalRegistry` is STALE (it names 0x7a294C7C…, an abandoned first
   # attempt); the live registry the app writes to, and the one that carries the
   # real Enrolled/Vouched logs, is 0x6fEfEf2d…  (see ../PROOF.md §9.1).
-  map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain"
+  map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+
+# ─── ADAPTER PROFILES — one .spkg, five chains, two protocols ────────────────────────────────
+#
+# This is trust-graph v0.2.0's composability claim made operational, and it is the ONLY thing
+# that differs between chains: no Rust is recompiled, no module graph changes, no second package
+# is built. `substreams run ./substreams.yaml db_out --network base -e base` swaps the profile.
+#
+# Each entry is an ADAPTER PROFILE in the sense of docs/17-trust-graph-standard.md §6: a
+# declaration of how one contract's event vocabulary maps onto the standard's TrustEdge. Adding a
+# sixth protocol means adding an entry here — see §7 of that doc for the checklist.
+#
+# READ THE initialBlock VALUES HONESTLY. For `worldchain` it is AvalRegistry's real creation
+# block, so that profile indexes the protocol's ENTIRE history (~3.5k blocks — Aval is days old).
+# For the four EAS profiles it is a DEMO WINDOW START, not EAS's deployment block: `store_edges`
+# is a Substreams store and must process every block from `initialBlock` forward, and EAS has
+# been live on Ethereum since 2023 — a full backfill is a scale exercise, not a correctness one,
+# and would take hours. Each window was chosen because it provably contains real Attested AND/OR
+# Revoked logs (verified independently via Blockscout before streaming — ../PROOF.md §9.3), not
+# because it is the beginning of anything. `trust_edges` therefore holds EAS edges from these
+# blocks onward, not all of EAS history. Stated here rather than left for a reader to infer.
+networks:
+  # ── Aval — World Chain mainnet (chainId 480). The reference implementation of the standard.
+  worldchain:
+    initialBlock:
+      map_trust_events: 32833177 # AvalRegistry creation block — full protocol history
+      store_edges: 32833177
+      map_edge_deltas: 32833177
+      db_out: 32833177
+    params:
+      map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+
+  # ── EAS — Ethereum Attestation Service. Same .spkg, four chains, one profile shape.
+  #
+  # `Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
+  # `Revoked (address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
+  #
+  # Three things every EAS profile must say, and why:
+  #   from_topic=2 / to_topic=1  EAS declares the SUBJECT first and the ASSERTER second — the
+  #                              opposite of Aval. Without this the edge points backwards.
+  #   scope_topic=3              schemaUID. One attester holds many live attestations about the
+  #                              same recipient under different schemas; revoking one must not
+  #                              revoke the rest.
+  #   *_tail=none                the only non-indexed word is the attestation `uid`, a content
+  #                              hash. There is no timing data in an EAS log at all. Declaring
+  #                              `none` yields issued_at = block clock and expires_at = 0
+  #                              (the standard's perpetual sentinel) instead of a hash decoded
+  #                              as a year-2106 expiry (the v0.1.0 behaviour, PROOF.md §8.2).
+  #                              EAS's real `expirationTime` is contract storage, not log data.
+  base:
+    initialBlock:
+      map_trust_events: 49110120
+      store_edges: 49110120
+      map_edge_deltas: 49110120
+      db_out: 49110120
+    params:
+      map_trust_events: "contract=0x4200000000000000000000000000000000000021&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=base"
+
+  optimism:
+    initialBlock:
+      map_trust_events: 154673910
+      store_edges: 154673910
+      map_edge_deltas: 154673910
+      db_out: 154673910
+    params:
+      map_trust_events: "contract=0x4200000000000000000000000000000000000021&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=optimism"
+
+  # EAS on Arbitrum One is NOT a predeploy — different address from the OP-stack chains above.
+  # Same profile shape regardless, which is the point.
+  arbitrum:
+    initialBlock:
+      map_trust_events: 487448500
+      store_edges: 487448500
+      map_edge_deltas: 487448500
+      db_out: 487448500
+    params:
+      map_trust_events: "contract=0xbd75f629a22dc1ced33dda0b68c546a1c035c458&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=arbitrum"
+
+  mainnet:
+    initialBlock:
+      map_trust_events: 25601310
+      store_edges: 25601310
+      map_edge_deltas: 25601310
+      db_out: 25601310
+    params:
+      map_trust_events: "contract=0xa1207f3bba224e2c9c3c6d5af63d0eb1582ce587&vouch_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&revoke_topic=0xf930a6e2523c9cc298691873087a740550b8fc85a0680830414c148ed927f615&reaffirm_topic=&report_topic=&report_resolved_topic=&from_topic=2&to_topic=1&scope_topic=3&vouch_tail=none&revoke_tail=none&model=ISSUANCE&protocol=eas&network=mainnet"
 
 modules:
   - name: map_trust_events # raw block -> TrustEvents
