@@ -4,8 +4,15 @@ description: >-
   PlatformRegistry, and PresenceDrip on World Chain. The contract stores
   facts; this Subgraph stores the edges; @aval/engine computes score, tier,
   and depth live, off-chain, from what's indexed here (docs/02-contracts.md
-  §1). Addresses below are placeholders — see docs/10-constants.md §7
-  ("AvalRegistry: TBD at deploy").
+  §1). Addresses below are the LIVE World Chain mainnet (chainId 480)
+  deployment — each verified with eth_getCode against
+  https://worldchain-mainnet.g.alchemy.com/public, and each startBlock pinned
+  to the contract's creation receipt in
+  contracts/broadcast/Deploy.s.sol/480/run-latest.json. NOTE: they do NOT match
+  deployments/worldchain-mainnet.json, which still records an earlier, abandoned
+  deploy of the same script (AvalRegistry 0x7a294C7C…, 1 Enrolled log, then
+  superseded); the live set below is the one app/.env.local reads and the one
+  carrying the real Enrolled/Vouched logs.
 schema:
   file: ./schema.graphql
 
@@ -14,9 +21,9 @@ dataSources:
     name: AvalRegistry
     network: worldchain
     source:
-      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      address: "0x6fEfEf2d44203300a6a33d631840C972181b8722" # AvalRegistry on World Chain mainnet; eth_getCode -> 7645 bytes
       abi: AvalRegistry
-      startBlock: 0 # TODO: deployment block — MUST be the actual deployment block, not 0 (docs/02-contracts.md §6: "a full-chain scan will not finish before the demo")
+      startBlock: 32833177 # creation block, from the deploy receipt (not a guess, not 0)
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -53,9 +60,9 @@ dataSources:
     name: ReportRegistry
     network: worldchain
     source:
-      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      address: "0x4570B517C75A90F85c9FeD321113fB80FC777bcC" # ReportRegistry on World Chain mainnet; eth_getCode -> 9938 bytes
       abi: ReportRegistry
-      startBlock: 0 # TODO: deployment block
+      startBlock: 32833182 # creation block, from the deploy receipt (not a guess, not 0)
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -83,9 +90,9 @@ dataSources:
     name: PlatformRegistry
     network: worldchain
     source:
-      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      address: "0xbBEE544679F9C5a8784F30195a9030131f9E9106" # PlatformRegistry on World Chain mainnet; eth_getCode -> 7692 bytes
       abi: PlatformRegistry
-      startBlock: 0 # TODO: deployment block
+      startBlock: 32833180 # creation block, from the deploy receipt (not a guess, not 0)
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -114,9 +121,9 @@ dataSources:
     name: PresenceDrip
     network: worldchain
     source:
-      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      address: "0x4C0cf0D239A1012D432EDEa47e3BB1cb00F5192d" # PresenceDrip on World Chain mainnet; eth_getCode -> 5444 bytes
       abi: PresenceDrip
-      startBlock: 0 # TODO: deployment block
+      startBlock: 32833183 # creation block, from the deploy receipt (not a guess, not 0)
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
