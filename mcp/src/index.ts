@@ -45,7 +45,12 @@ import { tool as avalQuery } from "./tools/aval_query.js";
 
 function loadToolContext(env: NodeJS.ProcessEnv = process.env): ToolContext {
   const client = createGraphClient(loadGraphClientConfigFromEnv(env));
-  return { client, operatorAddress: env.AVAL_OPERATOR_ADDRESS };
+  return {
+    client,
+    operatorAddress: env.AVAL_OPERATOR_ADDRESS,
+    substreamsApiToken: env.SUBSTREAMS_API_TOKEN,
+    substreamsEndpoint: env.SUBSTREAMS_ENDPOINT,
+  };
 }
 
 /**

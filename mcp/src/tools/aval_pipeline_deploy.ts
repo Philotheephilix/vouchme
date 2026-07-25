@@ -8,6 +8,12 @@
 // until somebody queries it a week later, so the gate is in the tool
 // rather than in the documentation." That gate is real and enforced below
 // even though the deploy step itself is stubbed (see aval_pipeline_preview.ts).
+//
+// Also refuses with NotConfigured when SUBSTREAMS_API_TOKEN / _ENDPOINT
+// aren't set (mcp/.env.example) — there is no Substreams backend to submit
+// a manifest to without them, and the previous behaviour (always returning
+// a `sinkStatus: "PENDING"` STUB regardless of configuration) was
+// indistinguishable from a real deploy's initial response, i.e. fake data.
 
 import { z } from "zod";
 import { getPreview } from "../pipelines.js";
@@ -26,6 +32,19 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "found zero matching events — always call aval_pipeline_preview first and check eventsFound.",
   inputSchema,
   async handler(args, ctx) {
+    if (!ctx.substreamsApiToken || !ctx.substreamsEndpoint) {
+      const missing = [
+        !ctx.substreamsApiToken ? "SUBSTREAMS_API_TOKEN" : null,
+        !ctx.substreamsEndpoint ? "SUBSTREAMS_ENDPOINT" : null,
+      ].filter((v): v is string => v !== null);
+      return errorResult(
+        new AvalToolError(
+          "NotConfigured",
+          `this server has no Substreams backend configured (missing: ${missing.join(", ")} — see mcp/.env.example); refusing rather than reporting a fake sinkStatus`,
+        ),
+      );
+    }
+
     const graph = await getCachedGraph(ctx.client);
     const preview = getPreview(args.previewId);
     if (!preview) {

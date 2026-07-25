@@ -45,8 +45,9 @@ Drop this into `.mcp.json` (Claude Code) or `claude_desktop_config.json`:
 | `GRAPH_API_KEY` | one of these two | Graph Gateway API key — the normal path. |
 | `X402_PRIVATE_KEY` | one of these two | x402 fallback: per-query USDC on Base, no account needed (docs/05 §4). |
 | `X402_CHAIN` | no | Defaults to `base`. |
-| `AVAL_OPERATOR_ADDRESS` | for `aval_report` / `aval_request_score` | The human or platform this server acts on behalf of. |
+| `AVAL_OPERATOR_ADDRESS` | for `aval_report` / `aval_request_score` | The human or platform this server acts on behalf of. Both tools refuse with `NoOperator` when unset. |
 | `WORLDCHAIN_RPC` | no | For a live `getIsUserVerified` anchor check (see Scope notes). |
+| `SUBSTREAMS_API_TOKEN`, `SUBSTREAMS_ENDPOINT` | for `aval_pipeline_deploy` | Both required, or the tool refuses with `NotConfigured` — see Scope notes. |
 
 **The reusability test this package is built to pass** (docs/06 §6): on a machine that has never
 seen this repo, `npx -y @aval/mcp` with *only* `X402_PRIVATE_KEY` set (no Graph API key, no Aval
@@ -75,15 +76,20 @@ Flagged here rather than silently stubbed:
 - **x402 payment handshake** (`src/client.ts`'s `X402PaymentHandler`): the interface is real and
   wired into the request flow; the actual USDC-on-Base signing step throws `X402NotImplementedError`
   until it's implemented (or swapped for `@graphprotocol/client-x402`).
-- **On-chain writes** (`aval_report`, `aval_request_score`): both compute their real, engine-derived
-  answer, but neither submits an actual transaction — that needs a funded signer and contract ABIs
-  this task didn't provide. `requestId`/`reportId` are deterministically derived, not on-chain yet.
+- **On-chain writes** (`aval_report`, `aval_request_score`): both refuse with a named `NoOperator`
+  error when `AVAL_OPERATOR_ADDRESS` isn't set (docs/06's signature for each has no explicit
+  requester/reporter parameter, so attribution has to come from server config). When configured,
+  both compute their real, engine-derived answer, but neither submits an actual transaction — that
+  needs a funded signer and contract ABIs this task didn't provide. `requestId`/`reportId` are
+  deterministically derived, not on-chain yet.
 - **Bond balances** (`aval_report`'s `InsufficientBond` check, `aval.bonded`): `CredibilityVault`
   isn't one of `subgraph/subgraph.yaml`'s four data sources, so unlocked-AVAL balance isn't indexed
   anywhere this server can read it yet.
 - **Substreams pipeline generation** (`aval_pipeline_preview` / `_deploy`): implements the documented
-  shapes and the "refuse `eventsFound == 0`" safety gate faithfully; the natural-language → manifest
-  codegen backend (docs/14-substreams.md) is out of this task's build scope.
+  shapes and the "refuse `eventsFound == 0`" safety gate faithfully; `_deploy` additionally refuses
+  with a named `NotConfigured` error when `SUBSTREAMS_API_TOKEN` / `SUBSTREAMS_ENDPOINT` aren't set,
+  rather than reporting a fake `sinkStatus`. The natural-language → manifest codegen backend
+  (docs/14-substreams.md) is out of this task's build scope.
 - **Circles v2 / ENS adapters** (`aval_cross_protocol_trust`): the Aval side is real; the other two
   legs report zero inbound with a code comment rather than fabricated data, pending the adapter
   deployments in docs/05 §3.3 (deliverable G-3, not this task).

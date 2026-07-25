@@ -17,6 +17,14 @@ export interface ToolContext {
    * from AVAL_OPERATOR_ADDRESS (see mcp/README.md).
    */
   operatorAddress?: string | undefined;
+  /**
+   * Credentials for `aval_pipeline_deploy` (docs/06 §2.14, docs/14-substreams.md
+   * §3) — a Substreams endpoint + API token to actually submit a manifest to.
+   * Without both, the tool refuses with `NotConfigured` rather than reporting
+   * a fake `sinkStatus` (see mcp/.env.example's "Pipeline deployment" section).
+   */
+  substreamsApiToken?: string | undefined;
+  substreamsEndpoint?: string | undefined;
 }
 
 export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {

@@ -5,6 +5,13 @@
 // Costs an on-chain ScoreRequested event — one of only three tools in
 // this server with real effects (docs/06 §3).
 //
+// Attribution is mandatory by definition (docs §2.11: "appears in the
+// subject's transparency log" — attributed to *someone*), and docs/06's
+// signature has no explicit "requester" parameter, so — same as
+// aval_report.ts — this refuses with a named error rather than running
+// unattributed when AVAL_OPERATOR_ADDRESS isn't configured, instead of
+// silently proceeding to compute (and return) a lookup with no requester.
+//
 // NOTE ON SCOPE: submitting the actual on-chain transaction needs a
 // funded signer and the PlatformRegistry ABI, neither of which this
 // scaffold wires up (no operator wallet was specified in the task brief).
@@ -34,6 +41,13 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     "unless you may need to report this subject.",
   inputSchema,
   async handler(args, ctx) {
+    const operator = ctx.operatorAddress;
+    if (!operator) {
+      return errorResult(
+        new AvalToolError("NoOperator", "AVAL_OPERATOR_ADDRESS is not configured for this server (see mcp/README.md)"),
+      );
+    }
+
     const graph = await getCachedGraph(ctx.client);
     const subject = resolveIdentifierToAddress(args.subject, graph);
     if (!subject) return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.subject}"`));
@@ -48,7 +62,9 @@ export const tool: ToolDefinition<typeof inputSchema> = {
     const openReports = reportsAgainst.filter((r) => r.state === "PENDING" || r.state === "ARBITRATION").length;
     const upheldReports = reportsAgainst.filter((r) => r.state === "UPHELD").length;
 
-    const requestId = keccak256(toHex(`${subject}:${args.purpose}:${now}`));
+    // Matches PlatformRegistry's real ScoreRequested(id, platform, subject, purposeHash, at) shape
+    // (subgraph/abis/PlatformRegistry.json) — `operator` is the "platform" side.
+    const requestId = keccak256(toHex(`${operator}:${subject}:${args.purpose}:${now}`));
 
     return jsonResult({
       requestId,

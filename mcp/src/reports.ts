@@ -15,6 +15,9 @@ export interface ReportRecord {
   reporter: string;
   target: string;
   evidenceHash: string;
+  /** docs/06-mcp-skills.md §2.12b's public field name — the tool response contract this repo's
+   *  docs use. Sourced from the Subgraph's `Report.snapshotWeight` (see the GraphQL queries below
+   *  and subgraph/schema.graphql's comment on that field for why the two names differ). */
   weightPoints: number;
   bond: string; // BigInt as decimal string (AVAL, 18 decimals — left as the Subgraph's raw units)
   filedAt: bigint;
@@ -29,10 +32,14 @@ export interface ReportRecord {
 // value is "field IS null" — passing an unused variable through a shared
 // `where: { reporter: $reporter, target: $target }` would silently filter
 // out every result on whichever side wasn't intended to be used.
+// Subgraph field is `snapshotWeight` (subgraph/schema.graphql — renamed from
+// the contract ABI's `weightPoints` per docs/05-graph-data-layer.md §2.1.1 /
+// docs/01-trust-math.md §7.1); `toRecord()` below maps it onto this module's
+// `ReportRecord.weightPoints`, the name docs/06's tool response contract uses.
 const REPORTS_AGAINST_QUERY = /* GraphQL */ `
   query ReportsAgainst($target: Bytes!, $first: Int!) {
     reports(first: $first, orderBy: filedAt, orderDirection: desc, where: { target: $target }) {
-      id reporter target evidenceHash weightPoints bond filedAt resolvedAt rebuttalTotal rebutterCount state
+      id reporter target evidenceHash snapshotWeight bond filedAt resolvedAt rebuttalTotal rebutterCount state
     }
   }
 `;
@@ -40,7 +47,7 @@ const REPORTS_AGAINST_QUERY = /* GraphQL */ `
 const REPORTS_BY_QUERY = /* GraphQL */ `
   query ReportsBy($reporter: Bytes!, $first: Int!) {
     reports(first: $first, orderBy: filedAt, orderDirection: desc, where: { reporter: $reporter }) {
-      id reporter target evidenceHash weightPoints bond filedAt resolvedAt rebuttalTotal rebutterCount state
+      id reporter target evidenceHash snapshotWeight bond filedAt resolvedAt rebuttalTotal rebutterCount state
     }
   }
 `;
@@ -51,7 +58,7 @@ interface ReportsQueryResult {
     reporter: string;
     target: string;
     evidenceHash: string;
-    weightPoints: number;
+    snapshotWeight: number;
     bond: string;
     filedAt: string;
     resolvedAt: string | null;
@@ -67,7 +74,7 @@ function toRecord(r: ReportsQueryResult["reports"][number]): ReportRecord {
     reporter: r.reporter.toLowerCase(),
     target: r.target.toLowerCase(),
     evidenceHash: r.evidenceHash,
-    weightPoints: r.weightPoints,
+    weightPoints: r.snapshotWeight,
     bond: r.bond,
     filedAt: BigInt(r.filedAt),
     resolvedAt: r.resolvedAt ? BigInt(r.resolvedAt) : null,
