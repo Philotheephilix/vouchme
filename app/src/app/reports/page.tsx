@@ -4,7 +4,7 @@ import { ReportStamp, reportEffectLine } from "@/components/ReportStamp";
 import { StatLine } from "@/components/StatLine";
 import { readVerifiedAddress } from "@/lib/authSession";
 import { fmtDate, fmtScore, truncateMiddle } from "@/lib/format";
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 import type { ReportEntry } from "@/lib/types";
 import { explorerTxUrl } from "@/lib/worldchain";
 
@@ -27,7 +27,7 @@ function ReportCard({ report, now }: { report: ReportEntry; now: Date }) {
       {report.upheldAt ? <StatLine label="Upheld" value={fmtDate(report.upheldAt)} /> : null}
       <StatLine label="Decay remaining" value={`${report.decayRemainingPct}%`} />
       {report.challengeDeadline ? <StatLine label="Challenge deadline" value={fmtDate(report.challengeDeadline)} /> : null}
-      {report.bondAval !== null ? <StatLine label="Bond" value={`${report.bondAval.toLocaleString()} AVAL`} /> : null}
+      {report.bondVouchMe !== null ? <StatLine label="Bond" value={`${report.bondVouchMe.toLocaleString()} VOUCHME`} /> : null}
       <p className="mt-3 text-2xs leading-relaxed text-graphite">{reportEffectLine(report)}</p>
       {report.txHash ? (
         <a
@@ -48,13 +48,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   // "Against you" / "filed by you" only mean something for the signed-in wallet — AppGate already
-  // guarantees a session by the time this route is reachable. Verified, not the raw `aval_addr`
+  // guarantees a session by the time this route is reachable. Verified, not the raw `vouchme_addr`
   // cookie — see src/app/page.tsx's comment on readVerifiedAddress.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
-  const { REPORTS, NOW, reportsAvailable } = await loadAvalData(viewingAddress);
+  const { REPORTS, NOW, reportsAvailable } = await loadVouchMeData(viewingAddress);
   const against = REPORTS.filter((r) => r.direction === "against");
   const filed = REPORTS.filter((r) => r.direction === "filed");
 
@@ -104,7 +104,7 @@ export default async function ReportsPage() {
 
       <section className="px-4">
         <p className="text-2xs leading-relaxed text-graphite">
-          Filing a report is not wired into this screen: it needs an AVAL bond in CredibilityVault before the
+          Filing a report is not wired into this screen: it needs a VOUCHME bond in CredibilityVault before the
           transaction can succeed, and this build has no bonding flow. The attestation a filing needs is served
           by <span className="font-mono">/api/report/attest</span>.
         </p>

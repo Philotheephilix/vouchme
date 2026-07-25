@@ -15,10 +15,10 @@ export function buildSignInMessage(address: Address, nonce: string, issuedAt: nu
   const issuedIso = new Date(issuedAt * 1000).toISOString();
   const expiresIso = new Date(expiresAt * 1000).toISOString();
   return [
-    "aval.davinciin.xyz wants you to sign in with your Ethereum account:",
+    "vouchme.davinciin.xyz wants you to sign in with your Ethereum account:",
     address,
     "",
-    "Sign in to Aval.",
+    "Sign in to VouchMe.",
     "",
     `Nonce: ${nonce}`,
     `Issued At: ${issuedIso}`,

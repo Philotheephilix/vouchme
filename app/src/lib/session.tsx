@@ -8,9 +8,9 @@
  * Both paths go through a server-issued nonce -> real signature -> `/api/auth/verify` round trip
  * (src/lib/authClient.ts, src/app/api/auth/*, src/lib/authSession.ts) before any session exists.
  * On success the server sets two cookies via `Set-Cookie`:
- *   - `aval_session` (httpOnly, HMAC-bound to the verified address) — the only cookie any server
+ *   - `vouchme_session` (httpOnly, HMAC-bound to the verified address) — the only cookie any server
  *     page (Home, Reports, Profile, this gate) trusts for authorization.
- *   - `aval_addr` (plain) — kept only so this module can read it back here for a fast,
+ *   - `vouchme_addr` (plain) — kept only so this module can read it back here for a fast,
  *     non-blocking UI restore on load, and because src/app/agents/ still reads it directly. It is
  *     display-only; nothing security-relevant reads it.
  */
@@ -26,7 +26,7 @@ import { getAuthorizedAccount, hasInjectedProvider, personalSign, requestAccount
 import { fetchNonce, fetchVerifiedSession, signOutSession, verifySignIn } from "./authClient";
 import { buildSignInMessage } from "./signInMessage";
 
-const COOKIE_NAME = "aval_addr";
+const COOKIE_NAME = "vouchme_addr";
 const COOKIE_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 days — display-only mirror; must match authSession.ts's session TTL.
 
 function readCookie(name: string): string | null {
@@ -35,7 +35,7 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
-/** Writes only the plain, display-only `aval_addr` mirror — never the verified session, which is
+/** Writes only the plain, display-only `vouchme_addr` mirror — never the verified session, which is
  *  httpOnly and can only ever be set by the server (src/lib/authSession.ts) after a real signature
  *  checks out. See this file's doc comment. */
 function writeCookie(name: string, value: string | null): void {
@@ -146,8 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Install MiniKit once, client-side only, then restore whatever session we can find without
   // prompting the user (a cookie from a previous visit; a silently-authorized injected wallet).
-  // This only ever sets local UI state from the plain `aval_addr` mirror — it cannot manufacture a
-  // verified `aval_session`, so a page whose data depends on one (Home, Reports, Profile) won't
+  // This only ever sets local UI state from the plain `vouchme_addr` mirror — it cannot manufacture a
+  // verified `vouchme_session`, so a page whose data depends on one (Home, Reports, Profile) won't
   // render anything for an address restored this way until `connect()` actually runs the verified
   // round trip. That's a deliberate fail-closed gap, not a bypass of it.
   useEffect(() => {
@@ -164,8 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // THE source of truth: what the server will actually authorize, read from the httpOnly
       // session cookie the client cannot see or forge. `MiniKit.user.walletAddress` and the plain
-      // `aval_addr` cookie are client-side facts that say nothing about whether a verified
-      // `aval_session` exists — claiming a session the server won't honour is worse than showing a
+      // `vouchme_addr` cookie are client-side facts that say nothing about whether a verified
+      // `vouchme_session` exists — claiming a session the server won't honour is worse than showing a
       // Sign in button, because the Sign in button is the thing that fixes it.
       const verified = await fetchVerifiedSession();
       if (cancelled) return;
@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (cookieAddr) {
-        // A stale `aval_addr` mirror with no verified session behind it — e.g. an expired session.
+        // A stale `vouchme_addr` mirror with no verified session behind it — e.g. an expired session.
         // Clear it rather than render a signed-in shell the server will refuse to fill.
         writeCookie(COOKIE_NAME, null);
         if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: inWorldApp }));
@@ -231,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // signature to a specific, single-use, expiring challenge instead of trusting whatever
         // nonce the client claims it used.
         const nonce = await fetchNonce();
-        const result = await MK.walletAuth({ nonce: nonce.nonce, statement: "Sign in to Aval." });
+        const result = await MK.walletAuth({ nonce: nonce.nonce, statement: "Sign in to VouchMe." });
         const addr = getAddress(result.data.address);
         const verified = await verifySignIn({
           address: addr,
@@ -239,7 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           message: result.data.message,
           nonce,
         });
-        // The server has already set the verified `aval_session` cookie (httpOnly) via
+        // The server has already set the verified `vouchme_session` cookie (httpOnly) via
         // Set-Cookie; only the display-only mirror is this module's job.
         writeCookie(COOKIE_NAME, verified.address);
         setState((s) => ({ ...s, address: getAddress(verified.address), via: "minikit", connecting: false, isInWorldApp: true }));

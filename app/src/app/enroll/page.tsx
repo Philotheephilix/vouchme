@@ -10,13 +10,13 @@ import { ANCHOR_VOUCH_CONTRIBUTION, ENROLLMENT_BASE_SCORE, TIER_1_THRESHOLD_SCOR
 import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { fetchRpContext, type RpContext } from "@/lib/worldid-client";
 import {
-  AVAL_REGISTRY_ABI,
+  VOUCHME_REGISTRY_ABI,
   ClientConfigError,
   WORLDCHAIN_ID,
   ensExplorerTxUrl,
   explorerTxUrl,
   getAppId,
-  getAvalRegistryAddress,
+  getVouchMeRegistryAddress,
   getWorldIdAction,
 } from "@/lib/worldchain";
 import { decodeRevertReason, ensureWorldChainSepolia, sendFromInjected } from "@/lib/wallet";
@@ -91,10 +91,10 @@ type Stage = "handle" | "verifying" | "attesting" | "submitting" | "minting" | "
 
 /** Reads config eagerly so a missing NEXT_PUBLIC_APP_ID (etc.) is a clear, named banner on load —
  *  never a silent path into a widget that can't actually work. */
-function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${string}` } | { error: string } {
+function useClientConfig(): { appId: string; action: string; vouchMeRegistry: `0x${string}` } | { error: string } {
   return useMemo(() => {
     try {
-      return { appId: getAppId(), action: getWorldIdAction(), avalRegistry: getAvalRegistryAddress() };
+      return { appId: getAppId(), action: getWorldIdAction(), vouchMeRegistry: getVouchMeRegistryAddress() };
     } catch (err) {
       return { error: err instanceof ClientConfigError ? err.message : "World ID is not configured." };
     }
@@ -189,7 +189,7 @@ export default function EnrollPage() {
       setStage("submitting");
       try {
         const data = encodeFunctionData({
-          abi: AVAL_REGISTRY_ABI,
+          abi: VOUCHME_REGISTRY_ABI,
           functionName: "enroll",
           args: [BigInt(resp.nullifierHash), resp.credential, resp.handle, BigInt(resp.deadline), BigInt(resp.nonce), resp.attestation],
         });
@@ -201,13 +201,13 @@ export default function EnrollPage() {
         if (inWorldAppNow()) {
           const result = await activeMiniKit().sendTransaction({
             chainId: WORLDCHAIN_ID,
-            transactions: [{ to: config.avalRegistry, data }],
+            transactions: [{ to: config.vouchMeRegistry, data }],
           });
           setTxHash(result.data.userOpHash);
           setTxIsUserOp(true);
         } else {
           await ensureWorldChainSepolia();
-          const hash = await sendFromInjected(auth.address!, config.avalRegistry, data);
+          const hash = await sendFromInjected(auth.address!, config.vouchMeRegistry, data);
           setTxHash(hash);
           setTxIsUserOp(false);
         }
@@ -275,7 +275,7 @@ export default function EnrollPage() {
         <Header eyebrow="ENROLL" />
         <section className="px-4 pt-10 text-center">
           <h1 className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-            {handle}.aval.eth
+            {handle}.vouchme.eth
           </h1>
           {/* The credential visibly earning the score, not the number just materialising — the
               guilloché stroke-draw plays on mount, exactly the moment it was built for. */}
@@ -305,7 +305,7 @@ export default function EnrollPage() {
           <div className="mt-6 border-t border-rule pt-4">
             {stage === "minting" ? (
               <p className="font-mono text-2xs uppercase tracking-widest text-graphite">
-                Minting {handle}.aval.eth on Ethereum Sepolia…
+                Minting {handle}.vouchme.eth on Ethereum Sepolia…
               </p>
             ) : mint ? (
               <div>
@@ -335,7 +335,7 @@ export default function EnrollPage() {
                   </a>
                 ) : null}
                 {/* `register()` and `deployMemberRegistry()` both pass DEPLOYER_ADDRESS as owner,
-                    so the name and the registry belong to Aval's operator key, not to the person
+                    so the name and the registry belong to VouchMe's operator key, not to the person
                     who just enrolled — hence the custody note below. */}
                 {mint.subregistry ? (
                   <>
@@ -343,7 +343,7 @@ export default function EnrollPage() {
                       registry for your vouches: {mint.subregistry}
                     </p>
                     <p className="mt-1 text-2xs leading-relaxed text-graphite">
-                      Aval holds this name and this registry on your behalf — they are registered to the operator
+                      VouchMe holds this name and this registry on your behalf — they are registered to the operator
                       key, not to your wallet. The name resolves to your address.
                     </p>
                   </>
@@ -392,7 +392,7 @@ export default function EnrollPage() {
 
       <section className="px-4 pt-10 text-center">
         <h1 className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-          Aval
+          VouchMe
         </h1>
         <p className="mx-auto mt-4 max-w-xs text-sm leading-relaxed text-cream">
           Proof of human is a floor.
@@ -417,7 +417,7 @@ export default function EnrollPage() {
           </button>
         ) : (
           <>
-            <p className="mt-4 text-sm text-cream">Let&apos;s create your Aval account.</p>
+            <p className="mt-4 text-sm text-cream">Let&apos;s create your VouchMe account.</p>
             <p className="mt-1 truncate-mono font-mono text-2xs text-graphite">signed in as {auth.address}</p>
 
             <div className="mt-6 text-left">
@@ -437,7 +437,7 @@ export default function EnrollPage() {
                   placeholder="yourname"
                   disabled={stage !== null && stage !== "handle"}
                 />
-                <span className="flex items-center font-mono text-2xs text-graphite">.aval.eth</span>
+                <span className="flex items-center font-mono text-2xs text-graphite">.vouchme.eth</span>
               </div>
               {handleError ? (
                 <p className="mt-1 text-2xs" style={{ color: "var(--color-protest)" }}>

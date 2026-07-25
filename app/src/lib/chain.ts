@@ -2,10 +2,10 @@
  * app/src/lib/chain.ts
  *
  * The live data source: World Chain Sepolia, read directly with viem. No subgraph, no indexer —
- * this reads `Enrolled` / `Vouched` / `Reaffirmed` / `Revoked` logs from `AvalRegistry` straight
+ * this reads `Enrolled` / `Vouched` / `Reaffirmed` / `Revoked` logs from `VouchMeRegistry` straight
  * off the chain, resolves anchor status live from the Address Book's `addressVerifiedUntil` (never
  * cached into the scoring path — docs/03-worldid.md §3), and reads presence-drip state from
- * `PresenceDrip`. It assembles the exact `EngineInput` shape `@aval/engine` expects and hands the
+ * `PresenceDrip`. It assembles the exact `EngineInput` shape `@vouchme/engine` expects and hands the
  * caller that input plus the real `EngineOutput` from `compute()` — this module never formats a
  * score itself. Every number still comes from the engine (docs/01-trust-math.md).
  *
@@ -35,10 +35,10 @@ import {
   type Report,
   type ReportState,
   type Vouch,
-} from "@aval/engine";
+} from "@vouchme/engine";
 
 // ─── World Chain ──────────────────────────────────────────────────────────────────────────────
-// Which World Chain this is, is a DEPLOYMENT fact, not a fixed property of the code: Aval runs on
+// Which World Chain this is, is a DEPLOYMENT fact, not a fixed property of the code: VouchMe runs on
 // mainnet (480) because MiniKit will not broadcast anywhere else, and the Sepolia deployment
 // (4801) still exists and still holds the trust-math scenario. Read from env so the data layer
 // cannot point at a different chain than the rest of the app.
@@ -72,7 +72,7 @@ interface ChainConfig {
   /** Ordered, deduped; index 0 is primary, the rest are failover targets. */
   rpcUrls: string[];
   deploymentBlock: bigint;
-  avalRegistry: Address;
+  vouchMeRegistry: Address;
   genesisAnchorBook: Address;
   presenceDrip: Address;
   meAddress: Address;
@@ -159,7 +159,7 @@ function getConfig(): ChainConfig {
       "NEXT_PUBLIC_WORLDCHAIN_RPC_FALLBACK",
     ]),
     deploymentBlock: BigInt(requireEnv("DEPLOYMENT_BLOCK")),
-    avalRegistry: requireAddress("AVAL_REGISTRY_ADDRESS"),
+    vouchMeRegistry: requireAddress("VOUCHME_REGISTRY_ADDRESS"),
     genesisAnchorBook: requireAddress("GENESIS_ANCHOR_BOOK_ADDRESS"),
     presenceDrip: requireAddress("PRESENCE_DRIP_ADDRESS"),
     meAddress: requireAddress("ME_ADDRESS"),
@@ -171,7 +171,7 @@ function getConfig(): ChainConfig {
 
 /** Every contract address in play, for the `meta.contracts` envelope. Includes
  *  the ones this module doesn't read from (ReportRegistry, PlatformRegistry, CredibilityVault,
- *  AvalToken) so `meta` documents the full deployed set, not just the subset queried. */
+ *  VouchMeToken) so `meta` documents the full deployed set, not just the subset queried. */
 export function getContractAddressSet(): Record<string, string> {
   const cfg = getConfig();
   const optional = (name: string): string | undefined => {
@@ -179,18 +179,18 @@ export function getContractAddressSet(): Record<string, string> {
     return v ? v : undefined;
   };
   const set: Record<string, string> = {
-    AvalRegistry: cfg.avalRegistry,
+    VouchMeRegistry: cfg.vouchMeRegistry,
     GenesisAnchorBook: cfg.genesisAnchorBook,
     PresenceDrip: cfg.presenceDrip,
   };
   const reportRegistry = optional("REPORT_REGISTRY_ADDRESS");
   const platformRegistry = optional("PLATFORM_REGISTRY_ADDRESS");
   const credibilityVault = optional("CREDIBILITY_VAULT_ADDRESS");
-  const avalToken = optional("AVAL_TOKEN_ADDRESS");
+  const vouchMeToken = optional("VOUCHME_TOKEN_ADDRESS");
   if (reportRegistry) set.ReportRegistry = reportRegistry;
   if (platformRegistry) set.PlatformRegistry = platformRegistry;
   if (credibilityVault) set.CredibilityVault = credibilityVault;
-  if (avalToken) set.AvalToken = avalToken;
+  if (vouchMeToken) set.VouchMeToken = vouchMeToken;
   return set;
 }
 
@@ -204,10 +204,10 @@ export function getDemoAddress(): Address {
 }
 
 /** Server-only accessors for the two addresses `src/lib/attestation.ts` needs to build EIP-712
- *  domains for (AvalRegistry, PresenceDrip). Kept alongside the rest of `getConfig()`'s callers
+ *  domains for (VouchMeRegistry, PresenceDrip). Kept alongside the rest of `getConfig()`'s callers
  *  rather than re-reading `process.env` a second time. */
-export function getAvalRegistryAddressServer(): Address {
-  return getConfig().avalRegistry;
+export function getVouchMeRegistryAddressServer(): Address {
+  return getConfig().vouchMeRegistry;
 }
 
 export function getPresenceDripAddressServer(): Address {
@@ -284,7 +284,7 @@ function getClient(): PublicClient {
   return cachedClient;
 }
 
-// ─── ABI fragments — exactly the surface this module reads, matching subgraph/abis/AvalRegistry
+// ─── ABI fragments — exactly the surface this module reads, matching subgraph/abis/VouchMeRegistry
 // .json for events and the Solidity source (contracts/src/*.sol) for the view functions. Events
 // are also declared standalone (typed as `AbiEvent`) so `getLogs` can take them directly, without
 // an `abi.find(...)` at runtime that TypeScript can't narrow. ────────────────────────────────────
@@ -336,7 +336,7 @@ const REVOKED_EVENT = {
   ],
 } as const satisfies AbiEvent;
 
-const AVAL_REGISTRY_ABI = [
+const VOUCHME_REGISTRY_ABI = [
   ENROLLED_EVENT,
   VOUCHED_EVENT,
   REAFFIRMED_EVENT,
@@ -730,7 +730,7 @@ let accumulatorInFlight: Promise<void> | null = null;
 
 async function ensureLogsThrough(
   client: PublicClient,
-  avalRegistry: Address,
+  vouchMeRegistry: Address,
   reportRegistry: Address | null,
   platformRegistry: Address | null,
   deploymentBlock: bigint,
@@ -769,10 +769,10 @@ async function ensureLogsThrough(
         newPlatformVouchRevoked,
         newScoreRequested,
       ] = await Promise.all([
-        getLogsChunked(client, avalRegistry, ENROLLED_EVENT, from, to),
-        getLogsChunked(client, avalRegistry, VOUCHED_EVENT, from, to),
-        getLogsChunked(client, avalRegistry, REAFFIRMED_EVENT, from, to),
-        getLogsChunked(client, avalRegistry, REVOKED_EVENT, from, to),
+        getLogsChunked(client, vouchMeRegistry, ENROLLED_EVENT, from, to),
+        getLogsChunked(client, vouchMeRegistry, VOUCHED_EVENT, from, to),
+        getLogsChunked(client, vouchMeRegistry, REAFFIRMED_EVENT, from, to),
+        getLogsChunked(client, vouchMeRegistry, REVOKED_EVENT, from, to),
         reportRegistry ? getLogsChunked(client, reportRegistry, REPORT_FILED_EVENT, from, to) : none(),
         platformRegistry ? getLogsChunked(client, platformRegistry, PLATFORM_REGISTERED_EVENT, from, to) : none(),
         platformRegistry ? getLogsChunked(client, platformRegistry, PLATFORM_VOUCHED_EVENT, from, to) : none(),
@@ -795,7 +795,7 @@ async function ensureLogsThrough(
   }
   await accumulatorInFlight;
   // Another caller may have asked for a still-newer block while we were fetching; catch up.
-  return ensureLogsThrough(client, avalRegistry, reportRegistry, platformRegistry, deploymentBlock, upToBlock);
+  return ensureLogsThrough(client, vouchMeRegistry, reportRegistry, platformRegistry, deploymentBlock, upToBlock);
 }
 
 // ─── the resolved live graph ──────────────────────────────────────────────────────────────────
@@ -810,7 +810,7 @@ export interface MemberInfo {
   enrolledAt: number;
   credentialExpiresAt: number;
   activeOutbound: number;
-  /** Unix seconds of this account's last `vouch()`. `AvalRegistry` reverts with `RateLimited()`
+  /** Unix seconds of this account's last `vouch()`. `VouchMeRegistry` reverts with `RateLimited()`
    *  within 24h of it, so the UI needs it to refuse a vouch that cannot succeed and to show a real
    *  countdown rather than a fixed "24h". */
   lastVouchAt: number;
@@ -852,7 +852,7 @@ export interface ReportMeta {
   /** As recorded on chain at filing. Centi-points, 1:1 with the engine's `snapshotWeight` — see
    *  `toEngineReports` for why no unit conversion happens here. */
   weightPoints: number;
-  /** AVAL wei locked in `CredibilityVault` for this report (`10e18 × weightPoints`). */
+  /** VOUCHME wei locked in `CredibilityVault` for this report (`10e18 × weightPoints`). */
   bond: bigint;
   filedAt: number;
   /** 0 on chain while the report is unresolved; `null` here, so "not resolved" can never be read
@@ -879,7 +879,7 @@ export interface LiveGraph {
   now: number; // unix seconds — the latest block's own timestamp
   engineInput: EngineInput;
   engineOutput: EngineOutput;
-  /** address -> the `handle` string it enrolled with (e.g. "carol.aval.eth"). The best display
+  /** address -> the `handle` string it enrolled with (e.g. "carol.vouchme.eth"). The best display
    *  name available without a wired ENS resolver — real chain data, not a guess. */
   ensNameFor: Map<Address, string>;
   /** address -> the nullifier hash it enrolled with. Derived from the same cached `Enrolled` log
@@ -934,7 +934,7 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
     scoreRequestedLogs,
   } = await ensureLogsThrough(
     client,
-    cfg.avalRegistry,
+    cfg.vouchMeRegistry,
     cfg.reportRegistry,
     cfg.platformRegistry,
     cfg.deploymentBlock,
@@ -983,10 +983,10 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
   const anchorSource = await getAnchorSource(client, cfg.genesisAnchorBook);
   const isAnchorFor = new Map<Address, boolean>(addresses.map((addr, i) => [addr, anchorFlags[i]!]));
 
-  // ── AvalRegistry.members: activeOutbound (slots), credential window, enrolled/fraudulent ──────
+  // ── VouchMeRegistry.members: activeOutbound (slots), credential window, enrolled/fraudulent ──────
   const memberTuples = await Promise.all(
     addresses.map((addr) =>
-      client.readContract({ address: cfg.avalRegistry, abi: AVAL_REGISTRY_ABI, functionName: "members", args: [addr] }),
+      client.readContract({ address: cfg.vouchMeRegistry, abi: VOUCHME_REGISTRY_ABI, functionName: "members", args: [addr] }),
     ),
   );
   const members = new Map<Address, MemberInfo>(
@@ -1023,7 +1023,7 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
   // ── edges: docs/01-trust-math.md §18 — "the edge set is a set." An indexer (and here, a direct
   // log scan is exactly that: an indexer of one) can legitimately emit more than one record for
   // the same (voucher, vouchee) pair — a re-affirmation, a revoke-then-vouch cycle, a reorg
-  // replaying a log. We do NOT trust AvalRegistry's own `VouchExists` uniqueness check to protect
+  // replaying a log. We do NOT trust VouchMeRegistry's own `VouchExists` uniqueness check to protect
   // us here, because that check only constrains what the CURRENT contract accepts, not what
   // history the log stream can contain. Instead: replay every Vouched/Reaffirmed/Revoked event in
   // chronological (blockNumber, logIndex) order into a Map keyed by the pair, so there is
@@ -1402,7 +1402,7 @@ export async function isAddressEnrolled(address: Address): Promise<boolean> {
   return graph.members.get(address)?.enrolled ?? false;
 }
 
-/** The canonical handle `address` enrolled with on `AvalRegistry` (e.g. "carol.aval.eth") — the
+/** The canonical handle `address` enrolled with on `VouchMeRegistry` (e.g. "carol.vouchme.eth") — the
  *  same value `ensNameFor` renders everywhere else, exposed as a single-address lookup for
  *  `/api/ens/mint` (docs/04-ens.md §6: "chosen at enrollment; immutable thereafter", so this is
  *  also the only handle that route will ever mint for a given address). */
@@ -1441,7 +1441,7 @@ const PRESENCE_ACCRUED_ABI = [
 /** `PresenceDrip.accrued(address)` — the real, tier-blind nominal amount owed, read live for
  *  whichever single address is currently being viewed (never batched across every account: this
  *  is one call per page load of a signed-in user, not the N-account fan-out the Multicall3 batch
- *  config exists to avoid). Returned in wei (1e18 = 1 AVAL) so the caller controls rounding. */
+ *  config exists to avoid). Returned in wei (1e18 = 1 VOUCHME) so the caller controls rounding. */
 export async function getAccruedDrip(address: Address): Promise<bigint> {
   const cfg = getConfig();
   return getClient().readContract({

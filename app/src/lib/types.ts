@@ -1,8 +1,8 @@
 /**
- * Types mirroring the shapes the real engine (`@aval/engine`, docs/07-app-api.md §5) and the
+ * Types mirroring the shapes the real engine (`@vouchme/engine`, docs/07-app-api.md §5) and the
  * REST API (docs/07-app-api.md §3) will publish. Declared locally, by hand, so the app builds and
  * typechecks before that package exists. When it lands, everything in this file should be
- * replaced by `import type { ... } from "@aval/engine"` and the shapes should not need to change —
+ * replaced by `import type { ... } from "@vouchme/engine"` and the shapes should not need to change —
  * that is the point of writing them against the spec now instead of against a stub.
  */
 
@@ -14,12 +14,12 @@ export type AccountKind = "anchor" | "member" | "platform" | "agent";
  *  - "orb" — the FIXTURE's fictional demo anchor. Not real verification.
  *  - "genesis-testnet" — what `GenesisAnchorBook.anchorSource()` returns on World Chain Sepolia.
  *    A testnet stand-in for World ID's Address Book; nobody behind it was ever Orb-verified.
- *  - "world-id-orb" — World Chain MAINNET, where `AvalRegistry.addressBook` is World ID's real
+ *  - "world-id-orb" — World Chain MAINNET, where `VouchMeRegistry.addressBook` is World ID's real
  *    Address Book (0x57b930D5…0330D). Anchor status here IS genuine Orb verification.
  *  The UI must never conflate them (docs/07-app-api.md, contracts/script/GenesisAnchorBook.sol). */
 export type AnchorSource = "orb" | "genesis-testnet" | "world-id-orb";
 
-/** docs/01-trust-math.md §11 — T1 = 55, T2 = 140. The authoritative values are `@aval/engine`'s
+/** docs/01-trust-math.md §11 — T1 = 55, T2 = 140. The authoritative values are `@vouchme/engine`'s
  *  `T1` / `T2`; never retype them. */
 export type Tier = 0 | 1 | 2;
 export type PlatformTier = "P0" | "P1" | "P2";
@@ -86,8 +86,8 @@ export interface Slots {
 
 /** docs/16-presence-drip.md §9 — the drip card and the tenure curve. */
 export interface PresenceState {
-  dailyRateAval: number;
-  accruedAval: number;
+  dailyRateVouchMe: number;
+  accruedVouchMe: number;
   maxUnclaimedDays: number;
   daysUntilCap: number;
   presentDays: number;
@@ -136,7 +136,7 @@ export interface PlatformScoreResult {
   /** `null` where the value has no source in this mode: the bond lives in CredibilityVault,
    *  request counts in the gateway, the upheld ratio in ReportRegistry — none of which the live
    *  reader touches. `null` renders as "not tracked"; it must never be flattened to 0. */
-  bondAval: number | null;
+  bondVouchMe: number | null;
   requestsLast30d: number | null;
   upheldRatePct: number | null;
   gates: { g1ScoreThreshold: boolean; g2TwoDistinctVouchers: boolean; g3BondPosted: boolean | null };
@@ -168,8 +168,8 @@ export interface ReportEntry {
   onChainState: string | null;
   /** The transaction that filed the report. `null` off-chain. */
   txHash: string | null;
-  /** AVAL the reporter bonded behind the accusation. `null` off-chain. */
-  bondAval: number | null;
+  /** VOUCHME the reporter bonded behind the accusation. `null` off-chain. */
+  bondVouchMe: number | null;
   /** Engine weight before §7.4 decay — `min(snapshotWeight, reporter score × m⁻, cap⁻)`. */
   baseWeight: number;
   /** False when the engine voids the report entirely (see `voidReason`). A voided report still
@@ -214,7 +214,7 @@ export interface SimulateVouchResult {
   secondaryEffects: SimulateVouchStep[];
   /** Reasons this vouch would REVERT on chain, in the user's words. Empty means it can proceed.
    *
-   *  `AvalRegistry.vouch()` reverts with `VouchExists()` if the edge is already active and
+   *  `VouchMeRegistry.vouch()` reverts with `VouchExists()` if the edge is already active and
    *  `RateLimited()` within 24h of the voucher's last vouch. Checking both up front keeps the
    *  wizard from walking a user through a ~20s Selfie Check into a transaction that cannot
    *  succeed. Computed from live `members()` state, never assumed. */
@@ -271,7 +271,7 @@ export interface HealthResult {
   indexedBlock: number;
   chainHead: number;
   lagBlocks: number;
-  /** LIVE mode only — the block AvalRegistry/GenesisAnchorBook/PresenceDrip were deployed at
+  /** LIVE mode only — the block VouchMeRegistry/GenesisAnchorBook/PresenceDrip were deployed at
    *  (deployments/worldchain-sepolia.json), so a viewer can see both "how current is this" and
    *  "how much history exists" at a glance. `undefined` in fixture mode, which has no real chain. */
   deploymentBlock?: number;
@@ -340,7 +340,7 @@ export interface ExploreScenario {
 /** docs/04-ens.md §4, docs/07-app-api.md §2.5 — agent subnames.
  *
  *  NOTHING in this record is published. There is no ENSIP-26/25 registrar call in this repo, and
- *  mcp.aval.xyz / a2a.aval.xyz / aval.xyz do not serve this app. `published` is false everywhere
+ *  mcp.vouchme.xyz / a2a.vouchme.xyz / vouchme.xyz do not serve this app. `published` is false everywhere
  *  today; `exampleLabel` is the placeholder label the preview is composed with, and the UI must
  *  present it as an example rather than as a name the operator chose. */
 export interface AgentRecord {

@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { readVerifiedAddress } from "@/lib/authSession";
-import { fmtAval, fmtPct, fmtScore, platformTierLabel } from "@/lib/format";
-import { loadAvalData } from "@/lib/mock";
+import { fmtVouchMe, fmtPct, fmtScore, platformTierLabel } from "@/lib/format";
+import { loadVouchMeData } from "@/lib/mock";
 
 // LIVE mode reads World Chain on every request — never bake a snapshot into the build.
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function PlatformPage() {
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
-  const { PLATFORM, platformsAvailable } = await loadAvalData(viewingAddress);
+  const { PLATFORM, platformsAvailable } = await loadVouchMeData(viewingAddress);
 
   // No platform on this graph. In live mode that is because PlatformRegistry is never read at
   // all, so rendering the console's zeros and FAILing gates here would print measurements that
@@ -60,7 +60,7 @@ export default async function PlatformPage() {
         </div>
 
         <StatLine label="Vouchers" value={String(PLATFORM.voucherCount)} hint="distinct humans" />
-        <StatLine label="Bond posted" value={unknownOr(PLATFORM.bondAval, fmtAval)} hint="CredibilityVault" />
+        <StatLine label="Bond posted" value={unknownOr(PLATFORM.bondVouchMe, fmtVouchMe)} hint="CredibilityVault" />
         <StatLine label="Requests, last 30d" value={unknownOr(PLATFORM.requestsLast30d, String)} hint="gateway" />
         <StatLine
           label="Upheld rate"

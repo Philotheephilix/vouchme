@@ -9,7 +9,7 @@ export default function SearchPage() {
         {/* Show the shape of a handle without naming an account that may not exist. */}
         <p className="mb-4 text-2xs leading-relaxed text-graphite">
           Find an enrolled member by handle — the bare label or the full{" "}
-          <span className="font-mono">&lt;handle&gt;.aval.eth</span> — or by wallet address.
+          <span className="font-mono">&lt;handle&gt;.vouchme.eth</span> — or by wallet address.
         </p>
         <SearchBox />
       </section>

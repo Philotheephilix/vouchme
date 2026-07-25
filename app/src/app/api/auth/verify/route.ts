@@ -36,7 +36,7 @@ function isSecureRequest(req: Request): boolean {
 /**
  * Step 2 — and the only place a session is ever minted. Verifies a real EIP-191 `personal_sign`
  * signature over the exact message this server would have built for the claimed address + a nonce
- * this server issued, single-use and unexpired. Only on success does it set `aval_session` — every
+ * this server issued, single-use and unexpired. Only on success does it set `vouchme_session` — every
  * other path returns 401 and touches no cookie at all.
  *
  * The message itself is never taken from the client (only `address`, `signature` and the opaque

@@ -1,4 +1,4 @@
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 import { isJsonObject, ok, fail } from "@/app/api/_lib/respond";
 
 interface SimulateVouchBody {
@@ -26,7 +26,7 @@ export async function POST(req: Request): Promise<Response> {
   }
   let data;
   try {
-    data = await loadAvalData();
+    data = await loadVouchMeData();
   } catch (err) {
     return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
   }

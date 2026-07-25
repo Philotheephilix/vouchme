@@ -4,20 +4,20 @@ import { StatLine } from "@/components/StatLine";
 import { TierBadge } from "@/components/TierBadge";
 import { readVerifiedAddress } from "@/lib/authSession";
 import { fmtScore, truncateMiddle } from "@/lib/format";
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 
 // LIVE mode reads World Chain Sepolia on every request — never bake a snapshot into the build.
 export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
   const cookieStore = await cookies();
-  // `aval_addr` is client-writable and display-only. Authorization comes from
+  // `vouchme_addr` is client-writable and display-only. Authorization comes from
   // `readVerifiedAddress`, which returns an address only when its session was minted after a real
   // wallet signature was verified server-side.
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
-  const { AGENT } = await loadAvalData(viewingAddress);
+  const { AGENT } = await loadVouchMeData(viewingAddress);
   return (
     <div className="pb-8">
       {/* No agent exists: nothing here is registered and no name is reserved, so the title names
@@ -46,7 +46,7 @@ export default async function AgentsPage() {
         </div>
 
         {/* Agent subname registration hasn't shipped (no ENSIP-26/25 registrar call exists yet —
-            /api/ens/mint only mints the operator's own `<handle>.aval.eth`, never a subname like
+            /api/ens/mint only mints the operator's own `<handle>.vouchme.eth`, never a subname like
             this). Everything below is real, live-computed data about what WOULD be published, not
             a record that exists on ENS today. Say so plainly, once, right where the example
             hostnames start. */}

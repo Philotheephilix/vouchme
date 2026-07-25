@@ -11,7 +11,7 @@ import { getAddress } from "viem";
 import type { ApiEnvelope, ApiErrorBody, ApiMeta } from "@/lib/types";
 
 /** Used only when `meta` can't be obtained at all (the live chain read itself failed) — every
- *  successful response carries the real `meta` from `loadAvalData()`, never this. */
+ *  successful response carries the real `meta` from `loadVouchMeData()`, never this. */
 export const FALLBACK_META: ApiMeta = {
   subgraphDeployment: "unavailable",
   computedAtBlock: 0,

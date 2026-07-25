@@ -26,8 +26,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aval",
-  description: "Proof of human is a floor. Aval is the ladder.",
+  title: "VouchMe",
+  description: "Proof of human is a floor. VouchMe is the ladder.",
 };
 
 export const viewport: Viewport = {

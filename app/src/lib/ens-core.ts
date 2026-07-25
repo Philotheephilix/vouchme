@@ -1,22 +1,22 @@
 /**
  * app/src/lib/ens-core.ts
  *
- * The ENSv2 primitives for `aval.eth` on Ethereum Sepolia, with no Next.js / env coupling, so the
+ * The ENSv2 primitives for `vouchme.eth` on Ethereum Sepolia, with no Next.js / env coupling, so the
  * exact same code path drives both the app (`app/src/lib/ens.ts`) and the operational scripts
  * (`scripts/dev/ens-provision.mts`). Nothing here reads `process.env`; callers supply the clients.
  *
  * docs/04-ens.md §7: "a member = a `PermissionedRegistry` they own". That is taken literally:
- *   • Every member label under `aval.eth` owns a real `PermissionedRegistry` clone, deployed
+ *   • Every member label under `vouchme.eth` owns a real `PermissionedRegistry` clone, deployed
  *     through the shared `VerifiableFactory`, at a CREATE2 address derived from the label alone.
  *   • That clone is what `Entry.subregistry` points at — never the zero address, never a shared
  *     registry, never simulated above the chain.
  *   • A vouch from `alice` to `carol` is `register("carol", …)` **inside alice's own registry**,
- *     whose own `Entry.subregistry` is carol's registry — so `erin.carol.alice.aval.eth` is one
+ *     whose own `Entry.subregistry` is carol's registry — so `erin.carol.alice.vouchme.eth` is one
  *     more `getSubregistry` hop, exactly as docs/04-ens.md §7.1 describes.
  *
  * Every address below is from `deployments/ens-sepolia.json`, each one live-read or Sourcify
  * exact_match verified. The clone-address derivation was reverse-derived from, and checked
- * against, the real `aval.eth` registry clone (see `predictMemberRegistryAddress`).
+ * against, the real `vouchme.eth` registry clone (see `predictMemberRegistryAddress`).
  */
 
 import {
@@ -38,22 +38,32 @@ import {
 
 // ── deployed addresses (deployments/ens-sepolia.json) ─────────────────────────────────────────
 
-/** `aval.eth`'s own `PermissionedRegistry` clone — the depth-1 registry every member lives in. */
-export const AVAL_ETH_REGISTRY: Address = "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33";
+/**
+ * `vouchme.eth`'s own `PermissionedRegistry` clone — the depth-1 registry every member lives in.
+ *
+ * The product rename from Aval to VouchMe moved the whole tree to a NEW parent name with its own
+ * registry: `vouchme.eth` is registered on Ethereum Sepolia to the same deployer, and its
+ * `Entry.subregistry` on the ENSv2 `.eth` registry (`0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67`)
+ * is this clone. The predecessor, `aval.eth` -> `0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33`, still
+ * exists on chain with its 17 member registries and its minted vouch names; nothing under it was
+ * migrated, because ENSv2 names are non-transferable here by construction (`SOULBOUND_ROLES`).
+ * Members must be re-provisioned under this registry — see `deployments/ens-sepolia.json`.
+ */
+export const VOUCHME_ETH_REGISTRY: Address = "0xb31CD08323fbF0Ef0E660c77A9A38bab3Cb45B36";
 /** Shared `PermissionedResolver` clone (Sourcify exact_match on its implementation). */
-export const AVAL_ETH_RESOLVER: Address = "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3";
+export const VOUCHME_ETH_RESOLVER: Address = "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3";
 export const DEPLOYER_ADDRESS: Address = "0x69827C0FEF274C63Ac4806106F2BA544E6129050";
 /** `VerifiableFactory.deployProxy(address implementation, uint256 salt, bytes data)` — 0x5d84121a. */
 export const VERIFIABLE_FACTORY: Address = "0xD2a632D8a8b67c2c4398c255CbD7aF8dd7236198";
 /** The factory's immutable clone target; every proxy it deploys is an EIP-1167 stub onto this. */
 export const PROXY_LOGIC: Address = "0x917c561a74df398646E06f3ffAA51DB8E8330c5A";
-/** `PermissionedRegistry` implementation behind the `aval.eth` clone — reused for every member. */
+/** `PermissionedRegistry` implementation behind the `vouchme.eth` clone — reused for every member. */
 export const MEMBER_REGISTRY_IMPLEMENTATION: Address = "0x0F99e7Ea74903AfCB7224d0354fD7428A6f92917";
 
 export const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
 
 /** `RegistryRolesLib`'s 64-slot nybble-packed roles bitmap, every nybble set — read back from
- *  `avalRegistry.roles(ROOT_RESOURCE=0, deployer)` on chain, not a guess at what "all roles" means. */
+ *  `vouchMeRegistry.roles(ROOT_RESOURCE=0, deployer)` on chain, not a guess at what "all roles" means. */
 export const ALL_ROLES = 0x1111111111111111111111111111111111111111111111111111111111111111n;
 
 /**
@@ -86,7 +96,7 @@ export const ROLE_CAN_TRANSFER_ADMIN = (1n << 28n) << 128n; // 1 << 156
 export const ROLE_REGISTRAR = 1n;
 
 /**
- * What every Aval name is minted with: everything except the ability to transfer the token.
+ * What every VouchMe name is minted with: everything except the ability to transfer the token.
  *
  *     0x1111111111111111111111110111111111111111111111111111111111111111
  *                              ↑ nybble 39 (= nybble 7 + 32 admin offset) cleared
@@ -97,13 +107,13 @@ export const ROLE_REGISTRAR = 1n;
  *
  *     return (_roles[ROOT_RESOURCE][account] | _roles[resource][account]) & roleBitmap == roleBitmap;
  *
- * Aval's names are all owned by the deployer, who holds `ALL_ROLES` on every registry's root. So a
+ * VouchMe's names are all owned by the deployer, who holds `ALL_ROLES` on every registry's root. So a
  * token minted with this bitmap is **still transferable** until the root grant is cleared too —
  * see `ensureRegistrySoulbound`.
  */
 export const SOULBOUND_ROLES = ALL_ROLES & ~ROLE_CAN_TRANSFER_ADMIN;
 
-/** Member names are registered for a year; vouch subnames match `AvalRegistry.VOUCH_EXPIRY`. */
+/** Member names are registered for a year; vouch subnames match `VouchMeRegistry.VOUCH_EXPIRY`. */
 export const MEMBER_NAME_TTL_SECONDS = 365n * 24n * 60n * 60n;
 export const VOUCH_NAME_TTL_SECONDS = 90n * 24n * 60n * 60n;
 
@@ -300,7 +310,7 @@ export const VERIFIABLE_FACTORY_ABI = [
 
 /** The clone's initializer, called through the factory in the same transaction as the deploy.
  *  Selector `0xcd6dc687`; the argument shape was read off the real `deployProxy` calldata that
- *  created the `aval.eth` registry clone (tx 0xd30a5d94…131a). */
+ *  created the `vouchme.eth` registry clone (tx 0xd30a5d94…131a). */
 export const REGISTRY_INITIALIZER_ABI = [
   {
     type: "function",
@@ -362,6 +372,23 @@ export class EnsVouchNestingUnavailableError extends Error {
  * their name alone, without a receipt, a database or a log scan.
  *
  *     salt(label)  = uint256(keccak256(utf8("aval.eth/member-registry/v1::" + label)))
+ *
+ * **FROZEN. This value is address-defining, not a label.** It feeds the CREATE2 salt, so editing
+ * one character repoints every derivation in this file at an address that has no contract at it.
+ * It kept the `aval.eth/` prefix through the product rename to VouchMe on purpose. Three facts,
+ * each read off Ethereum Sepolia rather than reasoned about:
+ *
+ *   • `vouchme.eth`'s OWN registry — `VOUCHME_ETH_REGISTRY`, live, attached to the ENSv2`.eth`
+ *     registry — was itself deployed under this namespace. Under a `vouchme.eth/…` namespace
+ *     `predictMemberRegistryAddress("vouchme")` returns 0x94Bed2A4bC08d518A5A507C8a23bfE3AF8864CAc,
+ *     which is empty; the real parent is 0xb31CD08323fbF0Ef0E660c77A9A38bab3Cb45B36.
+ *   • Every member registry in `deployments/ens-members-sepolia.json` was deployed under it too —
+ *     e.g. `alice` -> 0xeB3e71b211B947a7EF4EbC1Cb7d4ae7e97eCf143 (77 bytes of code), against
+ *     0x2a0d88a8B64EdFbBE760a33B1a4aabD87f4f94A1 (nothing) under the renamed namespace.
+ *   • Nothing can be migrated onto a new namespace: these registries are reached through
+ *     non-transferable ERC-1155 entries (`SOULBOUND_ROLES`), so a re-derivation orphans them.
+ *
+ * Renaming it is the trap this comment exists to close. Leave it alone.
  */
 export const MEMBER_REGISTRY_SALT_NAMESPACE = "aval.eth/member-registry/v1";
 
@@ -372,7 +399,7 @@ export function memberRegistrySalt(label: string): bigint {
 /**
  * The CREATE2 address `VerifiableFactory.deployProxy` will produce for `label`.
  *
- * Derivation, recovered by disassembling the real deployment of the `aval.eth` registry clone
+ * Derivation, recovered by disassembling the real deployment of the `vouchme.eth` registry clone
  * (tx `0xd30a5d94…131a`) and confirmed to reproduce `0xb8C3d3AD…eF33` exactly:
  *
  *     outerSalt = keccak256(abi.encode(sender, salt))
@@ -408,7 +435,7 @@ export async function getSubregistry(client: EnsPublicClient, registry: Address,
 
 export async function readAddrRecord(client: EnsPublicClient, name: string): Promise<Address | null> {
   const addr = await client.readContract({
-    address: AVAL_ETH_RESOLVER,
+    address: VOUCHME_ETH_RESOLVER,
     abi: RESOLVER_ABI,
     functionName: "addr",
     args: [namehash(name)],
@@ -570,7 +597,7 @@ export interface DeployedRegistry {
  * re-run finds code already there and skips the write instead of colliding on CREATE2.
  *
  * The clone is initialized in the same transaction with `initialize(owner, SOULBOUND_ROLES)`,
- * mirroring how the `aval.eth` registry itself was created except that the root grant withholds
+ * mirroring how the `vouchme.eth` registry itself was created except that the root grant withholds
  * `ROLE_CAN_TRANSFER_ADMIN` — so a member's registry is born soulbound, with no follow-up
  * transaction, and every vouch minted inside it is non-transferable from its first block.
  * The initializer is not part of the CREATE2 preimage, so clone addresses are unchanged by this.
@@ -637,13 +664,13 @@ export interface MintResult {
 }
 
 /**
- * Brings `<label>.aval.eth` to its complete, wired state and proves it by reading back:
+ * Brings `<label>.vouchme.eth` to its complete, wired state and proves it by reading back:
  *   1. deploy `label`'s own `PermissionedRegistry` clone (skipped if already deployed),
  *   2. `register(label, deployer, thatRegistry, resolver, SOULBOUND_ROLES, expiry)` on the
- *      `aval.eth` registry — or, when the label already exists (`carol`, `dave`),
+ *      `vouchme.eth` registry — or, when the label already exists (`carol`, `dave`),
  *      `setSubregistry(tokenId, thatRegistry)` instead, because re-registering a taken label
  *      reverts,
- *   3. `setAddr(namehash("<label>.aval.eth"), targetAddress)` on the resolver,
+ *   3. `setAddr(namehash("<label>.vouchme.eth"), targetAddress)` on the resolver,
  *   4. re-read `addr()`, `getSubregistry()` and `eth_getCode` and fail loudly if any is wrong,
  *   5. re-read `hasRoles(tokenId, ROLE_CAN_TRANSFER_ADMIN, owner)` and refuse to return at all if
  *      the name is still transferable.
@@ -657,16 +684,16 @@ export async function mintMemberName(
   targetAddress: Address,
 ): Promise<MintResult> {
   const { publicClient, walletClient } = clients;
-  const name = `${label}.aval.eth`;
+  const name = `${label}.vouchme.eth`;
 
   const registry = await deployMemberRegistry(clients, label);
 
-  // The member-name token lives in the aval.eth registry, so that is the root grant that has to be
+  // The member-name token lives in the vouchme.eth registry, so that is the root grant that has to be
   // clear for it to be soulbound (see `SOULBOUND_ROLES` on why the bitmap alone is not enough).
   // One-way and idempotent; after the first member this is a no-op read.
-  const soulboundTxHash = await ensureRegistrySoulbound(clients, AVAL_ETH_REGISTRY);
+  const soulboundTxHash = await ensureRegistrySoulbound(clients, VOUCHME_ETH_REGISTRY);
 
-  const owner = await findOwner(publicClient, AVAL_ETH_REGISTRY, label);
+  const owner = await findOwner(publicClient, VOUCHME_ETH_REGISTRY, label);
   const alreadyRegistered = owner !== ZERO_ADDRESS;
 
   let registerTxHash: Hex | null = null;
@@ -675,26 +702,26 @@ export async function mintMemberName(
   if (!alreadyRegistered) {
     const expiry = BigInt(Math.floor(Date.now() / 1000)) + MEMBER_NAME_TTL_SECONDS;
     registerTxHash = await walletClient.writeContract({
-      address: AVAL_ETH_REGISTRY,
+      address: VOUCHME_ETH_REGISTRY,
       abi: REGISTRY_ABI,
       functionName: "register",
-      args: [label, DEPLOYER_ADDRESS, registry.address, AVAL_ETH_RESOLVER, SOULBOUND_ROLES, expiry],
+      args: [label, DEPLOYER_ADDRESS, registry.address, VOUCHME_ETH_RESOLVER, SOULBOUND_ROLES, expiry],
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
     if (receipt.status !== "success") throw new Error(`register("${label}") reverted: ${registerTxHash}`);
   } else {
     // Never re-register an existing label — `register()` reverts on a taken label. Backfill the
     // subregistry pointer instead.
-    const current = await getSubregistry(publicClient, AVAL_ETH_REGISTRY, label);
+    const current = await getSubregistry(publicClient, VOUCHME_ETH_REGISTRY, label);
     if (current.toLowerCase() !== registry.address.toLowerCase()) {
       const tokenId = await publicClient.readContract({
-        address: AVAL_ETH_REGISTRY,
+        address: VOUCHME_ETH_REGISTRY,
         abi: REGISTRY_ABI,
         functionName: "findTokenId",
         args: [label],
       });
       setSubregistryTxHash = await walletClient.writeContract({
-        address: AVAL_ETH_REGISTRY,
+        address: VOUCHME_ETH_REGISTRY,
         abi: REGISTRY_ABI,
         functionName: "setSubregistry",
         args: [tokenId, registry.address],
@@ -710,12 +737,12 @@ export async function mintMemberName(
 
   // A name registered with ROLE_CAN_TRANSFER_ADMIN on its own token resource is not reached by
   // clearing the root grant above. Retro-fit those in place (no-op otherwise).
-  const retroTxHash = await makeExistingNameSoulbound(clients, AVAL_ETH_REGISTRY, label);
+  const retroTxHash = await makeExistingNameSoulbound(clients, VOUCHME_ETH_REGISTRY, label);
 
   const resolvedAddress = await readAddrRecord(publicClient, name);
-  const subregistry = await getSubregistry(publicClient, AVAL_ETH_REGISTRY, label);
+  const subregistry = await getSubregistry(publicClient, VOUCHME_ETH_REGISTRY, label);
   await assertWired(publicClient, name, subregistry, resolvedAddress, targetAddress);
-  await assertSoulbound(publicClient, AVAL_ETH_REGISTRY, label, name);
+  await assertSoulbound(publicClient, VOUCHME_ETH_REGISTRY, label, name);
 
   return {
     label,
@@ -735,7 +762,7 @@ export async function mintMemberName(
 // ── vouch subnames (the nested name) ──────────────────────────────────────────────────────────
 
 export interface VouchMintResult {
-  /** e.g. `carol.alice.aval.eth`. */
+  /** e.g. `carol.alice.vouchme.eth`. */
   name: string;
   voucherLabel: string;
   voucheeLabel: string;
@@ -756,7 +783,7 @@ export interface VouchMintResult {
 
 /**
  * Issues the vouch as a name: `register(voucheeLabel, …)` **inside the voucher's own registry**,
- * producing a real `<vouchee>.<voucher>.aval.eth` that resolves to the vouchee's address, with the
+ * producing a real `<vouchee>.<voucher>.vouchme.eth` that resolves to the vouchee's address, with the
  * edge's `Entry.subregistry` pointing at the vouchee's own registry so the path keeps walking.
  *
  * The vouch token is minted **soulbound** — `SOULBOUND_ROLES`, plus a cleared root grant on the
@@ -775,11 +802,11 @@ export async function mintVouchSubname(
 ): Promise<VouchMintResult> {
   const { publicClient, walletClient } = clients;
 
-  const voucherRegistry = await getSubregistry(publicClient, AVAL_ETH_REGISTRY, voucherLabel);
+  const voucherRegistry = await getSubregistry(publicClient, VOUCHME_ETH_REGISTRY, voucherLabel);
   if (!(await hasContractCode(publicClient, voucherRegistry))) {
     throw new EnsVouchNestingUnavailableError(
       voucherLabel,
-      `"${voucherLabel}.aval.eth" does not own a registry yet, so "${voucheeLabel}.${voucherLabel}.aval.eth" cannot be minted. The vouch itself is recorded on World Chain; only the nested ENS name is unavailable.`,
+      `"${voucherLabel}.vouchme.eth" does not own a registry yet, so "${voucheeLabel}.${voucherLabel}.vouchme.eth" cannot be minted. The vouch itself is recorded on World Chain; only the nested ENS name is unavailable.`,
     );
   }
 
@@ -793,7 +820,7 @@ export async function mintVouchSubname(
   const vouchee = await mintOrEnsureVoucheeRegistry(clients, voucheeLabel);
   const voucheeRegistry = vouchee.address;
 
-  const name = `${voucheeLabel}.${voucherLabel}.aval.eth`;
+  const name = `${voucheeLabel}.${voucherLabel}.vouchme.eth`;
   const owner = await findOwner(publicClient, voucherRegistry, voucheeLabel);
 
   let registerTxHash: Hex | null = null;
@@ -805,7 +832,7 @@ export async function mintVouchSubname(
       address: voucherRegistry,
       abi: REGISTRY_ABI,
       functionName: "register",
-      args: [voucheeLabel, DEPLOYER_ADDRESS, voucheeRegistry, AVAL_ETH_RESOLVER, SOULBOUND_ROLES, expiry],
+      args: [voucheeLabel, DEPLOYER_ADDRESS, voucheeRegistry, VOUCHME_ETH_RESOLVER, SOULBOUND_ROLES, expiry],
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: registerTxHash });
     if (receipt.status !== "success") throw new Error(`register("${name}") reverted: ${registerTxHash}`);
@@ -864,7 +891,7 @@ export async function mintVouchSubname(
 /** Deploys and attaches the vouchee's depth-1 registry if they somehow don't have one yet. */
 async function mintOrEnsureVoucheeRegistry(clients: EnsClients, voucheeLabel: string): Promise<DeployedRegistry> {
   const { publicClient, walletClient } = clients;
-  const existing = await getSubregistry(publicClient, AVAL_ETH_REGISTRY, voucheeLabel);
+  const existing = await getSubregistry(publicClient, VOUCHME_ETH_REGISTRY, voucheeLabel);
   if (await hasContractCode(publicClient, existing)) {
     return {
       address: existing,
@@ -876,13 +903,13 @@ async function mintOrEnsureVoucheeRegistry(clients: EnsClients, voucheeLabel: st
   }
   const deployed = await deployMemberRegistry(clients, voucheeLabel);
   const tokenId = await publicClient.readContract({
-    address: AVAL_ETH_REGISTRY,
+    address: VOUCHME_ETH_REGISTRY,
     abi: REGISTRY_ABI,
     functionName: "findTokenId",
     args: [voucheeLabel],
   });
   const hash = await walletClient.writeContract({
-    address: AVAL_ETH_REGISTRY,
+    address: VOUCHME_ETH_REGISTRY,
     abi: REGISTRY_ABI,
     functionName: "setSubregistry",
     args: [tokenId, deployed.address],
@@ -904,7 +931,7 @@ async function setAddrIfNeeded(
   if (current && current.toLowerCase() === targetAddress.toLowerCase()) return null;
 
   const hash = await walletClient.writeContract({
-    address: AVAL_ETH_RESOLVER,
+    address: VOUCHME_ETH_RESOLVER,
     abi: RESOLVER_ABI,
     functionName: "setAddr",
     args: [namehash(name), targetAddress],

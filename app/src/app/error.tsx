@@ -10,7 +10,7 @@ const CHAIN_LABEL = WORLDCHAIN.name;
  *
  * LIVE mode reads World Chain directly on every request — no subgraph buffering the app from an
  * RPC hiccup, and public RPCs rate-limit and lag. Without this boundary a transient
- * `loadAvalData()` rejection is an unhandled Server Component error, and Next's default handling
+ * `loadVouchMeData()` rejection is an unhandled Server Component error, and Next's default handling
  * discards the whole page tree for this route segment — which reads as "the app crashed" rather
  * than "the chain read failed, retry." The failure is still surfaced honestly, never silently
  * replaced with stale or fixture data — it just happens inside the app's own layout instead of a
@@ -19,13 +19,13 @@ const CHAIN_LABEL = WORLDCHAIN.name;
 export default function RouteError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   // Library text (viem's raw RPC errors) belongs in the console; the panel gets one sentence a
   // person can act on.
-  if (typeof console !== "undefined") console.error("[aval] route error", error);
+  if (typeof console !== "undefined") console.error("[vouchme] route error", error);
 
   return (
     <div className="pb-8" data-testid="route-error">
       <header className="sticky top-0 z-30 bg-void" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="border-b border-rule px-4 py-3">
-          <div className="font-mono text-2xs uppercase tracking-widest text-graphite">AVAL · ERROR</div>
+          <div className="font-mono text-2xs uppercase tracking-widest text-graphite">VOUCHME · ERROR</div>
         </div>
       </header>
 

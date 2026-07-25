@@ -58,7 +58,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!body.handle || !HANDLE_RE.test(body.handle)) {
     return fail(400, "invalid_handle", "`handle` must be 3-20 lowercase a-z/0-9/hyphen characters.");
   }
-  const handle = `${body.handle}.aval.eth`;
+  const handle = `${body.handle}.vouchme.eth`;
 
   const result = body.idkitResult;
   if (!result || !("protocol_version" in result) || !Array.isArray(result.responses) || result.responses.length === 0) {
@@ -162,7 +162,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (await isAddressEnrolled(address)) {
-    return fail(409, "already_enrolled", "This wallet is already enrolled in Aval.");
+    return fail(409, "already_enrolled", "This wallet is already enrolled in VouchMe.");
   }
 
   if (await isNullifierUsed(nullifierHash)) {
@@ -171,7 +171,7 @@ export async function POST(req: Request): Promise<Response> {
       409,
       "nullifier_used",
       existing && existing.toLowerCase() !== address.toLowerCase()
-        ? "This World ID is already registered to an Aval account. If that account is yours, sign in with it. If it isn't, this device's verification has been used elsewhere."
+        ? "This World ID is already registered to a VouchMe account. If that account is yours, sign in with it. If it isn't, this device's verification has been used elsewhere."
         : "This World ID has already been used to enroll.",
     );
   }

@@ -1,4 +1,4 @@
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 import type { GatePolicy } from "@/lib/types";
 import { isJsonObject, ok, fail } from "@/app/api/_lib/respond";
 
@@ -25,7 +25,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!body.address) return fail(400, "missing_address", "`address` is required.");
   let data;
   try {
-    data = await loadAvalData();
+    data = await loadVouchMeData();
   } catch (err) {
     return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
   }

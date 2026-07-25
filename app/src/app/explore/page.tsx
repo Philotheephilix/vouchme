@@ -2,8 +2,8 @@ import { cookies } from "next/headers";
 import { Header } from "@/components/Header";
 import { TierBadge } from "@/components/TierBadge";
 import { readVerifiedAddress } from "@/lib/authSession";
-import { anchorSourceLabel, dropAvalSuffix, fmtScore, truncateMiddle } from "@/lib/format";
-import { loadAvalData } from "@/lib/mock";
+import { anchorSourceLabel, dropVouchMeSuffix, fmtScore, truncateMiddle } from "@/lib/format";
+import { loadVouchMeData } from "@/lib/mock";
 import type { ExploreScenario } from "@/lib/types";
 
 function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
@@ -54,7 +54,7 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
       </div>
 
       <div className="mt-4">
-        {/* every name below shares the .aval.eth suffix (or, in the ring, .eth) — dropped here so
+        {/* every name below shares the .vouchme.eth suffix (or, in the ring, .eth) — dropped here so
             the column reads "anchor1 → alice" instead of repeating it on every row. Each end gets
             its own flex-basis and its own middle-out ellipsis, so a long target can never eat into
             the source's space, or vice versa, the way one shared CSS ellipsis on a single string
@@ -67,12 +67,12 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
           <div key={`${edge.from}->${edge.to}`} className="py-1">
             <div className="flex items-center gap-2">
               <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-2xs text-graphite">
-                <span className="truncate-mono min-w-0 flex-1">{truncateMiddle(dropAvalSuffix(edge.from), 11)}</span>
+                <span className="truncate-mono min-w-0 flex-1">{truncateMiddle(dropVouchMeSuffix(edge.from), 11)}</span>
                 <span aria-hidden="true" className="shrink-0">
                   →
                 </span>
                 <span className="truncate-mono min-w-0 flex-1 text-cream">
-                  {truncateMiddle(dropAvalSuffix(edge.to), 11)}
+                  {truncateMiddle(dropVouchMeSuffix(edge.to), 11)}
                 </span>
               </span>
               {/* Show the contribution (+0.0 when uncounted) and the engine's own reason below,
@@ -105,7 +105,7 @@ export default async function ExplorePage() {
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
-  const { EXPLORE_HONEST, EXPLORE_RING } = await loadAvalData(viewingAddress);
+  const { EXPLORE_HONEST, EXPLORE_RING } = await loadVouchMeData(viewingAddress);
   return (
     <div className="pb-8">
       {/* Neutral title: a deployment may have no ring at all, so the columns name themselves. */}

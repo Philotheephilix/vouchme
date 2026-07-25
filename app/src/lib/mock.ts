@@ -6,14 +6,14 @@
  * into JSX.
  *
  * There is no scoring logic here. This file supplies only the GRAPH — accounts, vouches, platform
- * vouches, reports — in `@aval/engine`'s own input shape, and calls the real `compute()` /
+ * vouches, reports — in `@vouchme/engine`'s own input shape, and calls the real `compute()` /
  * `breakdown()` for every score, tier, depth, and per-edge contribution. That is the only way the
  * UI can't drift from the protocol: one scoring implementation, used everywhere.
  *
- * LIVE vs FIXTURE: the derivation logic below (`deriveAvalData`) is a single code path. What
+ * LIVE vs FIXTURE: the derivation logic below (`deriveVouchMeData`) is a single code path. What
  * changes between modes is only where the GRAPH comes from — `buildFixtureContext()` (a static
  * demo graph in this file) or `buildLiveContext()` (src/lib/chain.ts, real
- * `Enrolled`/`Vouched`/`Reaffirmed`/`Revoked` logs read live from AvalRegistry). Every number
+ * `Enrolled`/`Vouched`/`Reaffirmed`/`Revoked` logs read live from VouchMeRegistry). Every number
  * downstream of a `GraphContext` still flows through
  * `compute()` / `breakdown()` — there is no second path that formats raw chain data directly.
  */
@@ -41,8 +41,8 @@ import {
   T_MAX_CENTI,
   breakdown,
   compute,
-} from "@aval/engine";
-import type { Account, EngineInput, EngineOutput, PlatformVouch, Report, Vouch } from "@aval/engine";
+} from "@vouchme/engine";
+import type { Account, EngineInput, EngineOutput, PlatformVouch, Report, Vouch } from "@vouchme/engine";
 import type {
   AccountKind,
   AgentRecord,
@@ -88,7 +88,7 @@ import {
 const FIXTURE_NOW = new Date("2026-07-25T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const fixtureIso = (daysFromNow: number): string => new Date(FIXTURE_NOW.getTime() + daysFromNow * DAY_MS).toISOString();
-/** The engine works in unix seconds, supplied by the caller (@aval/engine never reads a clock). */
+/** The engine works in unix seconds, supplied by the caller (@vouchme/engine never reads a clock). */
 const FIXTURE_GRAPH_NOW = Math.floor(FIXTURE_NOW.getTime() / 1000);
 
 /** m+ = 0.25, for the "50.0 x 0.25" display line — imported from the engine's own constants
@@ -110,53 +110,53 @@ export const TIER_1_THRESHOLD_SCORE = centiToScore(T1);
 /** What one vouch from an anchor is worth: min(100 × 0.25, cap⁺) = 20.00. Derived, not typed. */
 export const ANCHOR_VOUCH_CONTRIBUTION = centiToScore(Math.min((ANCHOR * M_POS_NUM) / M_POS_DEN, CAP_POS));
 
-/** `PresenceDrip.DRIP_NOMINAL` is 0.25 AVAL per 6h epoch, i.e. 1 AVAL/day at the full rate
+/** `PresenceDrip.DRIP_NOMINAL` is 0.25 VOUCHME per 6h epoch, i.e. 1 VOUCHME/day at the full rate
  *  (contracts/src/PresenceDrip.sol §2). Derived from the epoch length rather than retyped. */
-const NOMINAL_DRIP_AVAL_PER_EPOCH = 0.25;
+const NOMINAL_DRIP_VOUCHME_PER_EPOCH = 0.25;
 const EPOCHS_PER_DAY = SECONDS_PER_DAY / SECONDS_PER_EPOCH;
-const NOMINAL_DRIP_AVAL_PER_DAY = NOMINAL_DRIP_AVAL_PER_EPOCH * EPOCHS_PER_DAY;
+const NOMINAL_DRIP_VOUCHME_PER_DAY = NOMINAL_DRIP_VOUCHME_PER_EPOCH * EPOCHS_PER_DAY;
 const MAX_UNCLAIMED_DAYS = MAX_UNCLAIMED_EPOCHS / EPOCHS_PER_DAY;
 const TENURE_MAX_BONUS = centiToScore(T_MAX_CENTI);
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
-// ─── the fixture graph, in @aval/engine's own input shape ───────────────────────────────────────
+// ─── the fixture graph, in @vouchme/engine's own input shape ───────────────────────────────────────
 //
 //   anchor1, anchor2          Orb-verified, depth 0
 //   alice, bob, henry, iris   each vouched by both anchors -> 50.00, Tier 1, depth 1
 //                              (docs/01-trust-math.md §12.1 "2 anchors" row). henry and iris are
 //                              real, engine-scored Tier-1-mid accounts that the candidates/platform
 //                              fixtures below point at, instead of a hand-typed score constant.
-//   carol.alice.aval.eth     "ME" — vouched by alice AND bob -> 35.00, Tier 1, depth 2
+//   carol.alice.vouchme.eth     "ME" — vouched by alice AND bob -> 35.00, Tier 1, depth 2
 //                              (§12.1 "2 x T1 @ 50" row; docs/07-app-api.md §2.2's worked example)
-//   dave.carol.aval.eth      vouched by carol only (depth 3, 18.75, Tier 0) — and vouches carol
+//   dave.carol.vouchme.eth      vouched by carol only (depth 3, 18.75, Tier 0) — and vouches carol
 //                              BACK. That reciprocal edge is the zero-contribution row: dave's depth
 //                              (3) is not strictly lower than carol's (2), so it contributes +0.0.
-//   erin.carol.aval.eth      vouched by carol only (depth 3, 18.75, Tier 0) — carol's 2nd used
+//   erin.carol.vouchme.eth      vouched by carol only (depth 3, 18.75, Tier 0) — carol's 2nd used
 //                              slot, used in the vouch-simulation secondary-effect fixture.
-//   grace.bob.aval.eth       vouched by bob only (depth 2, 22.50) — a Vouch-candidate example.
+//   grace.bob.vouchme.eth       vouched by bob only (depth 2, 22.50) — a Vouch-candidate example.
 //   ring1..ring6               fully mutual (K6) clique, zero path to any anchor
 //                              (§12.1 "6-account mutual ring" row: 10.00, Tier 0, blocked x3)
 
-const FIXTURE_ME_ID = "carol.alice.aval.eth";
-const HENRY_ID = "henry.aval.eth";
-const IRIS_ID = "iris.aval.eth";
-const FIXTURE_PLATFORM_ID = "marketpulse.aval.eth";
+const FIXTURE_ME_ID = "carol.alice.vouchme.eth";
+const HENRY_ID = "henry.vouchme.eth";
+const IRIS_ID = "iris.vouchme.eth";
+const FIXTURE_PLATFORM_ID = "marketpulse.vouchme.eth";
 
 const RING_IDS = ["ring1.eth", "ring2.eth", "ring3.eth", "ring4.eth", "ring5.eth", "ring6.eth"];
 
 const FIXTURE_ACCOUNTS: Account[] = [
-  { id: "anchor1.aval.eth", kind: "human", isAnchor: true },
-  { id: "anchor2.aval.eth", kind: "human", isAnchor: true },
-  { id: "alice.aval.eth", kind: "human" },
-  { id: "bob.aval.eth", kind: "human" },
+  { id: "anchor1.vouchme.eth", kind: "human", isAnchor: true },
+  { id: "anchor2.vouchme.eth", kind: "human", isAnchor: true },
+  { id: "alice.vouchme.eth", kind: "human" },
+  { id: "bob.vouchme.eth", kind: "human" },
   { id: HENRY_ID, kind: "human" },
   { id: IRIS_ID, kind: "human" },
   { id: FIXTURE_ME_ID, kind: "human" },
-  { id: "dave.carol.aval.eth", kind: "human" },
-  { id: "erin.carol.aval.eth", kind: "human" },
-  { id: "grace.bob.aval.eth", kind: "human" },
+  { id: "dave.carol.vouchme.eth", kind: "human" },
+  { id: "erin.carol.vouchme.eth", kind: "human" },
+  { id: "grace.bob.vouchme.eth", kind: "human" },
   // docs/04-ens.md §1.2: names like this "resolve to nothing, because none of those labels descend
-  // from aval.eth" — the ring is unrepresentable in the real namespace. Kept as flat mock ids here
+  // from vouchme.eth" — the ring is unrepresentable in the real namespace. Kept as flat mock ids here
   // only so the fixture graph has six distinct, clearly-labelled ring accounts to compute over.
   ...RING_IDS.map((id): Account => ({ id, kind: "human" })),
   { id: FIXTURE_PLATFORM_ID, kind: "platform" },
@@ -167,20 +167,20 @@ function mkVouch(voucher: string, vouchee: string): Vouch {
 }
 
 const CORE_VOUCHES: Vouch[] = [
-  mkVouch("anchor1.aval.eth", "alice.aval.eth"),
-  mkVouch("anchor2.aval.eth", "alice.aval.eth"),
-  mkVouch("anchor1.aval.eth", "bob.aval.eth"),
-  mkVouch("anchor2.aval.eth", "bob.aval.eth"),
-  mkVouch("anchor1.aval.eth", HENRY_ID),
-  mkVouch("anchor2.aval.eth", HENRY_ID),
-  mkVouch("anchor1.aval.eth", IRIS_ID),
-  mkVouch("anchor2.aval.eth", IRIS_ID),
-  mkVouch("alice.aval.eth", FIXTURE_ME_ID),
-  mkVouch("bob.aval.eth", FIXTURE_ME_ID),
-  mkVouch(FIXTURE_ME_ID, "dave.carol.aval.eth"),
-  mkVouch("dave.carol.aval.eth", FIXTURE_ME_ID), // reciprocal — zero-contribution row
-  mkVouch(FIXTURE_ME_ID, "erin.carol.aval.eth"),
-  mkVouch("bob.aval.eth", "grace.bob.aval.eth"),
+  mkVouch("anchor1.vouchme.eth", "alice.vouchme.eth"),
+  mkVouch("anchor2.vouchme.eth", "alice.vouchme.eth"),
+  mkVouch("anchor1.vouchme.eth", "bob.vouchme.eth"),
+  mkVouch("anchor2.vouchme.eth", "bob.vouchme.eth"),
+  mkVouch("anchor1.vouchme.eth", HENRY_ID),
+  mkVouch("anchor2.vouchme.eth", HENRY_ID),
+  mkVouch("anchor1.vouchme.eth", IRIS_ID),
+  mkVouch("anchor2.vouchme.eth", IRIS_ID),
+  mkVouch("alice.vouchme.eth", FIXTURE_ME_ID),
+  mkVouch("bob.vouchme.eth", FIXTURE_ME_ID),
+  mkVouch(FIXTURE_ME_ID, "dave.carol.vouchme.eth"),
+  mkVouch("dave.carol.vouchme.eth", FIXTURE_ME_ID), // reciprocal — zero-contribution row
+  mkVouch(FIXTURE_ME_ID, "erin.carol.vouchme.eth"),
+  mkVouch("bob.vouchme.eth", "grace.bob.vouchme.eth"),
 ];
 
 const RING_VOUCHES: Vouch[] = RING_IDS.flatMap((src) =>
@@ -189,7 +189,7 @@ const RING_VOUCHES: Vouch[] = RING_IDS.flatMap((src) =>
 
 const FIXTURE_VOUCHES: Vouch[] = [...CORE_VOUCHES, ...RING_VOUCHES];
 
-const FIXTURE_PLATFORM_VOUCHES: PlatformVouch[] = ["alice.aval.eth", "bob.aval.eth", HENRY_ID, IRIS_ID].map(
+const FIXTURE_PLATFORM_VOUCHES: PlatformVouch[] = ["alice.vouchme.eth", "bob.vouchme.eth", HENRY_ID, IRIS_ID].map(
   (voucher): PlatformVouch => ({ voucher, platform: FIXTURE_PLATFORM_ID, active: true }),
 );
 
@@ -211,7 +211,7 @@ const FIXTURE_REPORTS: Report[] = [
   },
   {
     id: "rpt_decayed_anchor2",
-    reporter: "anchor2.aval.eth",
+    reporter: "anchor2.vouchme.eth",
     target: FIXTURE_ME_ID,
     state: "upheld",
     upheldAt: FIXTURE_GRAPH_NOW - OLD_UPHELD_AGO_DAYS * SECONDS_PER_DAY,
@@ -241,14 +241,14 @@ interface DirectoryEntry {
 }
 
 const FIXTURE_DIRECTORY: DirectoryEntry[] = [
-  { id: "anchor1.aval.eth", kind: "anchor", credential: "orb", registeredAgoDays: 400 },
-  { id: "anchor2.aval.eth", kind: "anchor", credential: "orb", registeredAgoDays: 380 },
-  { id: "alice.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 200 },
-  { id: "bob.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 190 },
+  { id: "anchor1.vouchme.eth", kind: "anchor", credential: "orb", registeredAgoDays: 400 },
+  { id: "anchor2.vouchme.eth", kind: "anchor", credential: "orb", registeredAgoDays: 380 },
+  { id: "alice.vouchme.eth", kind: "member", credential: "selfie", registeredAgoDays: 200 },
+  { id: "bob.vouchme.eth", kind: "member", credential: "selfie", registeredAgoDays: 190 },
   { id: FIXTURE_ME_ID, kind: "member", credential: "selfie", registeredAgoDays: 214 },
-  { id: "dave.carol.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
-  { id: "erin.carol.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
-  { id: "grace.bob.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 60 },
+  { id: "dave.carol.vouchme.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
+  { id: "erin.carol.vouchme.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
+  { id: "grace.bob.vouchme.eth", kind: "member", credential: "selfie", registeredAgoDays: 60 },
   { id: FIXTURE_PLATFORM_ID, kind: "platform", credential: "document", registeredAgoDays: 120 },
 ];
 
@@ -290,8 +290,8 @@ interface ReportDisplayMeta {
   evidenceHash: string | null;
   /** The transaction that filed it — the receipt a person can actually verify. */
   txHash: string | null;
-  /** AVAL bonded behind the accusation, `10 × weightPoints` (docs/12-reporting.md §3). */
-  bondAval: number | null;
+  /** VOUCHME bonded behind the accusation, `10 × weightPoints` (docs/12-reporting.md §3). */
+  bondVouchMe: number | null;
 }
 
 interface GraphContext {
@@ -320,10 +320,10 @@ interface GraphContext {
   edgeTiming: (voucherId: string, voucheeId: string) => EdgeTiming;
   /** Which counted inbound voucher of `meId` is its "weakest link" for the Home-screen warning.
    *  Fixture pins this to the authored narrative ("bob"); live mode picks the counted voucher
-   *  closest to real expiry — both flow through the same generic recompute in `deriveAvalData`. */
+   *  closest to real expiry — both flow through the same generic recompute in `deriveVouchMeData`. */
   weakestLinkVoucherId: (countedVoucherIds: string[]) => string | null;
   slotsFor: (id: string, tier: Tier) => Slots;
-  /** Unix seconds of `id`'s last `vouch()`, or 0 if never / unknown. `AvalRegistry` reverts with
+  /** Unix seconds of `id`'s last `vouch()`, or 0 if never / unknown. `VouchMeRegistry` reverts with
    *  `RateLimited()` inside 24h of it, so the vouch preview needs it to refuse a doomed vouch
    *  instead of walking the user into one. Fixture mode has no such state and returns 0. */
   lastVouchAtFor: (id: string) => number;
@@ -334,10 +334,10 @@ interface GraphContext {
   /** `null` when no platform exists in this graph (true of the live deployment — nobody has
    *  registered one yet). The platform screen renders the honest empty state in that case. */
   platformId: string | null;
-  /** AVAL the platform has bonded, or `null` if unknown. Live mode reads it from
+  /** VOUCHME the platform has bonded, or `null` if unknown. Live mode reads it from
    *  `PlatformRegistry.platforms(addr).bond` — the registry custodies platform bonds itself rather
    *  than routing them through `CredibilityVault` (PlatformRegistry.sol's own NOTE(deviation) 1). */
-  platformBondAval: (id: string) => number | null;
+  platformBondVouchMe: (id: string) => number | null;
   /** The facts about a report that the ENGINE deliberately does not model — when it was filed,
    *  which of the seven on-chain states it is actually in, what evidence was attached, and which
    *  transaction filed it. The engine reduces a report to `{state, upheldAt, snapshotWeight}`
@@ -345,22 +345,22 @@ interface GraphContext {
    *  needs the rest, and it must come from the chain rather than from this module's imagination. */
   reportDisplayMeta: (reportId: string) => ReportDisplayMeta;
   directory: DirectoryEntry[];
-  /** Real `PresenceDrip` state for `id`. `accruedAval` is only ever non-zero for the address
+  /** Real `PresenceDrip` state for `id`. `accruedVouchMe` is only ever non-zero for the address
    *  actually being viewed this request (one live `accrued()` read, not one per account — see
    *  `buildLiveContext`) since claiming only ever applies to the signed-in viewer. */
-  presenceFor: (id: string) => { epochsClaimed: number; accruedAval: number };
+  presenceFor: (id: string) => { epochsClaimed: number; accruedVouchMe: number };
   isEnrolledId: (id: string) => boolean;
   /** True when this render is for a signed-in wallet's own data (cookie-sourced address passed to
-   *  `loadAvalData`), false when it fell back to the `ME_ADDRESS` demo identity because nobody is
+   *  `loadVouchMeData`), false when it fell back to the `ME_ADDRESS` demo identity because nobody is
    *  signed in. Drives the "viewing carol — sign in to see your own" banner. */
   viewerIsSelf: boolean;
 }
 
 function buildFixtureContext(): GraphContext {
   const edgeDays: Record<string, { issuedAgoDays: number; expiresInDays: number }> = {
-    [`alice.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 16, expiresInDays: 74 },
-    [`bob.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 72, expiresInDays: 18 },
-    [`dave.carol.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 5, expiresInDays: 85 },
+    [`alice.vouchme.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 16, expiresInDays: 74 },
+    [`bob.vouchme.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 72, expiresInDays: 18 },
+    [`dave.carol.vouchme.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 5, expiresInDays: 85 },
   };
   let genericIndex = 0;
 
@@ -392,7 +392,7 @@ function buildFixtureContext(): GraphContext {
       const expires = known ? expiresInDays : 90 - issuedAgoDays;
       return { issuedAt: fixtureIso(-issuedAgoDays), expiresAt: fixtureIso(expires), daysUntilExpiry: expires };
     },
-    weakestLinkVoucherId: () => "bob.aval.eth",
+    weakestLinkVoucherId: () => "bob.vouchme.eth",
     // Tier-derived and counted off the fixture's own edges, so an anchor with four outbound
     // vouches never renders "0 of 10 free".
     slotsFor: (id, tier) => {
@@ -403,9 +403,9 @@ function buildFixtureContext(): GraphContext {
     // The fixture graph has no rate-limit state — it is an authored narrative, not chain history.
     lastVouchAtFor: () => 0,
     credentialFor: () => ({ status: "active", expiresAt: fixtureIso(60), credential: "selfie" }),
-    candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.aval.eth", HENRY_ID] : []),
+    candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.vouchme.eth", HENRY_ID] : []),
     platformId: FIXTURE_PLATFORM_ID,
-    platformBondAval: () => 5_200,
+    platformBondVouchMe: () => 5_200,
     reportDisplayMeta: (id) => {
       const m = REPORT_DISPLAY_META[id] ?? { filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null };
       return {
@@ -417,13 +417,13 @@ function buildFixtureContext(): GraphContext {
         onChainState: null,
         evidenceHash: null,
         txHash: null,
-        bondAval: null,
+        bondVouchMe: null,
       };
     },
     directory: FIXTURE_DIRECTORY,
     // 214 days present (docs/16-presence-drip.md §9 demo panel) — authored only for the fixture's
     // one narrative identity; every other id honestly has no presence authored, so it's zero.
-    presenceFor: (id) => (id === FIXTURE_ME_ID ? { epochsClaimed: 856, accruedAval: 14.5 } : { epochsClaimed: 0, accruedAval: 0 }),
+    presenceFor: (id) => (id === FIXTURE_ME_ID ? { epochsClaimed: 856, accruedVouchMe: 14.5 } : { epochsClaimed: 0, accruedVouchMe: 0 }),
     isEnrolledId: (id) => FIXTURE_ACCOUNTS.some((a) => a.id === id),
     viewerIsSelf: false,
   };
@@ -537,16 +537,16 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     };
   });
 
-  // Real accrued AVAL, but only for the identity actually being viewed this request — one
+  // Real accrued VOUCHME, but only for the identity actually being viewed this request — one
   // `PresenceDrip.accrued()` read (docs/16-presence-drip.md §9's "Claim button ... updates the
   // accrued figure"), not one per account in the graph (that would be exactly the N-account
   // fan-out the Multicall3 batch config exists to avoid).
   const accruedWei = await getAccruedDrip(meAddress);
-  const accruedAvalForViewed = Number(accruedWei) / 1e18;
+  const accruedVouchMeForViewed = Number(accruedWei) / 1e18;
 
-  const presenceFor = (id: string): { epochsClaimed: number; accruedAval: number } => {
+  const presenceFor = (id: string): { epochsClaimed: number; accruedVouchMe: number } => {
     const p = graph.presence.get(id as Address);
-    return { epochsClaimed: p?.epochsClaimed ?? 0, accruedAval: id === meAddress ? accruedAvalForViewed : 0 };
+    return { epochsClaimed: p?.epochsClaimed ?? 0, accruedVouchMe: id === meAddress ? accruedVouchMeForViewed : 0 };
   };
 
   const isEnrolledId = (id: string): boolean => graph.members.get(id as Address)?.enrolled ?? false;
@@ -571,7 +571,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
         onChainState: null,
         evidenceHash: null,
         txHash: null,
-        bondAval: null,
+        bondVouchMe: null,
       };
     }
     return {
@@ -582,7 +582,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
       onChainState: m.state,
       evidenceHash: m.evidenceHash,
       txHash: m.txHash,
-      bondAval: Number(m.bond / BigInt(10) ** BigInt(14)) / 10_000,
+      bondVouchMe: Number(m.bond / BigInt(10) ** BigInt(14)) / 10_000,
     };
   };
 
@@ -591,7 +591,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     meta: {
       subgraphDeployment: `direct-chain-read:${WORLDCHAIN_ID}`,
       computedAtBlock: Number(graph.block),
-      indexerLagBlocks: 0, // no separate indexer in live mode — this app reads AvalRegistry directly
+      indexerLagBlocks: 0, // no separate indexer in live mode — this app reads VouchMeRegistry directly
       engineVersion: "0.1.0",
       mode: "live",
       chainId: WORLDCHAIN_ID,
@@ -623,7 +623,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
     // /platform screen can show; `platformsAvailable` above is what distinguishes "none registered"
     // from "never asked".
     platformId: [...graph.platforms.values()].find((p) => p.active)?.address ?? null,
-    platformBondAval: (id) => {
+    platformBondVouchMe: (id) => {
       const p = graph.platforms.get(id as Address);
       return p ? Number(p.bond / BigInt(10) ** BigInt(14)) / 10_000 : null;
     },
@@ -638,7 +638,7 @@ async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext>
 // ════════════════════════════════════════════════════════════════════════════════════════════
 // ─── shared derivation — the single code path both modes flow through ───────────────────────────
 
-export interface AvalData {
+export interface VouchMeData {
   mode: "live" | "fixture";
   meta: ApiMeta;
   /** See `GraphContext.reportsAvailable` / `.platformsAvailable`: false means this graph source
@@ -670,7 +670,7 @@ export interface AvalData {
   simulateVouch: (voucherId: string, targetId: string) => SimulateVouchResult;
 }
 
-function deriveAvalData(ctx: GraphContext): AvalData {
+function deriveVouchMeData(ctx: GraphContext): VouchMeData {
   const engineInput: EngineInput = {
     now: ctx.graphNow,
     accounts: ctx.accounts,
@@ -838,18 +838,18 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     const presentDays = p.epochsClaimed / EPOCHS_PER_DAY;
     // Engine constants, not retyped percentages (docs/16-presence-drip.md §3).
     const tierRatePct = tier >= 1 ? TIER_1_PLUS_DRIP_RATE_PERCENT : TIER_0_DRIP_RATE_PERCENT;
-    const dailyRateAval = (NOMINAL_DRIP_AVAL_PER_DAY * tierRatePct) / 100;
+    const dailyRateVouchMe = (NOMINAL_DRIP_VOUCHME_PER_DAY * tierRatePct) / 100;
     // `PresenceDrip.accrued()` is deliberately NOMINAL and tier-blind — it counts epochs, and the
     // tier discount is applied inside `claim()` (contracts/src/PresenceDrip.sol NOTE(deviation) 2).
     // So show what `claim()` would actually mint — the raw figure overstates a Tier 0 balance by 4x
     // — and keep the nominal figure for the cap countdown, which IS tier-blind.
-    const nominalAccruedAval = p.accruedAval;
-    const accruedAval = (nominalAccruedAval * tierRatePct) / 100;
+    const nominalAccruedVouchMe = p.accruedVouchMe;
+    const accruedVouchMe = (nominalAccruedVouchMe * tierRatePct) / 100;
     return {
-      dailyRateAval,
-      accruedAval,
+      dailyRateVouchMe,
+      accruedVouchMe,
       maxUnclaimedDays: MAX_UNCLAIMED_DAYS,
-      daysUntilCap: Math.max(0, MAX_UNCLAIMED_DAYS - nominalAccruedAval / NOMINAL_DRIP_AVAL_PER_DAY),
+      daysUntilCap: Math.max(0, MAX_UNCLAIMED_DAYS - nominalAccruedVouchMe / NOMINAL_DRIP_VOUCHME_PER_DAY),
       presentDays,
       tenureBonus: tenureFromDays(presentDays),
       tenureMaxBonus: TENURE_MAX_BONUS,
@@ -858,7 +858,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     };
   }
 
-  // ─── ME — the identity `loadAvalData(viewingAddress)` was called for: the signed-in viewer's
+  // ─── ME — the identity `loadVouchMeData(viewingAddress)` was called for: the signed-in viewer's
   // own address when one was passed, else the `ME_ADDRESS` demo fallback (`ctx.viewerIsSelf`
   // records which). ────────────────────────────────────────────────────────────────────────────
 
@@ -906,7 +906,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
   const humanIds = ctx.accounts.filter((a) => a.kind === "human").map((a) => a.id);
   const honestIds =
     ctx.mode === "fixture"
-      ? ["anchor1.aval.eth", "anchor2.aval.eth", "alice.aval.eth", "bob.aval.eth", ctx.meId, "dave.carol.aval.eth"]
+      ? ["anchor1.vouchme.eth", "anchor2.vouchme.eth", "alice.vouchme.eth", "bob.vouchme.eth", ctx.meId, "dave.carol.vouchme.eth"]
       : humanIds.filter((id) => depthOf(id) !== null);
   const ringIds = ctx.mode === "fixture" ? RING_IDS : humanIds.filter((id) => depthOf(id) === null);
 
@@ -1063,7 +1063,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
       reasonCode: meta.reasonCode,
       onChainState: meta.onChainState,
       txHash: meta.txHash,
-      bondAval: meta.bondAval,
+      bondVouchMe: meta.bondVouchMe,
       // Weight the engine credits BEFORE decay, and whether this report is one of the top-3 that
       // actually move the published score. `countedTowardScore: false` on a valid, upheld report is
       // the top-K cut doing its job (docs/01-trust-math.md §7.3) — or the target being an anchor,
@@ -1093,23 +1093,23 @@ function deriveAvalData(ctx: GraphContext): AvalData {
           score: centiToScore(platformSpCenti),
           tier: platformTierFromEngine(result.platformTier[ctx.platformId!]),
           voucherCount: platformVouchesFor.length,
-          // `bondAval` is read from chain — `PlatformRegistry` custodies platform bonds itself.
+          // `bondVouchMe` is read from chain — `PlatformRegistry` custodies platform bonds itself.
           // The other two stay `null` in live mode because they have no source: request counts
           // live in the gateway (not deployed), and "upheld rate"
           // is not a quantity ReportRegistry exposes for a platform (the reports it holds are
           // reports FILED BY and AGAINST accounts, with no notion of a platform's hit rate).
           // Rendering 0 / 0 / 0% would present measurements that were never taken as if they had
           // been. The fixture's figures stay, because the fixture says it is a demo graph.
-          bondAval: ctx.platformBondAval(ctx.platformId!),
+          bondVouchMe: ctx.platformBondVouchMe(ctx.platformId!),
           requestsLast30d: ctx.mode === "fixture" ? 812 : null,
           upheldRatePct: ctx.mode === "fixture" ? 82 : null,
           gates: {
             g1ScoreThreshold: platformSpCenti >= P1,
             g2TwoDistinctVouchers: new Set(platformVouchesFor.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
-            // `MIN_REGISTRATION_BOND` is 5 000 AVAL (PlatformRegistry.sol:60), and registration is
+            // `MIN_REGISTRATION_BOND` is 5 000 VOUCHME (PlatformRegistry.sol:60), and registration is
             // impossible below it — but read the bond rather than infer it from "it registered".
             g3BondPosted: (() => {
-              const b = ctx.platformBondAval(ctx.platformId!);
+              const b = ctx.platformBondVouchMe(ctx.platformId!);
               return b === null ? null : b >= 5_000;
             })(),
           },
@@ -1118,7 +1118,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     : {
         // No platform on this graph. `registered: false` covers both "PlatformRegistry was read
         // and nobody has registered" and "this deployment does not read PlatformRegistry at all" —
-        // `AvalData.platformsAvailable` is the field that distinguishes them, and /platform must
+        // `VouchMeData.platformsAvailable` is the field that distinguishes them, and /platform must
         // use it rather than printing a console full of zeros either way.
         registered: false,
         address: "0x0000000000000000000000000000000000000000",
@@ -1126,7 +1126,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
         score: 0,
         tier: "P0",
         voucherCount: 0,
-        bondAval: null,
+        bondVouchMe: null,
         requestsLast30d: null,
         upheldRatePct: null,
         gates: { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3BondPosted: null },
@@ -1136,7 +1136,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
 
   const meHandle = ctx.ensNameFor(ctx.meId);
   // Nothing in this record exists. Agent subname registration has not shipped: `/api/ens/mint`
-  // only ever mints the operator's own `<handle>.aval.eth`, there is no ENSIP-26/25 registrar
+  // only ever mints the operator's own `<handle>.vouchme.eth`, there is no ENSIP-26/25 registrar
   // call anywhere in this repo, and none of the hostnames below serve anything. `exampleLabel`
   // is exactly that — an example, not a name anyone chose or reserved — and `/agents` is required
   // to say so on screen next to every value it prints.
@@ -1149,15 +1149,15 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     operator: meHandle,
     operatorScore: humanScore(ctx.meId),
     inheritedTier: meTier,
-    endpointMcp: `https://mcp.aval.xyz/agent/${agentSubname}`,
-    endpointA2a: `https://a2a.aval.xyz/${agentSubname}`,
+    endpointMcp: `https://mcp.vouchme.xyz/agent/${agentSubname}`,
+    endpointA2a: `https://a2a.vouchme.xyz/${agentSubname}`,
     ensip26: {
-      "agent-context": `# ${agentSubname}\n\nOperated by ${meHandle} (Aval tier ${meTier}, score ${humanScore(
+      "agent-context": `# ${agentSubname}\n\nOperated by ${meHandle} (VouchMe tier ${meTier}, score ${humanScore(
         ctx.meId,
       ).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${meTier}. It CANNOT issue vouches — vouching requires a human, and ENSIP-26 agents are not one.`,
-      "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/${agentSubname}`,
-      "agent-endpoint[a2a]": `https://a2a.aval.xyz/${agentSubname}`,
-      "agent-endpoint[web]": `https://aval.xyz/a/${agentSubname}`,
+      "agent-endpoint[mcp]": `https://mcp.vouchme.xyz/agent/${agentSubname}`,
+      "agent-endpoint[a2a]": `https://a2a.vouchme.xyz/${agentSubname}`,
+      "agent-endpoint[web]": `https://vouchme.xyz/a/${agentSubname}`,
     },
     // Chain id from the configured chain, not a literal 480 that silently becomes wrong the day
     // this points anywhere else.
@@ -1225,7 +1225,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     const alreadyVouches = ctx.vouches.some((v) => v.voucher === voucherId && v.vouchee === targetId && v.active);
     const afterResult = alreadyVouches ? result : compute({ ...engineInput, vouches: [...ctx.vouches, mkVouch(voucherId, targetId)] });
 
-    // Both revert conditions in `AvalRegistry.vouch()`, read from live `members()` state rather
+    // Both revert conditions in `VouchMeRegistry.vouch()`, read from live `members()` state rather
     // than assumed. Checking these BEFORE the wizard starts is the difference between refusing a
     // vouch and walking someone through a face scan into a transaction that cannot land.
     const lastVouchAt = ctx.lastVouchAtFor(voucherId);
@@ -1266,12 +1266,12 @@ function deriveAvalData(ctx: GraphContext): AvalData {
     ctx.mode === "fixture"
       ? (() => {
           // Reproduces the exact moment bob's vouch lands on carol: 22.5 -> 35.0, Tier 0 -> Tier 1
-          const withoutBob = ctx.vouches.filter((v) => !(v.voucher === "bob.aval.eth" && v.vouchee === ctx.meId));
+          const withoutBob = ctx.vouches.filter((v) => !(v.voucher === "bob.vouchme.eth" && v.vouchee === ctx.meId));
           const resultWithoutBob = compute({ ...engineInput, vouches: withoutBob });
           const meScoreIfBobExpires = centiToScore(resultWithoutBob.score[ctx.meId] ?? BASE);
           const meTierIfBobExpires = (resultWithoutBob.tier[ctx.meId] ?? 0) as Tier;
           return {
-            voucher: "bob.aval.eth",
+            voucher: "bob.vouchme.eth",
             target: ctx.meId,
             targetBefore: { score: meScoreIfBobExpires, tier: meTierIfBobExpires },
             targetAfter: { score: humanScore(ctx.meId), tier: meTier },
@@ -1299,7 +1299,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
           };
 
   function simulateVouch(voucherId: string, targetId: string): SimulateVouchResult {
-    if (ctx.mode === "fixture" && voucherId === "bob.aval.eth" && targetId === ctx.meId) return VOUCH_SIMULATION;
+    if (ctx.mode === "fixture" && voucherId === "bob.vouchme.eth" && targetId === ctx.meId) return VOUCH_SIMULATION;
     return simulateVouchGeneric(voucherId, targetId);
   }
 
@@ -1488,7 +1488,7 @@ function deriveAvalData(ctx: GraphContext): AvalData {
           chainHead: ctx.meta.computedAtBlock + ctx.meta.indexerLagBlocks,
           lagBlocks: ctx.meta.indexerLagBlocks,
         }
-      : // filled in by loadAvalData(), which has the async chain-health call this sync function
+      : // filled in by loadVouchMeData(), which has the async chain-health call this sync function
         // can't make — see the live branch below.
         {
           status: "ok",
@@ -1528,11 +1528,11 @@ function deriveAvalData(ctx: GraphContext): AvalData {
 // ════════════════════════════════════════════════════════════════════════════════════════════
 // ─── entry point — memoized per mode; LIVE additionally caches by block via chain.ts ─────────────
 
-let fixtureCache: AvalData | null = null;
+let fixtureCache: VouchMeData | null = null;
 
 /**
  * `viewingAddress`, when provided, is the signed-in wallet whose own data `ME` should reflect
- * (from the `aval_addr` cookie `session.tsx` sets — see `page.tsx`). Omitted, it falls back to
+ * (from the `vouchme_addr` cookie `session.tsx` sets — see `page.tsx`). Omitted, it falls back to
  * the read-only `ME_ADDRESS` demo identity, and `viewerIsSelf` comes back `false` so the UI can
  * label the fallback plainly rather than silently pretending it's the visitor's own account.
  *
@@ -1541,15 +1541,15 @@ let fixtureCache: AvalData | null = null;
  * Multicall3-batched chain read — is already cached inside `getLiveGraph()` (15s TTL). What's left
  * (`compute()` over an already-fetched graph) is cheap enough to just always run.
  */
-export async function loadAvalData(viewingAddress?: Address): Promise<AvalData> {
+export async function loadVouchMeData(viewingAddress?: Address): Promise<VouchMeData> {
   if (getChainMode() === "fixture") {
-    if (!fixtureCache) fixtureCache = deriveAvalData(buildFixtureContext());
+    if (!fixtureCache) fixtureCache = deriveVouchMeData(buildFixtureContext());
     return fixtureCache;
   }
 
   const ctx = await buildLiveContext(viewingAddress);
   const blockNum = ctx.meta.computedAtBlock;
-  const data = deriveAvalData(ctx);
+  const data = deriveVouchMeData(ctx);
   const chainHealth = await getChainHealth();
   data.HEALTH = {
     status: "ok",

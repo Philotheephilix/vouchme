@@ -2,7 +2,7 @@
  * POST /api/report/attest
  *
  * Signs the EIP-712 `ReportAttestation` that `ReportRegistry.file()` demands, for exactly the same
- * reason `AvalRegistry.vouch` demands one for `voucherTier`: **report weight is a whole-graph
+ * reason `VouchMeRegistry.vouch` demands one for `voucherTier`: **report weight is a whole-graph
  * property the EVM must not compute** (docs/12-reporting.md §5). The contract records the number;
  * the engine independently re-derives it at read time and credits `min(snapshotWeight, live
  * weight)` (docs/01-trust-math.md §7.1), so a forged weight buys a report the recompute will not
@@ -35,7 +35,7 @@
 import "server-only";
 
 import { isAddress, getAddress, isHex, type Address, type Hex } from "viem";
-import { weightNeg } from "@aval/engine";
+import { weightNeg } from "@vouchme/engine";
 import {
   AttestorConfigError,
   deadlineFromNow,
@@ -70,7 +70,7 @@ const HUMAN_CONCURRENT_CAP = 1;
 /** `SAME_PAIR_COOLDOWN` (ReportRegistry.sol:64) — 180 days between reports on the same pair. */
 const SAME_PAIR_COOLDOWN_SECONDS = 180 * 24 * 60 * 60;
 
-/** `bond / 1 000 AVAL`, clamped to [1, 50] — `PlatformRegistry.reportLimitOf` (PlatformRegistry
+/** `bond / 1 000 VOUCHME`, clamped to [1, 50] — `PlatformRegistry.reportLimitOf` (PlatformRegistry
  *  .sol:314), recomputed here from the bond this module already read rather than paying for a
  *  second RPC round trip to learn a pure function of it. */
 function platformReportLimit(bondWei: bigint): number {
@@ -245,7 +245,7 @@ export async function POST(req: Request): Promise<Response> {
       target,
       evidenceHash,
       weightPoints,
-      /** `BOND_PER_WEIGHT × weightPoints` (ReportRegistry.sol:65) — AVAL wei the reporter must
+      /** `BOND_PER_WEIGHT × weightPoints` (ReportRegistry.sol:65) — VOUCHME wei the reporter must
        *  already have bonded in CredibilityVault, or `file()` reverts with InsufficientAvailable. */
       bondWei: (BigInt(weightPoints) * BigInt("10000000000000000000")).toString(),
       deadline: deadline.toString(),

@@ -1,5 +1,5 @@
 {
-  "name": "@aval/app",
+  "name": "@vouchme/app",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,7 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@aval/engine": "*",
+    "@vouchme/engine": "*",
     "@heroui/react": "^2.8.0",
     "@heroui/theme": "^2.4.0",
     "@worldcoin/idkit": "^4.2.1",

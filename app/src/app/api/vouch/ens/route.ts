@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * The vouch, as a name.
  *
  * docs/04-ens.md §7.1 maps "issuing a vouch" onto `register(label, vouchee)` **in your own
- * registry**, so a vouch from `alice` to `carol` is a real `carol.alice.aval.eth` whose
+ * registry**, so a vouch from `alice` to `carol` is a real `carol.alice.vouchme.eth` whose
  * `Entry.subregistry` is carol's own registry. This route performs exactly that write on Ethereum
  * Sepolia after the vouch transaction itself has landed on World Chain Sepolia.
  *
@@ -49,16 +49,16 @@ export async function POST(req: Request): Promise<Response> {
 
   // Both labels come from each account's own immutable on-chain enrollment handle, never from a
   // client-supplied string — the same rule /api/ens/mint follows.
-  if (!(await isAddressEnrolled(voucher))) return fail(409, "voucher_not_enrolled", "The vouching wallet is not enrolled in Aval.");
-  if (!(await isAddressEnrolled(vouchee))) return fail(409, "vouchee_not_enrolled", "The account being vouched for is not enrolled in Aval.");
+  if (!(await isAddressEnrolled(voucher))) return fail(409, "voucher_not_enrolled", "The vouching wallet is not enrolled in VouchMe.");
+  if (!(await isAddressEnrolled(vouchee))) return fail(409, "vouchee_not_enrolled", "The account being vouched for is not enrolled in VouchMe.");
 
   const voucherHandle = await getEnrollmentHandle(voucher);
   const voucheeHandle = await getEnrollmentHandle(vouchee);
-  if (!voucherHandle?.endsWith(".aval.eth") || !voucheeHandle?.endsWith(".aval.eth")) {
+  if (!voucherHandle?.endsWith(".vouchme.eth") || !voucheeHandle?.endsWith(".vouchme.eth")) {
     return fail(500, "handle_unavailable", "Could not read back the handles these addresses enrolled with.");
   }
-  const voucherLabel = voucherHandle.slice(0, -".aval.eth".length);
-  const voucheeLabel = voucheeHandle.slice(0, -".aval.eth".length);
+  const voucherLabel = voucherHandle.slice(0, -".vouchme.eth".length);
+  const voucheeLabel = voucheeHandle.slice(0, -".vouchme.eth".length);
 
   inFlight.add(key);
   try {

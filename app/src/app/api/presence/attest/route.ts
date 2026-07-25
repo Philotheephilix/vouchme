@@ -14,7 +14,7 @@ interface PresenceAttestBody {
 /**
  * Signs the `TierAttestation` `PresenceDrip.claim(tier, deadline, nonce, attestation)` needs.
  * Tier determines the payout rate (25% at Tier 0, 100% at Tier 1/2 — docs/16-presence-drip.md §3),
- * a whole-graph fact the EVM can't compute, same pattern as `AvalRegistry.vouch`'s `voucherTier`.
+ * a whole-graph fact the EVM can't compute, same pattern as `VouchMeRegistry.vouch`'s `voucherTier`.
  * No World ID proof required here (docs/10-constants.md §12: "Claiming requires presence check:
  * no — claiming creates no trust, only vouching does") — this just attests the caller's own,
  * already-public, live-computed tier.
@@ -33,7 +33,7 @@ export async function POST(req: Request): Promise<Response> {
   const address = getAddress(body.address);
 
   if (!(await isAddressEnrolled(address))) {
-    return fail(409, "not_enrolled", "This wallet is not enrolled in Aval.");
+    return fail(409, "not_enrolled", "This wallet is not enrolled in VouchMe.");
   }
 
   const tier = await getLiveTier(address);

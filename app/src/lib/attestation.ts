@@ -2,10 +2,10 @@
  * app/src/lib/attestation.ts
  *
  * Server-only EIP-712 signing for the two attestation kinds this app issues:
- *   - `AvalRegistry.EnrollAttestation` / `VouchAttestation`
+ *   - `VouchMeRegistry.EnrollAttestation` / `VouchAttestation`
  *   - `PresenceDrip.TierAttestation`
  *
- * Domain, types and field order are copied verbatim from `scripts/live-scenario.mjs` (Aval
+ * Domain, types and field order are copied verbatim from `scripts/live-scenario.mjs` (VouchMe
  * registry) and `contracts/src/PresenceDrip.sol`'s own `TIER_TYPEHASH` (presence drip) — both
  * proven against the deployed contracts. `ATTESTOR_PRIVATE_KEY` is read from `process.env` here
  * and nowhere else client-reachable; this file must never be imported from a "use client"
@@ -17,7 +17,7 @@ import "server-only";
 import { privateKeyToAccount } from "viem/accounts";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import {
-  getAvalRegistryAddressServer,
+  getVouchMeRegistryAddressServer,
   getPresenceDripAddressServer,
   getReportRegistryAddressServer,
 } from "./chain";
@@ -56,12 +56,21 @@ export function randomNonce(): bigint {
   return BigInt(hex);
 }
 
-function avalRegistryDomain() {
+/**
+ * NOTE — this domain name changed with the Aval -> VouchMe rename, and that is a CONSENSUS-BREAKING
+ * change, not a cosmetic one. `name` is hashed into the EIP-712 domain separator, and the contract
+ * hashes its own copy (`VouchMeRegistry.sol`: `keccak256(bytes("VouchMeRegistry"))`). The contracts
+ * currently live on World Chain were deployed as `AvalRegistry` and still hash that string, so an
+ * attestation signed here will fail their signature check. If enroll/vouch starts reverting with
+ * `BadAttestation`, the deployment is pre-rename — redeploy the contracts, do not edit this string
+ * back. See `deployments/worldchain-*.json`'s `renameNote`.
+ */
+function vouchMeRegistryDomain() {
   return {
-    name: "AvalRegistry",
+    name: "VouchMeRegistry",
     version: "1",
     chainId: BigInt(WORLDCHAIN_ID),
-    verifyingContract: getAvalRegistryAddressServer(),
+    verifyingContract: getVouchMeRegistryAddressServer(),
   } as const;
 }
 
@@ -83,11 +92,11 @@ export interface EnrollAttestationInput {
 }
 
 /** `EnrollAttestation(address account,uint256 nullifierHash,bytes32 credential,uint64 deadline,uint256 nonce)`
- *  — field order matches `AvalRegistry.sol`'s `ENROLL_TYPEHASH` exactly. */
+ *  — field order matches `VouchMeRegistry.sol`'s `ENROLL_TYPEHASH` exactly. */
 export async function signEnrollAttestation(input: EnrollAttestationInput): Promise<Hex> {
   const attestor = getAttestorAccount();
   return attestor.signTypedData({
-    domain: avalRegistryDomain(),
+    domain: vouchMeRegistryDomain(),
     types: {
       EnrollAttestation: [
         { name: "account", type: "address" },
@@ -114,7 +123,7 @@ export interface VouchAttestationInput {
 export async function signVouchAttestation(input: VouchAttestationInput): Promise<Hex> {
   const attestor = getAttestorAccount();
   return attestor.signTypedData({
-    domain: avalRegistryDomain(),
+    domain: vouchMeRegistryDomain(),
     types: {
       VouchAttestation: [
         { name: "voucher", type: "address" },
@@ -149,7 +158,7 @@ export interface ReportAttestationInput {
   reporter: Address;
   target: Address;
   /** Centi-points. The whole-graph fact the EVM must not compute (docs/12-reporting.md §5): the
-   *  reporter's report weight at filing, which also fixes the bond at `10 AVAL × weightPoints`. */
+   *  reporter's report weight at filing, which also fixes the bond at `10 VOUCHME × weightPoints`. */
   weightPoints: number;
   deadline: bigint;
   nonce: bigint;
@@ -157,7 +166,7 @@ export interface ReportAttestationInput {
 
 /** `ReportAttestation(address reporter,address target,uint32 weightPoints,uint64 deadline,uint256 nonce)`
  *  — field order matches `ReportRegistry.sol`'s `REPORT_TYPEHASH` exactly (contracts/src/
- *  ReportRegistry.sol:72). Distinct domain (`name: "ReportRegistry"`) from the Aval registry's, so
+ *  ReportRegistry.sol:72). Distinct domain (`name: "ReportRegistry"`) from the VouchMe registry's, so
  *  a vouch attestation can never be replayed as a report or vice versa. */
 export async function signReportAttestation(input: ReportAttestationInput): Promise<Hex> {
   const attestor = getAttestorAccount();
@@ -192,7 +201,7 @@ export interface TierAttestationInput {
 }
 
 /** `TierAttestation(address account,uint8 tier,uint64 deadline,uint256 nonce)` — PresenceDrip.sol's
- *  own `TIER_TYPEHASH`, distinct domain (`name: "PresenceDrip"`) from the Aval registry's. */
+ *  own `TIER_TYPEHASH`, distinct domain (`name: "PresenceDrip"`) from the VouchMe registry's. */
 export async function signTierAttestation(input: TierAttestationInput): Promise<Hex> {
   const attestor = getAttestorAccount();
   return attestor.signTypedData({
@@ -210,7 +219,7 @@ export async function signTierAttestation(input: TierAttestationInput): Promise<
   });
 }
 
-// Computed, not hand-copied — matches contracts/src/AvalRegistry.sol's inline comment
+// Computed, not hand-copied — matches contracts/src/VouchMeRegistry.sol's inline comment
 // `bytes32 credential, // keccak("selfie-check") | keccak("orb")` and scripts/live-scenario.mjs's
 // own `CRED_SELFIE`/`CRED_ORB` derivation exactly (`keccak256(toBytes(...))`, same viem call).
 export const CRED_SELFIE: Hex = keccak256(toBytes("selfie-check"));

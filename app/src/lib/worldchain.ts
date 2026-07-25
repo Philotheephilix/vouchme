@@ -12,7 +12,7 @@
 import { getAddress, type Address } from "viem";
 
 /**
- * The chain Aval's contracts live on. MiniKit refuses to broadcast on anything but World Chain
+ * The chain VouchMe's contracts live on. MiniKit refuses to broadcast on anything but World Chain
  * mainnet (480) — @worldcoin/minikit-js 2.0.3's send-transaction path throws
  * `SendTransactionError("invalid_operation")` client-side for any other chain id, so the request
  * never reaches World App at all.
@@ -66,10 +66,10 @@ function parsePublicAddress(name: string, raw: string | undefined): Address {
   }
 }
 
-export function getAvalRegistryAddress(): Address {
+export function getVouchMeRegistryAddress(): Address {
   return parsePublicAddress(
-    "NEXT_PUBLIC_AVAL_REGISTRY_ADDRESS",
-    process.env.NEXT_PUBLIC_AVAL_REGISTRY_ADDRESS,
+    "NEXT_PUBLIC_VOUCHME_REGISTRY_ADDRESS",
+    process.env.NEXT_PUBLIC_VOUCHME_REGISTRY_ADDRESS,
   );
 }
 
@@ -110,12 +110,12 @@ export function ensExplorerTxUrl(hash: string): string {
   return `https://sepolia.etherscan.io/tx/${hash}`;
 }
 
-// ─── ABI — exactly the write functions + errors the client needs (contracts/src/AvalRegistry.sol,
+// ─── ABI — exactly the write functions + errors the client needs (contracts/src/VouchMeRegistry.sol,
 // contracts/src/PresenceDrip.sol). Read-only surfaces the client needs (isEnrolled, members) are
 // included too, since a wallet-side pre-flight check is cheap and gives a better error than
 // waiting for a revert. ──────────────────────────────────────────────────────────────────────────
 
-export const AVAL_REGISTRY_ABI = [
+export const VOUCHME_REGISTRY_ABI = [
   {
     type: "function",
     name: "enroll",
@@ -181,7 +181,7 @@ export const AVAL_REGISTRY_ABI = [
     ],
   },
   // ─── errors — decoded from a reverted tx so the UI can surface the real reason, never a
-  // generic failure (contracts/src/AvalRegistry.sol's `error` block, verbatim). ──────────────────
+  // generic failure (contracts/src/VouchMeRegistry.sol's `error` block, verbatim). ──────────────────
   { type: "error", name: "NotEnrolled", inputs: [] },
   { type: "error", name: "AlreadyEnrolled", inputs: [] },
   { type: "error", name: "NullifierUsed", inputs: [] },
@@ -232,6 +232,6 @@ export const PRESENCE_DRIP_ABI = [
 /** Every distinct error name across both ABIs, for a single `decodeErrorResult` attempt against
  *  whichever contract reverted. */
 export const KNOWN_ERRORS_ABI = [
-  ...AVAL_REGISTRY_ABI.filter((f) => f.type === "error"),
-  ...PRESENCE_DRIP_ABI.filter((f) => f.type === "error" && !AVAL_REGISTRY_ABI.some((g) => g.type === "error" && g.name === f.name)),
+  ...VOUCHME_REGISTRY_ABI.filter((f) => f.type === "error"),
+  ...PRESENCE_DRIP_ABI.filter((f) => f.type === "error" && !VOUCHME_REGISTRY_ABI.some((g) => g.type === "error" && g.name === f.name)),
 ] as const;

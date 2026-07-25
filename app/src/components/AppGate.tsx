@@ -26,7 +26,7 @@ const IDENTITY_CHECK_TIMEOUT_MS = 120_000;
  *   signed in, enrolled    -> the real app: routed page + bottom nav.
  *   signed in, indeterminate -> neither of the above. A retry screen. NEVER routed to /enroll.
  *
- * Enrollment is checked live against `/api/identity/[address]` (backed by `AvalRegistry`'s own
+ * Enrollment is checked live against `/api/identity/[address]` (backed by `VouchMeRegistry`'s own
  * `Enrolled` events via chain.ts). That route answers three ways, and only one of them means
  * "not enrolled":
  *

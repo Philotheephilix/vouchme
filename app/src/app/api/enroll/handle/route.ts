@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { NextRequest } from "next/server";
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 import { fail, ok, FALLBACK_META } from "@/app/api/_lib/respond";
 
 // LIVE mode reads World Chain Sepolia on every request — never cache this route.
@@ -36,13 +36,13 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   let data;
   try {
-    data = await loadAvalData();
+    data = await loadVouchMeData();
   } catch (err) {
     return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
   }
 
-  const full = `${handle}.aval.eth`;
-  // Advisory only (docs/04-ens.md §6: "Uniqueness: per parent; globally advisory" — AvalRegistry
+  const full = `${handle}.vouchme.eth`;
+  // Advisory only (docs/04-ens.md §6: "Uniqueness: per parent; globally advisory" — VouchMeRegistry
   // itself does not enforce handle uniqueness on-chain; a real ENS registrar would). Checked
   // against every currently-enrolled handle so two people don't collide by accident.
   const taken = data.findIdentity(full) !== undefined;

@@ -28,5 +28,5 @@ export async function fetchRpContext(): Promise<RpContext> {
  *  A→B cannot be replayed as A→C." Both addresses lowercased for a stable, case-insensitive
  *  signal regardless of how the caller checksums them. */
 export function encodeVouchSignal(voucher: string, vouchee: string): string {
-  return `aval-vouch:${voucher.toLowerCase()}:${vouchee.toLowerCase()}`;
+  return `vouchme-vouch:${voucher.toLowerCase()}:${vouchee.toLowerCase()}`;
 }

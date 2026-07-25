@@ -18,7 +18,7 @@ export function LoginScreen() {
       style={{ paddingBottom: "env(safe-area-inset-bottom)", paddingTop: "env(safe-area-inset-top)" }}
     >
       <h1 className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-        Aval
+        VouchMe
       </h1>
       <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-cream">
         A trust graph grounded in one human, one account. Proof of human is a floor. This is the

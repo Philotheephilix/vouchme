@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-/** Resolves a handle ("alice" or "alice.aval.eth") or a raw address against the live directory
+/** Resolves a handle ("alice" or "alice.vouchme.eth") or a raw address against the live directory
  *  (`/api/identity/[idOrAddress]`, backed by real `Enrolled` events) and opens their profile. */
 export function SearchBox() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export function SearchBox() {
     setSearching(true);
     setError(null);
     try {
-      const attempts = q.startsWith("0x") ? [q] : [q, `${q.toLowerCase()}.aval.eth`];
+      const attempts = q.startsWith("0x") ? [q] : [q, `${q.toLowerCase()}.vouchme.eth`];
       for (const attempt of attempts) {
         const res = await fetch(`/api/identity/${encodeURIComponent(attempt)}`);
         if (res.ok) {
@@ -27,7 +27,7 @@ export function SearchBox() {
           return;
         }
       }
-      setError(`No Aval account found for "${q}".`);
+      setError(`No VouchMe account found for "${q}".`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed.");
     } finally {

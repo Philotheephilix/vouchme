@@ -1,13 +1,13 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { CREDENTIAL_GRACE_DAYS, CREDENTIAL_VALIDITY_DAYS } from "@aval/engine";
+import { CREDENTIAL_GRACE_DAYS, CREDENTIAL_VALIDITY_DAYS } from "@vouchme/engine";
 import { Header } from "@/components/Header";
 import { ReportStamp, reportEffectLine } from "@/components/ReportStamp";
 import { TierBadge } from "@/components/TierBadge";
 import { VouchRow } from "@/components/VouchRow";
 import { readVerifiedAddress } from "@/lib/authSession";
 import { fmtScore, truncateMiddle } from "@/lib/format";
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 
 /** "Show the credential as a real object" — expiry read live from `credentialExpiresAt`, not
  *  hidden. Anchor status is read live from GenesisAnchorBook (docs/03-worldid.md §3), the
@@ -27,7 +27,7 @@ function credentialLine(subject: { kind: string; credentialStatus: string; crede
 export const dynamic = "force-dynamic";
 
 /**
- * Another Aval member's profile — their score, tier, depth, and who vouched for them, plus a
+ * Another VouchMe member's profile — their score, tier, depth, and who vouched for them, plus a
  * primary "Vouch" action with the real on-chain constraints displayed *before* it's enabled
  * (product direction: search + profile + vouch-from-profile).
  */
@@ -35,9 +35,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const { idOrAddress } = await params;
   const decoded = decodeURIComponent(idOrAddress);
 
-  // Verified, not the raw `aval_addr` cookie — see src/app/page.tsx's comment on
+  // Verified, not the raw `vouchme_addr` cookie — see src/app/page.tsx's comment on
   // readVerifiedAddress. `viewingAddress` here decides both whose data renders as "you"
-  // (isSelf/vouch eligibility below) and, via loadAvalData, what a signed-out visitor gets — it
+  // (isSelf/vouch eligibility below) and, via loadVouchMeData, what a signed-out visitor gets — it
   // must never be forgeable.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
@@ -47,7 +47,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   // voucher list. Rendering nothing is the gate; painting a login screen over it is not.
   if (!viewingAddress) return null;
 
-  const data = await loadAvalData(viewingAddress);
+  const data = await loadVouchMeData(viewingAddress);
   const subject = data.getScoreResult(decoded);
   if (!subject) notFound();
 
@@ -81,7 +81,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
         {/* Spelled out rather than shown as `depth ∞`: "not connected to any anchor" is the fact
             that most needs words. */}
         <p className="mt-2 font-mono text-2xs text-graphite">
-          @{subject.ensName.replace(/\.aval\.eth$/, "")} ·{" "}
+          @{subject.ensName.replace(/\.vouchme\.eth$/, "")} ·{" "}
           {subject.depth === null ? "no path to an anchor" : `depth ${subject.depth}`}
         </p>
         <p className="mt-1 font-mono text-2xs text-graphite" data-testid="credential-line">

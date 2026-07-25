@@ -148,7 +148,7 @@ export async function POST(req: Request): Promise<Response> {
   // own `Enrolled` event — read live, not assumed.
   const enrollmentNullifier = await getEnrollmentNullifier(voucher);
   if (enrollmentNullifier === null) {
-    return fail(409, "not_enrolled", "The vouching wallet is not enrolled in Aval.");
+    return fail(409, "not_enrolled", "The vouching wallet is not enrolled in VouchMe.");
   }
   if (enrollmentNullifier !== presenceNullifier) {
     return fail(
@@ -159,7 +159,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (!(await isAddressEnrolled(vouchee))) {
-    return fail(409, "vouchee_not_enrolled", "The account being vouched for is not enrolled in Aval.");
+    return fail(409, "vouchee_not_enrolled", "The account being vouched for is not enrolled in VouchMe.");
   }
 
   const voucherTier = await getLiveTier(voucher);

@@ -5,8 +5,8 @@ import { readVerifiedAddress } from "@/lib/authSession";
 /**
  * Who does the SERVER believe is signed in?
  *
- * `MiniKit.user.walletAddress` and the plain `aval_addr` cookie are client-side facts, and neither
- * implies the httpOnly `aval_session` cookie that every server-rendered page actually authorizes
+ * `MiniKit.user.walletAddress` and the plain `vouchme_addr` cookie are client-side facts, and neither
+ * implies the httpOnly `vouchme_session` cookie that every server-rendered page actually authorizes
  * against — so a client answering this itself can disagree with what those pages do.
  *
  * This route makes the server the single source of truth. It reveals nothing a caller doesn't

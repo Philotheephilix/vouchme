@@ -11,7 +11,7 @@ import { anchorSourceLabel, fmtScore, scoreTerms } from "@/lib/format";
 import {
   ANCHOR_VOUCH_CONTRIBUTION,
   TIER_1_THRESHOLD_SCORE,
-  loadAvalData,
+  loadVouchMeData,
 } from "@/lib/mock";
 
 // LIVE mode reads World Chain Sepolia on every request — never bake a snapshot into the build.
@@ -26,13 +26,13 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const cookieStore = await cookies();
   // `readVerifiedAddress` only returns an address whose session was minted after a real wallet
-  // signature verified server-side (src/lib/authSession.ts). The raw `aval_addr` cookie is
+  // signature verified server-side (src/lib/authSession.ts). The raw `vouchme_addr` cookie is
   // client-writable, so trusting it directly would render any address's real dashboard to anyone
   // who set it.
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
-  const data = await loadAvalData(viewingAddress);
+  const data = await loadVouchMeData(viewingAddress);
   const { ME } = data;
   const enrolled = data.isEnrolled(ME.address);
   const countedVouchCount = ME.breakdown.filter((b) => b.counted).length;

@@ -33,7 +33,7 @@ export interface VerifySignInInput {
 }
 
 /** Redeems a signature at `/api/auth/verify`. On success the server has already set the verified,
- *  httpOnly `aval_session` cookie (and the plain `aval_addr` mirror) via `Set-Cookie` — nothing
+ *  httpOnly `vouchme_session` cookie (and the plain `vouchme_addr` mirror) via `Set-Cookie` — nothing
  *  more for the caller to persist. Throws with a human-readable message on any failure. */
 export async function verifySignIn(input: VerifySignInInput): Promise<{ address: string }> {
   const res = await fetch("/api/auth/verify", {
@@ -59,7 +59,7 @@ export async function signOutSession(): Promise<void> {
 }
 
 /**
- * Ask the SERVER who is signed in, from the httpOnly `aval_session` cookie the client cannot read.
+ * Ask the SERVER who is signed in, from the httpOnly `vouchme_session` cookie the client cannot read.
  *
  * Returns null when there is no verified session — including on any network or parse error, so a
  * failed check can never be mistaken for a valid session.

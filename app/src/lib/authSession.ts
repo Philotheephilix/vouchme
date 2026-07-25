@@ -3,10 +3,10 @@
  *
  * Server-side sign-in: a real EIP-191 `personal_sign` over a server-issued, single-use, expiring
  * nonce, verified server-side with viem's `verifyMessage`, and only then a session — bound to the
- * verified address by an HMAC signature the client cannot forge or edit. `aval_session` (httpOnly)
+ * verified address by an HMAC signature the client cannot forge or edit. `vouchme_session` (httpOnly)
  * is that session, and the only cookie any server page trusts for authorization.
  *
- * `aval_addr` is written (mirrored) alongside it, plain and client-writable, because
+ * `vouchme_addr` is written (mirrored) alongside it, plain and client-writable, because
  * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load, and
  * because src/app/agents/page.tsx still reads it directly. It is display/back-compat only: nothing
  * that grants access to another member's data in Home, Reports or Profile trusts it.
@@ -54,10 +54,10 @@ function getVerificationClient(): PublicClient {
 
 export class AuthConfigError extends Error {}
 
-export const SESSION_COOKIE = "aval_session";
-export const LEGACY_ADDR_COOKIE = "aval_addr";
+export const SESSION_COOKIE = "vouchme_session";
+export const LEGACY_ADDR_COOKIE = "vouchme_addr";
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — the aval_addr mirror in session.tsx must match.
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — the vouchme_addr mirror in session.tsx must match.
 const NONCE_TTL_SECONDS = 5 * 60; // short-lived, same order as ATTESTATION_TTL_SECONDS.
 
 function getSecret(): string {
@@ -215,7 +215,7 @@ export interface CookieReader {
 }
 
 /** The one function every server page/route calls to find out who's signed in.
- *  Cryptographically verifies `aval_session`; never reads `aval_addr` for this purpose. Returns
+ *  Cryptographically verifies `vouchme_session`; never reads `vouchme_addr` for this purpose. Returns
  *  null for missing, forged, tampered, expired or malformed sessions — callers then behave exactly
  *  as if signed out. */
 export function readVerifiedAddress(cookieStore: CookieReader): Address | null {
@@ -227,8 +227,8 @@ export interface CookieWriter {
 }
 
 /** Mints a verified session — call only after `verifyWalletSignature` returned true. Sets the
- *  httpOnly, signed `aval_session` cookie (the only one trusted for authorization) and mirrors the
- *  plain `aval_addr` cookie (unauthenticated, UI-only — see file doc comment). */
+ *  httpOnly, signed `vouchme_session` cookie (the only one trusted for authorization) and mirrors the
+ *  plain `vouchme_addr` cookie (unauthenticated, UI-only — see file doc comment). */
 export function setSessionCookies(res: CookieWriter, address: Address, secure: boolean): void {
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
   const value = signSession({ address, exp });

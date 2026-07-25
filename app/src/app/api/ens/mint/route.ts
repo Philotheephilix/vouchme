@@ -41,14 +41,14 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (!(await isAddressEnrolled(address))) {
-    return fail(409, "not_enrolled", "This wallet is not enrolled in Aval yet — enroll first, then a name is minted.");
+    return fail(409, "not_enrolled", "This wallet is not enrolled in VouchMe yet — enroll first, then a name is minted.");
   }
 
-  const enrollmentHandle = await getEnrollmentHandle(address); // e.g. "carol.aval.eth"
-  if (!enrollmentHandle || !enrollmentHandle.endsWith(".aval.eth")) {
+  const enrollmentHandle = await getEnrollmentHandle(address); // e.g. "carol.vouchme.eth"
+  if (!enrollmentHandle || !enrollmentHandle.endsWith(".vouchme.eth")) {
     return fail(500, "handle_unavailable", "Could not read back the handle this address enrolled with.");
   }
-  const label = enrollmentHandle.slice(0, -".aval.eth".length);
+  const label = enrollmentHandle.slice(0, -".vouchme.eth".length);
 
   inFlight.add(key);
   try {
@@ -64,7 +64,7 @@ export async function POST(req: Request): Promise<Response> {
         setSubregistryTxHash: result.setSubregistryTxHash,
         // docs/04-ens.md §7: "a member = a PermissionedRegistry they own". This is that registry,
         // read back from `getSubregistry(label)` after the writes — it is what makes
-        // `<someone>.<label>.aval.eth` possible at all.
+        // `<someone>.<label>.vouchme.eth` possible at all.
         subregistry: result.subregistry,
         resolvedAddress: result.resolvedAddress,
         alreadyComplete: result.alreadyComplete,
@@ -78,7 +78,7 @@ export async function POST(req: Request): Promise<Response> {
       return fail(
         502,
         "ens_mint_partial",
-        `${err.message} You're enrolled and "${label}.aval.eth" is reserved — retry to finish pointing it at your address.`,
+        `${err.message} You're enrolled and "${label}.vouchme.eth" is reserved — retry to finish pointing it at your address.`,
       );
     }
     const status = err instanceof EnsConfigError ? 503 : 502;

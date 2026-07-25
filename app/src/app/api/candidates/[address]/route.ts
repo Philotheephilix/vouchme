@@ -1,4 +1,4 @@
-import { loadAvalData } from "@/lib/mock";
+import { loadVouchMeData } from "@/lib/mock";
 import { decodeParam, ok, fail } from "@/app/api/_lib/respond";
 
 // LIVE mode reads World Chain Sepolia on every request — never cache this route.
@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ address
   if (!decoded.ok) return decoded.response;
   let data;
   try {
-    data = await loadAvalData();
+    data = await loadVouchMeData();
   } catch (err) {
     return fail(503, "chain_unavailable", err instanceof Error ? err.message : "Failed to read live chain data.");
   }

@@ -7,7 +7,7 @@
  * itself never introduces new rounding beyond the spec's own truncation.
  */
 
-import { tenureCenti } from "@aval/engine";
+import { tenureCenti } from "@vouchme/engine";
 import type { AnchorSource, ScoreResult, Tier, PlatformTier } from "./types";
 
 const CENTI = 100;
@@ -45,8 +45,8 @@ export function fmtPct(pct: number): string {
   return `${pct.toFixed(0)}%`;
 }
 
-export function fmtAval(amount: number): string {
-  return `${amount.toFixed(2)} AVAL`;
+export function fmtVouchMe(amount: number): string {
+  return `${amount.toFixed(2)} VOUCHME`;
 }
 
 export function fmtDays(days: number): string {
@@ -142,7 +142,7 @@ export function addDays(iso: string, days: number): string {
 /**
  * Middle-out truncation for long ENS names / addresses — never wrap, never overflow, and never
  * eat the part the user actually needs (the tail is usually where a name diverges: "carol.ali…" is
- * indistinguishable from every other name that starts with "carol.ali", but "carol…aval.eth" is
+ * indistinguishable from every other name that starts with "carol.ali", but "carol…vouchme.eth" is
  * not). Splits the visible `max` characters (plus the ellipsis) between the head and tail.
  */
 export function truncateMiddle(name: string, max = 18): string {
@@ -153,20 +153,20 @@ export function truncateMiddle(name: string, max = 18): string {
 }
 
 /**
- * Drops the shared `.aval.eth` registrar suffix for compact side-by-side display (docs/04-ens.md
+ * Drops the shared `.vouchme.eth` registrar suffix for compact side-by-side display (docs/04-ens.md
  * §1.2 members register under it; the collusion-ring fixture's flat `*.eth` ids are left
  * untouched, since they don't share it). Used where every name in a list is already known to
  * share the suffix, so re-printing it on every row is pure noise — see /explore's edge list.
  */
-export function dropAvalSuffix(name: string): string {
-  const suffix = ".aval.eth";
+export function dropVouchMeSuffix(name: string): string {
+  const suffix = ".vouchme.eth";
   return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
 }
 
 /**
  * Presence-drip tenure curve — docs/16-presence-drip.md §4.
  *
- * `tenureCenti` is imported directly from `@aval/engine` rather than reimplemented here: invariant
+ * `tenureCenti` is imported directly from `@vouchme/engine` rather than reimplemented here: invariant
  * I-19 requires the app and the engine to agree exactly, and a hand-rolled port of the halving-band
  * formula drifts by a centi-point at band boundaries. One implementation, no copy to keep in sync.
  */

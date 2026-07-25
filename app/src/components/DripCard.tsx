@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { encodeFunctionData } from "viem";
 import { MiniKit } from "@worldcoin/minikit-js";
-import { fmtAval, fmtDays, fmtScore } from "@/lib/format";
+import { fmtVouchMe, fmtDays, fmtScore } from "@/lib/format";
 import type { Address, PresenceState } from "@/lib/types";
 import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { PRESENCE_DRIP_ABI, WORLDCHAIN_ID, explorerTxUrl, getPresenceDripAddress } from "@/lib/worldchain";
@@ -88,11 +88,11 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
       <div className="mt-3 flex items-end justify-between gap-4">
         <div>
           <div className="font-mono text-base text-cream">
-            {fmtAval(presence.dailyRateAval)}
+            {fmtVouchMe(presence.dailyRateVouchMe)}
             <span className="text-graphite">/day</span>
           </div>
           <div className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)", lineHeight: 1.1 }}>
-            {presence.accruedAval.toFixed(1)}
+            {presence.accruedVouchMe.toFixed(1)}
           </div>
           <div className="text-2xs text-graphite">accrued, unclaimed</div>
         </div>
@@ -100,7 +100,7 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
           type="button"
           data-testid="drip-claim"
           onClick={() => void handleClaim()}
-          disabled={!canClaim || claiming || presence.accruedAval <= 0}
+          disabled={!canClaim || claiming || presence.accruedVouchMe <= 0}
           title={!canClaim ? "Sign in to claim your own drip." : undefined}
           className="min-h-[44px] shrink-0 border px-4 font-mono text-xs uppercase tracking-widest disabled:opacity-40"
           style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}

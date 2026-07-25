@@ -12,12 +12,12 @@ import type { CandidateVoucher, IdentityResult, SimulateVouchResult } from "@/li
 import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { encodeVouchSignal, fetchRpContext, type RpContext } from "@/lib/worldid-client";
 import {
-  AVAL_REGISTRY_ABI,
+  VOUCHME_REGISTRY_ABI,
   ClientConfigError,
   WORLDCHAIN_ID,
   explorerTxUrl,
   getAppId,
-  getAvalRegistryAddress,
+  getVouchMeRegistryAddress,
   getWorldIdAction,
 } from "@/lib/worldchain";
 import { decodeRevertReason, ensureWorldChainSepolia, submitFromInjected } from "@/lib/wallet";
@@ -37,7 +37,7 @@ interface VouchAttestResponse {
 }
 
 /** docs/04-ens.md §7.1 — the vouch as a name: `register(vouchee)` inside the VOUCHER's own
- *  registry, i.e. a real `carol.alice.aval.eth`. Minted on Ethereum Sepolia by `/api/vouch/ens`
+ *  registry, i.e. a real `carol.alice.vouchme.eth`. Minted on Ethereum Sepolia by `/api/vouch/ens`
  *  after the World Chain vouch lands. */
 interface VouchEnsResponse {
   name: string;
@@ -58,10 +58,10 @@ type EnsMintState =
 
 const sepoliaTxUrl = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
-function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${string}` } | { error: string } {
+function useClientConfig(): { appId: string; action: string; vouchMeRegistry: `0x${string}` } | { error: string } {
   return useMemo(() => {
     try {
-      return { appId: getAppId(), action: getWorldIdAction(), avalRegistry: getAvalRegistryAddress() };
+      return { appId: getAppId(), action: getWorldIdAction(), vouchMeRegistry: getVouchMeRegistryAddress() };
     } catch (err) {
       return { error: err instanceof ClientConfigError ? err.message : "World ID is not configured." };
     }
@@ -184,12 +184,12 @@ export function VouchWizard() {
       setResolving(true);
       setTarget(null);
       try {
-        // The field accepts a wallet address or an aval.eth handle, so a bare handle must resolve
-        // too: try it as typed, then with the `.aval.eth` suffix. Same fallback as SearchBox.
+        // The field accepts a wallet address or a vouchme.eth handle, so a bare handle must resolve
+        // too: try it as typed, then with the `.vouchme.eth` suffix. Same fallback as SearchBox.
         const q = idOrAddress.trim();
-        const attempts = isAddress(q) || q.includes(".") ? [q] : [q, `${q}.aval.eth`];
+        const attempts = isAddress(q) || q.includes(".") ? [q] : [q, `${q}.vouchme.eth`];
         let identity: IdentityResult | null = null;
-        let lastError = `No Aval account found for "${q}".`;
+        let lastError = `No VouchMe account found for "${q}".`;
         for (const attempt of attempts) {
           const res = await fetch(`/api/identity/${encodeURIComponent(attempt)}`);
           const body = await res.json();
@@ -283,7 +283,7 @@ export function VouchWizard() {
     [auth.address, target],
   );
 
-  /** Mints `<vouchee>.<voucher>.aval.eth` for real, and reports honestly when it can't. */
+  /** Mints `<vouchee>.<voucher>.vouchme.eth` for real, and reports honestly when it can't. */
   const mintVouchName = useCallback(async () => {
     if (!auth.address || !target) return;
     setEnsMint({ kind: "minting" });
@@ -311,7 +311,7 @@ export function VouchWizard() {
     setTxStatus("pending");
     try {
       const data = encodeFunctionData({
-        abi: AVAL_REGISTRY_ABI,
+        abi: VOUCHME_REGISTRY_ABI,
         functionName: "vouch",
         args: [target.address, attestData.voucherTier, BigInt(attestData.deadline), BigInt(attestData.nonce), attestData.attestation],
       });
@@ -324,7 +324,7 @@ export function VouchWizard() {
       // Gate on the host, not on `MiniKit.isInstalled()` — that reads a per-module-copy flag that
       // can be false in a working World App session (src/lib/session.tsx `activeMiniKit`).
       if (inWorldAppNow()) {
-        const result = await activeMiniKit().sendTransaction({ transactions: [{ to: config.avalRegistry, data }], chainId: WORLDCHAIN_ID });
+        const result = await activeMiniKit().sendTransaction({ transactions: [{ to: config.vouchMeRegistry, data }], chainId: WORLDCHAIN_ID });
         // A UserOperation hash, NOT a transaction hash. World App returns it the moment its bundler
         // accepts the call — before it is mined, and before it is known to have succeeded — hence
         // the on-chain poll below. The injected branch awaits a receipt instead.
@@ -335,7 +335,7 @@ export function VouchWizard() {
         setTxStatus(landed ? "confirmed" : "pending");
       } else {
         await ensureWorldChainSepolia();
-        const outcome = await submitFromInjected(auth.address, config.avalRegistry, data);
+        const outcome = await submitFromInjected(auth.address, config.vouchMeRegistry, data);
         setTxHash(outcome.hash);
         setTxStatus(outcome.status === "success" ? "confirmed" : "reverted");
         if (outcome.status !== "success") setTxError(outcome.revertReason ?? "Transaction reverted.");
@@ -392,13 +392,13 @@ export function VouchWizard() {
         {step === 0 ? (
           <div>
             <h2 className="mb-3 text-sm text-cream">Who are you vouching for?</h2>
-            <p className="mb-4 text-2xs text-graphite">Paste a wallet address or an aval.eth handle.</p>
+            <p className="mb-4 text-2xs text-graphite">Paste a wallet address or a vouchme.eth handle.</p>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value.trim())}
-                placeholder="0x… or handle.aval.eth"
+                placeholder="0x… or handle.vouchme.eth"
                 className="min-h-[44px] flex-1 border bg-transparent px-3 font-mono text-sm text-cream"
                 style={{ borderColor: "var(--color-rule)" }}
                 autoCapitalize="off"
@@ -483,7 +483,7 @@ export function VouchWizard() {
 
         {step === 1 && sim ? (
           <div>
-            <h2 className="mb-3 text-sm text-cream">aval_simulate_vouch</h2>
+            <h2 className="mb-3 text-sm text-cream">vouchme_simulate_vouch</h2>
             <StatLine
               label={truncateMiddle(sim.target, 22)}
               value={`${fmtScore(sim.targetBefore.score)} → ${fmtScore(sim.targetAfter.score)}`}
@@ -503,7 +503,7 @@ export function VouchWizard() {
                   : "you can vouch now"
               }
             />
-            {/* `AvalRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()` — refuse here
+            {/* `VouchMeRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()` — refuse here
                 rather than after walking the user through a ~20s Selfie Check. */}
             {sim.blockers.length > 0 ? (
               <div className="mt-4 border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
@@ -604,7 +604,7 @@ export function VouchWizard() {
         {step === 4 ? (
           <div>
             <h2 className="mb-3 text-sm text-cream">Transaction</h2>
-            <p className="mb-4 font-mono text-2xs text-graphite">AvalRegistry.vouch(vouchee, tier, deadline, nonce, attestation)</p>
+            <p className="mb-4 font-mono text-2xs text-graphite">VouchMeRegistry.vouch(vouchee, tier, deadline, nonce, attestation)</p>
             <button
               type="button"
               onClick={() => void sendVouchTx()}
