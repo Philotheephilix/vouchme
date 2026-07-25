@@ -1,0 +1,179 @@
+##
+## Aval — `aval-worldchain` Subgraph schema
+##
+## Section 1 (Account, Vouch, FraudEvent, Protocol, ProtocolDailySnapshot,
+## AccountStatus) is reproduced EXACTLY from docs/05-graph-data-layer.md
+## §2.1 — do not add fields to these six types; extend via new entities
+## instead, which is what section 2 below does for the v2/v3 features
+## (reporting, platforms, presence drip).
+##
+## Design rule (docs/02-contracts.md §1): "The contract stores facts, the
+## Subgraph computes meaning." No score, tier, or depth is ever a field on
+## any entity here — those are computed live by @aval/engine from the
+## edges this schema stores. See docs/05 §2.3: expiry is a QUERY-TIME
+## predicate (`expiresAt_gt: $now` in a `where` clause), never a stored
+## `expired` boolean — that rule is applied consistently to every expiring
+## edge below (Vouch, PlatformVouch), not just the original one.
+##
+
+# ── 1. docs/05-graph-data-layer.md §2.1, verbatim ───────────────────────
+
+type Account @entity {
+  id:              Bytes!          # address
+  handle:          String!
+  enrolledAt:      BigInt!
+  credential:      String!         # "selfie-check" | "orb" | "document"
+  credentialExpiresAt: BigInt!
+  nullifierHash:   BigInt!         # public: makes double-enrollment auditable
+  status:          AccountStatus!  # ACTIVE | GRACE | SUSPENDED | FRAUDULENT
+  isAnchor:        Boolean!        # mirrored from Address Book by the keeper
+  anchorCheckedAt: BigInt!
+
+  outbound:        [Vouch!]! @derivedFrom(field: "voucher")
+  inbound:         [Vouch!]! @derivedFrom(field: "vouchee")
+
+  activeOutboundCount: Int!
+  activeInboundCount:  Int!
+  slotPenaltyUntil:    BigInt!
+}
+
+type Vouch @entity {
+  id:        Bytes!               # keccak(voucher ++ vouchee)
+  voucher:   Account!
+  vouchee:   Account!
+  issuedAt:  BigInt!
+  expiresAt: BigInt!
+  reaffirmedAt: BigInt
+  reaffirmCount: Int!
+  revoked:   Boolean!
+  revokedAt: BigInt
+  txHash:    Bytes!
+}
+
+type FraudEvent @entity(immutable: true) {
+  id: Bytes!
+  account: Account!
+  reason: Bytes!
+  at: BigInt!
+  penalizedVouchers: [Bytes!]!
+}
+
+type Protocol @entity {
+  id: ID!                         # "aval"
+  accountCount: Int!
+  activeVouchCount: Int!
+  anchorCount: Int!
+  tier1Count: Int!
+  tier2Count: Int!
+}
+
+type ProtocolDailySnapshot @entity(immutable: true) {
+  id: ID!                         # day index
+  day: Int!
+  accountCount: Int!
+  activeVouchCount: Int!
+  vouchesIssued: Int!
+  vouchesRevoked: Int!
+  vouchesExpired: Int!
+  promotions: Int!
+  demotions: Int!
+}
+
+enum AccountStatus { ACTIVE GRACE SUSPENDED FRAUDULENT }
+
+# ── 2. v2/v3 additions: reporting (docs/12), platforms (docs/13), ──────
+#       presence drip (docs/16). New entities only — section 1 above is
+#       untouched, per this task's instruction to reproduce it exactly.
+
+enum ReportState { NONE PENDING ARBITRATION UPHELD UNPROVEN MALICIOUS WITHDRAWN }
+
+# Report.reporter / Report.target are raw addresses (Bytes), not `Account!`
+# references: a reporter or target can be either a human Account or a
+# Platform (docs/13-platforms.md §1's table — platforms can both report
+# and be reported), and GraphQL entities can't reference "Account or
+# Platform" without a union or interface neither docs/05 §2.1 nor this
+# task's entity list defines. Bytes + a resolver-side lookup is the
+# established pattern for this in subgraph schemas.
+type Report @entity {
+  id:             Bytes!          # report id, from ReportFiled
+  reporter:       Bytes!
+  target:         Bytes!
+  evidenceHash:   Bytes!
+  weightPoints:   Int!            # snapshotted at filing (docs/12 §5)
+  bond:           BigInt!
+  filedAt:        BigInt!
+  resolvedAt:     BigInt
+  rebuttalTotal:  BigInt!
+  rebutterCount:  Int!
+  state:          ReportState!
+  jurors:         [Bytes!]!       # populated on Escalated
+  txHash:         Bytes!
+
+  rebuttals:      [Rebuttal!]! @derivedFrom(field: "report")
+}
+
+type Rebuttal @entity {
+  id:        Bytes!               # txHash ++ logIndex
+  report:    Report!
+  voucher:   Bytes!                # one of the target's vouchers, staking in their defence
+  stake:     BigInt!
+  at:        BigInt!
+  txHash:    Bytes!
+}
+
+type Platform @entity {
+  id:            Bytes!           # platform address
+  ensName:       String!
+  metadataURI:   Bytes!
+  policyURI:     Bytes
+  bond:          BigInt!
+  bondSlashedTotal: BigInt!
+  registeredAt:  BigInt!
+  openReports:   Int!
+  active:        Boolean!
+
+  vouches:       [PlatformVouch!]! @derivedFrom(field: "platform")
+  scoreRequests: [ScoreRequest!]!  @derivedFrom(field: "platform")
+}
+
+# A human vouching for a platform (docs/13 §1, §3.1) — a SEPARATE edge
+# type from Vouch: platform vouches expire at 180d (not 90d), draw from a
+# separate slot pool, and can never promote a human or enter the depth
+# calculation (docs/13 §4). Modeling it as its own entity, rather than
+# overloading Vouch, keeps that distinction structural instead of
+# convention-based.
+type PlatformVouch @entity {
+  id:         Bytes!              # keccak(human ++ platform)
+  human:      Account!
+  platform:   Platform!
+  issuedAt:   BigInt!
+  expiresAt:  BigInt!             # query-time predicate, same rule as Vouch.expiresAt
+  revoked:    Boolean!
+  revokedAt:  BigInt
+  txHash:     Bytes!
+}
+
+# The attributed lookup (docs/13 §5): "you cannot report someone you never
+# looked up." Immutable — it's a transparency-log entry, not mutable state.
+type ScoreRequest @entity(immutable: true) {
+  id:          Bytes!             # request id, from ScoreRequested
+  platform:    Platform!
+  subject:     Account!
+  purposeHash: Bytes!
+  at:          BigInt!
+  txHash:      Bytes!
+}
+
+# One PresenceDrip claim (docs/16 §6). `totalEpochs` on the latest claim
+# for an account is that account's current `epochsClaimed` — the input to
+# the tenure curve (`tenureCenti`, docs/16 §4) — without adding a field to
+# Account itself (kept exact per section 1 above).
+type PresenceClaim @entity(immutable: true) {
+  id:           Bytes!            # txHash ++ logIndex
+  account:      Account!
+  amount:       BigInt!
+  epochs:       BigInt!           # epochs claimed in this transaction
+  totalEpochs:  BigInt!           # cumulative epochsClaimed after this claim
+  at:           BigInt!
+  txHash:       Bytes!
+}

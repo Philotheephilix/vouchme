@@ -1,0 +1,53 @@
+[
+  {
+    "type": "event",
+    "name": "ReportFiled",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "reporter", "type": "address", "indexed": true },
+      { "name": "target", "type": "address", "indexed": true },
+      { "name": "weightPoints", "type": "uint32", "indexed": false },
+      { "name": "bond", "type": "uint128", "indexed": false },
+      { "name": "evidenceHash", "type": "bytes32", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Rebutted",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "voucher", "type": "address", "indexed": true },
+      { "name": "stake", "type": "uint128", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Escalated",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "jurors", "type": "address[5]", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Resolved",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "outcome", "type": "uint8", "indexed": false },
+      { "name": "at", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "ReportDecayed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "remainingPoints", "type": "uint32", "indexed": false }
+    ]
+  }
+]

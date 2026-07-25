@@ -1,0 +1,25 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+gas_reports = ["*"]
+
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+]
+
+[rpc_endpoints]
+worldchain = "${WORLDCHAIN_RPC_URL}"
+worldchain_sepolia = "${WORLDCHAIN_SEPOLIA_RPC_URL}"
+
+[etherscan]
+worldchain = { key = "${WORLDCHAIN_ETHERSCAN_API_KEY}", url = "${WORLDCHAIN_ETHERSCAN_API_URL}" }
+worldchain_sepolia = { key = "${WORLDCHAIN_SEPOLIA_ETHERSCAN_API_KEY}", url = "${WORLDCHAIN_SEPOLIA_ETHERSCAN_API_URL}" }
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

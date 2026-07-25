@@ -1,0 +1,55 @@
+# ─── never commit: specs and agent-facing material ───────────────────────────
+docs/
+skills/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.windsurf/
+*.local.md
+SKILL.md
+**/SKILL.md
+
+# ─── dependencies ────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── builds ──────────────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# ─── foundry ─────────────────────────────────────────────────────────────────
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/forge-std/.git
+
+# ─── the graph ───────────────────────────────────────────────────────────────
+subgraph/generated/
+subgraph/build/
+
+# ─── rust / substreams ───────────────────────────────────────────────────────
+target/
+*.spkg
+
+# ─── env and secrets ─────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ─── logs and os ─────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+coverage/
+.vscode/
+.idea/

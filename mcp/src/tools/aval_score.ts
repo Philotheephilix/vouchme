@@ -1,0 +1,64 @@
+// @aval/mcp — src/tools/aval_score.ts — docs/06-mcp-skills.md §2.2
+//
+// aval_score(address) -> { score, tier, depth, breakdown[] }. The
+// `counted: false` rows matter more than the counted ones — this is where
+// an agent learns the anti-collusion rule (docs/01-trust-math.md) by
+// observing it, rather than by us documenting it. Zero-contribution rows
+// are always included, never filtered out (docs/06 §3 design rule).
+
+import { z } from "zod";
+import {
+  deriveBreakdown,
+  getCachedGraph,
+  isLikelyAddress,
+  nameOf,
+  resolveIdentifierToAddress,
+  runEngineCompute,
+  scoreGraph,
+  preferEngineResult,
+} from "../engine.js";
+import { AvalToolError, errorResult, jsonResult } from "../response.js";
+import type { ToolDefinition } from "./types.js";
+
+const inputSchema = {
+  address: z.string().describe("The address (or ENS name / handle) to score."),
+};
+
+export const tool: ToolDefinition<typeof inputSchema> = {
+  name: "aval_score",
+  description:
+    "Get an address's score, tier, and depth with the full per-voucher breakdown, including " +
+    "vouches that contributed ZERO because they failed the anti-collusion ordering rule " +
+    "(voucher must be at a strictly lower depth). Use this, not aval_resolve, when you need to " +
+    "explain *why* a score is what it is.",
+  inputSchema,
+  async handler(args, ctx) {
+    const graph = await getCachedGraph(ctx.client);
+    const address = isLikelyAddress(args.address) ? args.address.toLowerCase() : resolveIdentifierToAddress(args.address, graph);
+    if (!address || !graph.accounts.some((a) => a.id === address)) {
+      return errorResult(new AvalToolError("NotFound", `no Aval account matches "${args.address}"`));
+    }
+
+    const scored = scoreGraph(graph);
+    const local = scored.scores.get(address) ?? { score: 10, tier: 0 as const, depth: 0 };
+    const engineOutput = runEngineCompute(graph, BigInt(Math.floor(Date.now() / 1000)));
+    const { score, tier, depth } = preferEngineResult(engineOutput, address, local);
+
+    const { breakdown, base } = deriveBreakdown(address, graph, scored, (a) => nameOf(a, graph, scored));
+
+    return jsonResult({
+      score,
+      tier,
+      depth,
+      breakdown,
+      // docs/06 §2.2's example shows an empty `reports: []` — this
+      // scaffold's graph query (see engine.ts) doesn't fetch reports, so
+      // it is always empty here; wiring ReportRegistry data through is a
+      // follow-up, not a silent omission.
+      reports: [],
+      base,
+      subgraphDeployment: graph.meta.deploymentId,
+      computedAtBlock: graph.meta.blockNumber,
+    });
+  },
+};

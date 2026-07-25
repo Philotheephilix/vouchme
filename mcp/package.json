@@ -1,0 +1,29 @@
+{
+  "name": "@aval/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "aval-mcp — MCP server exposing Aval trust-graph tools to agents. stdio transport; the same @aval/engine the ENS gateway runs, so the two never disagree.",
+  "license": "MIT",
+  "bin": {
+    "aval-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@aval/engine": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.24.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,31 @@
+[
+  {
+    "type": "event",
+    "name": "Claimed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "account", "type": "address", "indexed": true },
+      { "name": "amount", "type": "uint256", "indexed": false },
+      { "name": "epochs", "type": "uint64", "indexed": false },
+      { "name": "totalEpochs", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "TenureZeroed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "account", "type": "address", "indexed": true },
+      { "name": "reason", "type": "bytes32", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "DripRateChanged",
+    "anonymous": false,
+    "inputs": [
+      { "name": "poolPerEpoch", "type": "uint256", "indexed": false },
+      { "name": "activeClaimants", "type": "uint32", "indexed": false }
+    ]
+  }
+]

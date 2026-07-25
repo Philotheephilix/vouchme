@@ -1,0 +1,29 @@
+{
+  "name": "aval",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Proof of human is a floor. Aval is the ladder.",
+  "license": "MIT",
+  "workspaces": [
+    "engine",
+    "gateway",
+    "mcp",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test -vv",
+    "verify": "npm run typecheck && npm run test && npm run contracts:build && npm run contracts:test"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

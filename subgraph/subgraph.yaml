@@ -1,0 +1,136 @@
+specVersion: 1.0.0
+description: >-
+  Aval — aval-worldchain Subgraph. Indexes AvalRegistry, ReportRegistry,
+  PlatformRegistry, and PresenceDrip on World Chain. The contract stores
+  facts; this Subgraph stores the edges; @aval/engine computes score, tier,
+  and depth live, off-chain, from what's indexed here (docs/02-contracts.md
+  §1). Addresses below are placeholders — see docs/10-constants.md §7
+  ("AvalRegistry: TBD at deploy").
+schema:
+  file: ./schema.graphql
+
+dataSources:
+  - kind: ethereum
+    name: AvalRegistry
+    network: worldchain
+    source:
+      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      abi: AvalRegistry
+      startBlock: 0 # TODO: deployment block — MUST be the actual deployment block, not 0 (docs/02-contracts.md §6: "a full-chain scan will not finish before the demo")
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Account
+        - Vouch
+        - FraudEvent
+        - Protocol
+        - ProtocolDailySnapshot
+      abis:
+        - name: AvalRegistry
+          file: ./abis/AvalRegistry.json
+      eventHandlers:
+        - event: Enrolled(indexed address,indexed uint256,bytes32,uint64,string)
+          handler: handleEnrolled
+        - event: Vouched(indexed address,indexed address,uint64,uint64)
+          handler: handleVouched
+        - event: Reaffirmed(indexed address,indexed address,uint64)
+          handler: handleReaffirmed
+        - event: Revoked(indexed address,indexed address,uint64)
+          handler: handleRevoked
+        - event: CredentialRenewed(indexed address,uint64)
+          handler: handleCredentialRenewed
+        - event: FraudConfirmed(indexed address,uint64,bytes32)
+          handler: handleFraudConfirmed
+        - event: SlotPenaltyApplied(indexed address,uint64)
+          handler: handleSlotPenaltyApplied
+        - event: AttestorSet(indexed address,bool)
+          handler: handleAttestorSet
+      file: ./src/aval-registry.ts
+
+  - kind: ethereum
+    name: ReportRegistry
+    network: worldchain
+    source:
+      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      abi: ReportRegistry
+      startBlock: 0 # TODO: deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Report
+        - Rebuttal
+      abis:
+        - name: ReportRegistry
+          file: ./abis/ReportRegistry.json
+      eventHandlers:
+        - event: ReportFiled(indexed bytes32,indexed address,indexed address,uint32,uint128,bytes32)
+          handler: handleReportFiled
+        - event: Rebutted(indexed bytes32,indexed address,uint128)
+          handler: handleRebutted
+        - event: Escalated(indexed bytes32,address[5])
+          handler: handleEscalated
+        - event: Resolved(indexed bytes32,uint8,uint64)
+          handler: handleResolved
+        - event: ReportDecayed(indexed bytes32,uint32)
+          handler: handleReportDecayed
+      file: ./src/report-registry.ts
+
+  - kind: ethereum
+    name: PlatformRegistry
+    network: worldchain
+    source:
+      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      abi: PlatformRegistry
+      startBlock: 0 # TODO: deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Platform
+        - PlatformVouch
+        - ScoreRequest
+      abis:
+        - name: PlatformRegistry
+          file: ./abis/PlatformRegistry.json
+      eventHandlers:
+        - event: PlatformRegistered(indexed address,string,uint128)
+          handler: handlePlatformRegistered
+        - event: PlatformVouched(indexed address,indexed address,uint64)
+          handler: handlePlatformVouched
+        - event: PlatformVouchRevoked(indexed address,indexed address)
+          handler: handlePlatformVouchRevoked
+        - event: ScoreRequested(indexed bytes32,indexed address,indexed address,bytes32,uint64)
+          handler: handleScoreRequested
+        - event: PlatformBondSlashed(indexed address,uint128,bytes32)
+          handler: handlePlatformBondSlashed
+      file: ./src/platform-registry.ts
+
+  - kind: ethereum
+    name: PresenceDrip
+    network: worldchain
+    source:
+      address: "0x0000000000000000000000000000000000000000" # TODO: deployment address
+      abi: PresenceDrip
+      startBlock: 0 # TODO: deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - PresenceClaim
+      abis:
+        - name: PresenceDrip
+          file: ./abis/PresenceDrip.json
+      eventHandlers:
+        - event: Claimed(indexed address,uint256,uint64,uint64)
+          handler: handleClaimed
+        - event: TenureZeroed(indexed address,bytes32)
+          handler: handleTenureZeroed
+        - event: DripRateChanged(uint256,uint32)
+          handler: handleDripRateChanged
+      file: ./src/presence-drip.ts

@@ -1,0 +1,53 @@
+[
+  {
+    "type": "event",
+    "name": "PlatformRegistered",
+    "anonymous": false,
+    "inputs": [
+      { "name": "platform", "type": "address", "indexed": true },
+      { "name": "ensName", "type": "string", "indexed": false },
+      { "name": "bond", "type": "uint128", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "PlatformVouched",
+    "anonymous": false,
+    "inputs": [
+      { "name": "human", "type": "address", "indexed": true },
+      { "name": "platform", "type": "address", "indexed": true },
+      { "name": "expiresAt", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "PlatformVouchRevoked",
+    "anonymous": false,
+    "inputs": [
+      { "name": "human", "type": "address", "indexed": true },
+      { "name": "platform", "type": "address", "indexed": true }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "ScoreRequested",
+    "anonymous": false,
+    "inputs": [
+      { "name": "id", "type": "bytes32", "indexed": true },
+      { "name": "platform", "type": "address", "indexed": true },
+      { "name": "subject", "type": "address", "indexed": true },
+      { "name": "purposeHash", "type": "bytes32", "indexed": false },
+      { "name": "at", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "PlatformBondSlashed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "platform", "type": "address", "indexed": true },
+      { "name": "amount", "type": "uint128", "indexed": false },
+      { "name": "reason", "type": "bytes32", "indexed": false }
+    ]
+  }
+]

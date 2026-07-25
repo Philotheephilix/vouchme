@@ -1,0 +1,82 @@
+[
+  {
+    "type": "event",
+    "name": "Enrolled",
+    "anonymous": false,
+    "inputs": [
+      { "name": "account", "type": "address", "indexed": true },
+      { "name": "nullifierHash", "type": "uint256", "indexed": true },
+      { "name": "credential", "type": "bytes32", "indexed": false },
+      { "name": "credentialExpiresAt", "type": "uint64", "indexed": false },
+      { "name": "handle", "type": "string", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Vouched",
+    "anonymous": false,
+    "inputs": [
+      { "name": "voucher", "type": "address", "indexed": true },
+      { "name": "vouchee", "type": "address", "indexed": true },
+      { "name": "issuedAt", "type": "uint64", "indexed": false },
+      { "name": "expiresAt", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Reaffirmed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "voucher", "type": "address", "indexed": true },
+      { "name": "vouchee", "type": "address", "indexed": true },
+      { "name": "expiresAt", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "Revoked",
+    "anonymous": false,
+    "inputs": [
+      { "name": "voucher", "type": "address", "indexed": true },
+      { "name": "vouchee", "type": "address", "indexed": true },
+      { "name": "at", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "CredentialRenewed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "account", "type": "address", "indexed": true },
+      { "name": "credentialExpiresAt", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "FraudConfirmed",
+    "anonymous": false,
+    "inputs": [
+      { "name": "account", "type": "address", "indexed": true },
+      { "name": "at", "type": "uint64", "indexed": false },
+      { "name": "reason", "type": "bytes32", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "SlotPenaltyApplied",
+    "anonymous": false,
+    "inputs": [
+      { "name": "voucher", "type": "address", "indexed": true },
+      { "name": "until", "type": "uint64", "indexed": false }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "AttestorSet",
+    "anonymous": false,
+    "inputs": [
+      { "name": "attestor", "type": "address", "indexed": true },
+      { "name": "enabled", "type": "bool", "indexed": false }
+    ]
+  }
+]

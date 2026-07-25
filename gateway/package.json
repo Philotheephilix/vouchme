@@ -1,0 +1,31 @@
+{
+  "name": "@aval/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CCIP-Read (ERC-3668) / ENSIP-10 wildcard resolver gateway for aval.eth — computes live text records from the Aval Subgraph and signs responses for on-chain verification.",
+  "license": "MIT",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@aval/engine": "*",
+    "viem": "^2.21.0",
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
