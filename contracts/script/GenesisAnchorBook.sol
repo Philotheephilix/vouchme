@@ -57,8 +57,19 @@ contract GenesisAnchorBook is IAddressBook {
 
     /// @notice Same selector and semantics as the real Address Book, so AvalRegistry needs no
     ///         testnet-specific code path. The difference is in who is asserting, not in the shape.
-    function getIsUserVerified(address user) external view returns (bool) {
-        return verified[user];
+    ///
+    /// @dev    This claim used to be FALSE, and that is errata E-18. The stand-in exposed
+    ///         `getIsUserVerified(address) returns (bool)`, which the real Address Book does not
+    ///         have at all — it exposes `addressVerifiedUntil(address) returns (uint256)`. Because
+    ///         the Address Book is mainnet-only, every test ran against this contract, so the
+    ///         mismatch could not surface until `isAnchor()` reverted on real mainnet. A mock that
+    ///         is shaped to fit the assumption tests the assumption against itself.
+    ///
+    ///         Now matching the real shape: an expiry, not a flag. A genesis anchor is returned as
+    ///         "verified far into the future" so the same `> block.timestamp` comparison in
+    ///         `AvalRegistry.isAnchor` works identically against either contract.
+    function addressVerifiedUntil(address user) external view returns (uint256) {
+        return verified[user] ? type(uint256).max : 0;
     }
 
     /// @notice Provenance label. The real Address Book has no such function — its absence is how a

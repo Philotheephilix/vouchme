@@ -311,8 +311,12 @@ contract AvalRegistry {
     }
 
     // ─── 3.5 anchors ─────────────────────────────────────────────────────────
+    /// @dev Live, never cached on-chain. The Address Book returns an EXPIRY, not a flag — Orb
+    ///      verification lapses unless renewed — so anchor status is "verified until a moment
+    ///      still ahead of this block", not "was verified once". See errata E-18 and
+    ///      `interfaces/IAddressBook.sol` for how the previous boolean interface was wrong.
     function isAnchor(address a) public view returns (bool) {
-        return addressBook.getIsUserVerified(a);   // live, never cached on-chain
+        return addressBook.addressVerifiedUntil(a) > block.timestamp;
     }
 
     /// @notice Public wrapper so other contracts (e.g. `PresenceDrip`) can read the same
