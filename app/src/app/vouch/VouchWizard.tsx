@@ -81,20 +81,46 @@ function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${
  * Returns false on timeout rather than throwing: the vouch may still land later, so the honest
  * report is "submitted, not yet confirmed", never "failed".
  */
-async function waitForVouchOnChain(
+async function readVouchIssuedAt(vouchee: string, voucher: string): Promise<string | null> {
+  const res = await fetch(`/api/score/${encodeURIComponent(vouchee)}`, { cache: "no-store" });
+  if (!res.ok) return null;
+  const body: unknown = await res.json();
+  const rows =
+    (body as { data?: { breakdown?: Array<{ voucher?: { address?: string }; issuedAt?: string }> } }).data?.breakdown ??
+    [];
+  const row = rows.find((r) => r.voucher?.address?.toLowerCase() === voucher.toLowerCase());
+  return row?.issuedAt ?? null;
+}
+
+/**
+ * Wait until a vouch from `voucher` to `vouchee` that is STRICTLY NEWER than `priorIssuedAt` is
+ * readable from chain.
+ *
+ * The `priorIssuedAt` argument is the whole point. The first version of this function asked only
+ * "does a vouch from this voucher appear in the vouchee's breakdown?" — a predicate with no notion
+ * of *new*. Where an edge already existed, it was already true, so the very first poll returned
+ * success for a transaction that had not landed and in fact could not: `vouch()` reverts with
+ * `VouchExists()` when the edge is present and `RateLimited()` inside 24h of the voucher's last
+ * vouch. The app then showed a green "Vouched", asserted "confirmed by reading the chain", and
+ * minted a duplicate ENS subname — a success screen next to a reverted transaction on the explorer.
+ *
+ * Comparing against the edge's `issuedAt` as observed BEFORE sending makes the check answer the
+ * question actually being asked. `null` means no edge existed, so any row is new.
+ *
+ * Returns false on timeout rather than throwing: the transaction may still land, so the honest
+ * report is "submitted, not yet confirmed" — never "failed", and never "confirmed".
+ */
+async function waitForNewVouchOnChain(
   vouchee: `0x${string}`,
   voucher: `0x${string}`,
+  priorIssuedAt: string | null,
   timeoutMs = 120_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
-      const res = await fetch(`/api/score/${encodeURIComponent(vouchee)}`, { cache: "no-store" });
-      if (res.ok) {
-        const body: unknown = await res.json();
-        const rows = (body as { data?: { breakdown?: Array<{ voucher?: { address?: string } }> } }).data?.breakdown ?? [];
-        if (rows.some((r) => r.voucher?.address?.toLowerCase() === voucher.toLowerCase())) return true;
-      }
+      const issuedAt = await readVouchIssuedAt(vouchee, voucher);
+      if (issuedAt !== null && issuedAt !== priorIssuedAt) return true;
     } catch {
       // Network blip — the deadline below is the only exit.
     }
@@ -164,10 +190,23 @@ export function VouchWizard() {
       setResolving(true);
       setTarget(null);
       try {
-        const res = await fetch(`/api/identity/${encodeURIComponent(idOrAddress)}`);
-        const body = await res.json();
-        if (!res.ok || body.error) throw new Error(body?.error?.message ?? `No Aval account found for "${idOrAddress}".`);
-        const identity = body.data as IdentityResult;
+        // The field says "a wallet address or an aval.eth handle", so a bare handle has to work.
+        // Only the full form was tried, so typing `romariokavin` 404'd while the app rendered that
+        // exact account three lines below. Same fallback SearchBox already had.
+        const q = idOrAddress.trim();
+        const attempts = isAddress(q) || q.includes(".") ? [q] : [q, `${q}.aval.eth`];
+        let identity: IdentityResult | null = null;
+        let lastError = `No Aval account found for "${q}".`;
+        for (const attempt of attempts) {
+          const res = await fetch(`/api/identity/${encodeURIComponent(attempt)}`);
+          const body = await res.json();
+          if (res.ok && !body.error) {
+            identity = body.data as IdentityResult;
+            break;
+          }
+          lastError = body?.error?.message ?? lastError;
+        }
+        if (!identity) throw new Error(lastError);
         if (auth.address && identity.address.toLowerCase() === auth.address.toLowerCase()) {
           throw new Error("You cannot vouch for yourself.");
         }
@@ -283,6 +322,11 @@ export function VouchWizard() {
         functionName: "vouch",
         args: [target.address, attestData.voucherTier, BigInt(attestData.deadline), BigInt(attestData.nonce), attestData.attestation],
       });
+      // Snapshot the edge's current issuedAt BEFORE broadcasting. Without this the confirmation
+      // check cannot tell a vouch that just landed from one that was already there — see
+      // `waitForNewVouchOnChain`.
+      const priorIssuedAt = await readVouchIssuedAt(target.address, auth.address).catch(() => null);
+
       let landed = false;
       // Gate on the host, not on `MiniKit.isInstalled()` — that reads a per-module-copy flag that
       // can be false in a working World App session (src/lib/session.tsx `activeMiniKit`), which
@@ -297,7 +341,7 @@ export function VouchWizard() {
         setTxHash(result.data.userOpHash);
         setTxIsUserOp(true);
         setTxStatus("pending");
-        landed = await waitForVouchOnChain(target.address, auth.address);
+        landed = await waitForNewVouchOnChain(target.address, auth.address, priorIssuedAt);
         setTxStatus(landed ? "confirmed" : "pending");
       } else {
         await ensureWorldChainSepolia();
@@ -463,9 +507,35 @@ export function VouchWizard() {
             />
             <StatLine
               label="You"
-              value={`${sim.voucherSlotsBefore} slots → ${sim.voucherSlotsAfter}`}
-              hint={`next vouch in ${fmtHours(sim.nextVouchAvailableInHours)}`}
+              value={
+                sim.blockers.length > 0
+                  ? `${sim.voucherSlotsBefore} slots — unchanged`
+                  : `${sim.voucherSlotsBefore} slots → ${sim.voucherSlotsAfter}`
+              }
+              hint={
+                sim.nextVouchAvailableInHours > 0
+                  ? `next vouch in ${fmtHours(sim.nextVouchAvailableInHours)}`
+                  : "you can vouch now"
+              }
             />
+            {/* `AvalRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()`. Neither was
+                checked, so the wizard walked users through a ~20s Selfie Check into a transaction
+                that could not land. Refuse here instead of failing there. */}
+            {sim.blockers.length > 0 ? (
+              <div className="mt-4 border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
+                <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
+                  This vouch would fail on chain
+                </p>
+                {sim.blockers.map((b) => (
+                  <p key={b} className="mt-1 text-sm leading-relaxed text-cream">
+                    {b}
+                  </p>
+                ))}
+                <p className="mt-2 text-2xs leading-relaxed text-graphite">
+                  Nothing has been sent. Pick someone else, or come back when the window has passed.
+                </p>
+              </div>
+            ) : null}
             {sim.secondaryEffects.map((s) => (
               <StatLine key={s.ensName} label={`also raises ${truncateMiddle(s.ensName, 18)}`} value={`${fmtScore(s.before)} → ${fmtScore(s.after)}`} />
             ))}
@@ -678,6 +748,10 @@ export function VouchWizard() {
           {step >= 1 && step <= 2 ? (
             <button
               type="button"
+              // Hard stop, not a warning: past this point the next thing the user does is a ~20s
+              // face scan, and the transaction at the end of it cannot succeed.
+              disabled={(sim?.blockers.length ?? 0) > 0}
+              title={sim?.blockers[0]}
               onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
               className="min-h-[44px] flex-1 border px-4 font-mono text-xs uppercase tracking-widest disabled:opacity-30"
               style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}

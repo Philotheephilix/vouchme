@@ -441,7 +441,7 @@ export default function EnrollPage() {
                     setHandle(e.target.value.trim().toLowerCase());
                     setHandleError(null);
                   }}
-                  placeholder="carol"
+                  placeholder="yourname"
                   disabled={stage !== null && stage !== "handle"}
                 />
                 <span className="flex items-center font-mono text-2xs text-graphite">.aval.eth</span>

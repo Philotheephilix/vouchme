@@ -41,6 +41,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   // must never be forgeable.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
+  // Return BEFORE reading any chain data. Every other gated route already does this
+  // (explore, reports, platform, agents, home); this one read `viewingAddress` but never gated on
+  // it, so a signed-out `curl` got the subject's handle, address, score, tier, depth, credential
+  // and full voucher list in the RSC payload — the login screen was only painted over the top,
+  // client-side. Rendering nothing is the gate; hiding it is not.
+  if (!viewingAddress) return null;
 
   const data = await loadAvalData(viewingAddress);
   const subject = data.getScoreResult(decoded);
