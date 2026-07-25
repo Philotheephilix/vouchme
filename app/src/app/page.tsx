@@ -16,12 +16,12 @@ export default function HomePage() {
 
       <section className="px-4 pt-6">
         <ScoreDial score={ME.score} tier={ME.tier} countedVouchCount={countedVouchCount} />
-        <p className="mt-2 text-center font-mono text-2xs uppercase tracking-widest text-graphite">
+        <p className="mt-1 text-center font-mono text-2xs uppercase tracking-widest text-graphite">
           depth {ME.depth}
         </p>
       </section>
 
-      <section className="mt-6 px-4">
+      <section className="mt-4 px-4">
         <h2 className="mb-1 text-2xs uppercase tracking-widest text-graphite">Vouched for by</h2>
         <div>
           {ME.breakdown.map((row) => (

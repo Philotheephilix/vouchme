@@ -1,7 +1,7 @@
 import { Header } from "@/components/Header";
 import { ReportStamp } from "@/components/ReportStamp";
 import { StatLine } from "@/components/StatLine";
-import { fmtDate, fmtScore } from "@/lib/format";
+import { fmtDate, fmtScore, truncateMiddle } from "@/lib/format";
 import { NOW, REPORTS } from "@/lib/mock";
 import type { ReportEntry } from "@/lib/types";
 
@@ -9,11 +9,11 @@ function ReportCard({ report }: { report: ReportEntry }) {
   return (
     <div className="overflow-hidden border border-rule p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="truncate-mono max-w-[180px] text-sm text-cream">
-            {report.direction === "against" ? report.reporter.ensName : report.target}
+            {truncateMiddle(report.direction === "against" ? report.reporter.ensName : report.target, 22)}
           </div>
-          <div className="font-mono text-2xs text-graphite">
+          <div className="break-words font-mono text-2xs text-graphite">
             {report.direction === "against" ? "reporter" : "target"} · {report.reasonCode}
           </div>
         </div>

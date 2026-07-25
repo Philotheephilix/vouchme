@@ -41,40 +41,68 @@ function guillochePath(R: number, petals: number, ampFactor: number, cx: number,
 }
 
 const SAMPLES = 1440;
+// engine-turned guilloché is never a single outline — real security print stacks many rosettes,
+// each nudged in phase and amplitude, so their crossings read as a woven mesh rather than a stack
+// of outlines. Layer 0 is front-most.
+const LAYERS = 6;
+// each layer back from the front loses ~6% of the front layer's amplitude, so the mesh tightens
+// toward the centre instead of every strand tracing the same band.
+const AMP_STEP = 0.94;
 
-export function ScoreDial({ score, tier, countedVouchCount, size = 220 }: ScoreDialProps) {
+export function ScoreDial({ score, tier, countedVouchCount, size = 200 }: ScoreDialProps) {
   const cx = 100;
   const cy = 100;
   // banknote-engraving petal density: more counted vouches -> a busier rosette, but never a blob.
   const petals = Math.min(23, Math.max(7, 7 + countedVouchCount * 2));
-  const ampFactor = Math.min(0.95, Math.max(0.15, score / 100));
-  const frontPath = guillochePath(78, petals, ampFactor, cx, cy, SAMPLES);
-  // second rosette: same radius, slightly softer amplitude, counter-rotated by half a petal so the
-  // two engravings interleave rather than trace one another — the interference pattern is the point.
-  const backPath = guillochePath(78, petals, ampFactor * 0.82, cx, cy, SAMPLES);
-  const backRotationDeg = 180 / petals;
+  // The single-layer version of this dial used amplitude up to 0.95 of r and still read as a
+  // plain wavy circle: at that scale the scalloping is too gentle for a same-frequency copy,
+  // rotated a few degrees, to visibly cross it — the "mesh" just blurred into one fuzzy line.
+  // Pushing the floor and ceiling up (0.55 - 0.9, was 0.15 - 0.95) gives the rosette pronounced
+  // points, so the phase-shifted back layers genuinely weave across the front one instead of
+  // hugging it. Capped below 1.0 (a < r) so the curve never loops back on itself.
+  const ampFactor = Math.min(0.9, Math.max(0.55, 0.4 + score / 100));
+  // R fills more of the 200x200 viewBox than the old R=78 did, so the rosette reads as filling its
+  // frame instead of floating in a wide empty margin (the dead space called out between the dial
+  // and "DEPTH N" was partly this: a visibly smaller ring inside a box sized for a bigger one).
+  const R = 84;
   const color = TIER_COLOR[tier];
   const [whole, frac = "0"] = fmtScore(score).split(".");
+
+  // f: 0 at the front layer, 1 at the back-most layer — every per-layer visual property is a
+  // lerp along this axis, so "further back" always and only ever means "thinner + fainter".
+  const lerp = (from: number, to: number, f: number): number => from + (to - from) * f;
+
+  const layers = Array.from({ length: LAYERS }, (_, i) => {
+    const f = i / (LAYERS - 1);
+    const amp = ampFactor * AMP_STEP ** i;
+    return {
+      i,
+      d: guillochePath(R, petals, amp, cx, cy, SAMPLES),
+      rotationDeg: i * (360 / (petals * LAYERS)),
+      isFront: i === 0,
+      strokeWidth: lerp(0.45, 0.3, f),
+      opacity: lerp(1, 0.2, f),
+    };
+  });
 
   return (
     <div data-testid="score-dial" className="relative mx-auto" style={{ width: size, height: size }}>
       <svg viewBox="0 0 200 200" width={size} height={size} className="block" aria-hidden="true">
-        <path
-          d={backPath}
-          fill="none"
-          stroke="var(--color-rule)"
-          strokeWidth={0.45}
-          vectorEffect="non-scaling-stroke"
-          transform={`rotate(${backRotationDeg} ${cx} ${cy})`}
-        />
-        <path
-          d={frontPath}
-          fill="none"
-          stroke={color}
-          strokeWidth={0.55}
-          vectorEffect="non-scaling-stroke"
-          className="guilloche-path"
-        />
+        {/* back-to-front so the front (tier-coloured, full-amplitude) layer paints on top and the
+            crossings underneath read as engraving rather than a flat stack of outlines. */}
+        {[...layers].reverse().map((layer) => (
+          <path
+            key={layer.i}
+            d={layer.d}
+            fill="none"
+            stroke={layer.isFront ? color : "var(--color-rule)"}
+            strokeWidth={layer.strokeWidth}
+            opacity={layer.opacity}
+            vectorEffect="non-scaling-stroke"
+            transform={`rotate(${layer.rotationDeg} ${cx} ${cy})`}
+            className={layer.isFront ? "guilloche-path" : undefined}
+          />
+        ))}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div data-testid="score-figure" className="flex items-baseline text-cream">

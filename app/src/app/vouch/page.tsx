@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
-import { fmtHours, fmtScore, tierLabel } from "@/lib/format";
+import { fmtHours, fmtScore, tierLabel, truncateMiddle } from "@/lib/format";
 import { CANDIDATES, VOUCH_SIMULATION } from "@/lib/mock";
 
 const STEPS = ["Who?", "Preview", "Confirm", "Presence", "Transaction", "Result"] as const;
@@ -46,7 +46,7 @@ export default function VouchPage() {
                   className="flex w-full min-h-[44px] items-center justify-between border-b border-rule py-3 text-left"
                 >
                   <span className="truncate-mono max-w-[180px] text-sm" style={{ color: chosen === c.ensName ? "var(--color-cream)" : "var(--color-graphite)" }}>
-                    {c.ensName}
+                    {truncateMiddle(c.ensName, 22)}
                   </span>
                   <span className="font-mono text-2xs text-graphite">
                     {tierLabel(c.tier)} · {fmtScore(c.score)}
@@ -61,7 +61,7 @@ export default function VouchPage() {
           <div>
             <h2 className="mb-3 text-sm text-cream">aval_simulate_vouch</h2>
             <StatLine
-              label={sim.target}
+              label={truncateMiddle(sim.target, 22)}
               value={`${fmtScore(sim.targetBefore.score)} → ${fmtScore(sim.targetAfter.score)}`}
               hint={`${tierLabel(sim.targetBefore.tier)} → ${tierLabel(sim.targetAfter.tier)}${sim.promotes ? " — promotes" : ""}`}
               valueColor="var(--color-seal)"
@@ -74,7 +74,7 @@ export default function VouchPage() {
             {sim.secondaryEffects.map((s) => (
               <StatLine
                 key={s.ensName}
-                label={`also raises ${s.ensName}`}
+                label={`also raises ${truncateMiddle(s.ensName, 18)}`}
                 value={`${fmtScore(s.before)} → ${fmtScore(s.after)}`}
               />
             ))}

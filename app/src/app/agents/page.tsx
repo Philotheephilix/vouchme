@@ -1,7 +1,7 @@
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { TierBadge } from "@/components/TierBadge";
-import { fmtScore } from "@/lib/format";
+import { fmtScore, truncateMiddle } from "@/lib/format";
 import { AGENT } from "@/lib/mock";
 
 export default function AgentsPage() {
@@ -10,7 +10,7 @@ export default function AgentsPage() {
       <Header eyebrow="AGENTS" title={AGENT.subname} />
 
       <section className="px-4 pt-6">
-        <StatLine label="Operator" value={AGENT.operator} />
+        <StatLine label="Operator" value={truncateMiddle(AGENT.operator, 24)} />
         <StatLine label="Operator score" value={fmtScore(AGENT.operatorScore)} />
 
         <div className="border-b border-rule py-2.5">

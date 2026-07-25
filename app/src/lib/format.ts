@@ -56,9 +56,18 @@ export function fmtHours(hours: number): string {
   return `${Math.round(hours)}h`;
 }
 
-/** "⏳ 74d" style countdown used next to inbound vouches. */
+/**
+ * "74d" style countdown used next to inbound vouches.
+ *
+ * Deliberately no icon glyph here: the fonts in this app are loaded with only the `latin` subset
+ * (see app/layout.tsx), so a character has to be checked against that subset before it's used, not
+ * assumed safe because it "looks like text". U+23F3 (HOURGLASS) has default *emoji* presentation —
+ * browsers route it to a colour-emoji font, which isn't guaranteed to be installed, and it rendered
+ * as a tofu box in exactly that situation. The colour + `expiringSoon` triangle (⚠, default *text*
+ * presentation, covered by ordinary fallback fonts) already carry the urgency signal.
+ */
 export function fmtCountdown(days: number): string {
-  return `⏳ ${fmtDays(days)}`;
+  return fmtDays(days);
 }
 
 export function tierLabel(tier: Tier): string {
@@ -89,10 +98,28 @@ export function addDays(iso: string, days: number): string {
   return d.toISOString();
 }
 
-/** Middle-out truncation for long ENS names / addresses — never wrap, never overflow. */
-export function truncateMiddle(value: string, headLen = 10, tailLen = 8): string {
-  if (value.length <= headLen + tailLen + 1) return value;
-  return `${value.slice(0, headLen)}…${value.slice(value.length - tailLen)}`;
+/**
+ * Middle-out truncation for long ENS names / addresses — never wrap, never overflow, and never
+ * eat the part the user actually needs (the tail is usually where a name diverges: "carol.ali…" is
+ * indistinguishable from every other name that starts with "carol.ali", but "carol…aval.eth" is
+ * not). Splits the visible `max` characters (plus the ellipsis) between the head and tail.
+ */
+export function truncateMiddle(name: string, max = 18): string {
+  if (name.length <= max) return name;
+  const headLen = Math.ceil((max - 1) / 2);
+  const tailLen = Math.floor((max - 1) / 2);
+  return `${name.slice(0, headLen)}…${name.slice(name.length - tailLen)}`;
+}
+
+/**
+ * Drops the shared `.aval.eth` registrar suffix for compact side-by-side display (docs/04-ens.md
+ * §1.2 members register under it; the collusion-ring fixture's flat `*.eth` ids are left
+ * untouched, since they don't share it). Used where every name in a list is already known to
+ * share the suffix, so re-printing it on every row is pure noise — see /explore's edge list.
+ */
+export function dropAvalSuffix(name: string): string {
+  const suffix = ".aval.eth";
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
 }
 
 /**

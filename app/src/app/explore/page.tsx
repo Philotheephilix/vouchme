@@ -1,6 +1,6 @@
 import { Header } from "@/components/Header";
 import { TierBadge } from "@/components/TierBadge";
-import { fmtScore } from "@/lib/format";
+import { dropAvalSuffix, fmtScore, truncateMiddle } from "@/lib/format";
 import { EXPLORE_HONEST, EXPLORE_RING } from "@/lib/mock";
 import type { ExploreScenario } from "@/lib/types";
 
@@ -22,7 +22,7 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
       <div className="mt-4">
         {sortedNodes.map((node) => (
           <div key={node.ensName} className="flex items-center justify-between border-b border-rule py-2">
-            <span className="truncate-mono max-w-[150px] text-xs text-cream">{node.ensName}</span>
+            <span className="truncate-mono max-w-[150px] text-xs text-cream">{truncateMiddle(node.ensName, 20)}</span>
             <span className="flex items-center gap-2">
               <span className="font-mono text-2xs text-graphite">
                 depth {node.depth ?? "∞"} · {fmtScore(node.score)}
@@ -34,14 +34,26 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
       </div>
 
       <div className="mt-4">
+        {/* every name below shares the .aval.eth suffix (or, in the ring, .eth) — dropped here so
+            the column reads "anchor1 → alice" instead of repeating it on every row. Each end gets
+            its own flex-basis and its own middle-out ellipsis, so a long target can never eat into
+            the source's space (or vice versa) the way one shared CSS ellipsis on a single string
+            would — that was the original bug: the *target*, the actual information, is what got
+            cut. */}
         <div className="mb-1 font-mono text-2xs uppercase tracking-widest text-graphite">Edges</div>
         {scenario.edges.map((edge) => (
-          <div key={`${edge.from}->${edge.to}`} className="flex items-center justify-between py-1">
-            <span className="truncate-mono max-w-[160px] font-mono text-2xs text-graphite">
-              {edge.from} → {edge.to}
+          <div key={`${edge.from}->${edge.to}`} className="flex items-center gap-2 py-1">
+            <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-2xs text-graphite">
+              <span className="truncate-mono min-w-0 flex-1">{truncateMiddle(dropAvalSuffix(edge.from), 11)}</span>
+              <span aria-hidden="true" className="shrink-0">
+                →
+              </span>
+              <span className="truncate-mono min-w-0 flex-1 text-cream">
+                {truncateMiddle(dropAvalSuffix(edge.to), 11)}
+              </span>
             </span>
             <span
-              className="font-mono text-2xs"
+              className="shrink-0 font-mono text-2xs"
               style={{ color: edge.counted ? "var(--color-seal)" : "var(--color-graphite)" }}
             >
               {edge.counted ? `+${edge.contribution.toFixed(1)}` : "blocked"}

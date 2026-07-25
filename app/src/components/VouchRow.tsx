@@ -1,4 +1,4 @@
-import { fmtCountdown, fmtMultiplier, fmtScore, fmtSigned, tierLabel } from "@/lib/format";
+import { fmtCountdown, fmtMultiplier, fmtScore, fmtSigned, tierLabel, truncateMiddle } from "@/lib/format";
 import type { VouchContribution } from "@/lib/types";
 
 /**
@@ -14,7 +14,7 @@ export function VouchRow({ row }: { row: VouchContribution }) {
       <div data-testid="endorsement-zero" className="relative overflow-hidden border-b border-rule py-3 opacity-40">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate-mono max-w-[210px] text-sm text-cream">{name}</div>
+            <div className="truncate-mono max-w-[210px] text-sm text-cream">{truncateMiddle(name, 24)}</div>
             <div className="mt-0.5 font-mono text-2xs text-graphite">depth {row.voucher.depth ?? "∞"}</div>
           </div>
           <div className="shrink-0 font-mono text-base text-graphite">{fmtSigned(row.contribution)}</div>
@@ -37,7 +37,7 @@ export function VouchRow({ row }: { row: VouchContribution }) {
     <div data-testid="endorsement-row" className="border-b border-rule py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate-mono max-w-[210px] text-sm text-cream">{name}</div>
+          <div className="truncate-mono max-w-[210px] text-sm text-cream">{truncateMiddle(name, 24)}</div>
           <div className="mt-0.5 font-mono text-2xs text-graphite">
             {tierLabel(row.voucher.tier)} · depth {row.voucher.depth}
           </div>
