@@ -8,7 +8,7 @@
  */
 
 import { tenureCenti } from "@aval/engine";
-import type { AnchorSource, Tier, PlatformTier } from "./types";
+import type { AnchorSource, ScoreResult, Tier, PlatformTier } from "./types";
 
 const CENTI = 100;
 
@@ -75,6 +75,35 @@ export function tierLabel(tier: Tier): string {
   return `TIER ${tier}`;
 }
 
+export interface ScoreTerm {
+  label: string;
+  value: number;
+}
+
+/**
+ * The named terms behind a score, and whether they actually add up to it.
+ *
+ * docs/96-ux-audit.md U-3 is the reason this exists as one function instead of a line of JSX:
+ * Home printed `base 10.0 + 45.0 = 55.0` under a dial reading 65.0, and — after the constants
+ * moved — `base 20.0 + 0.0 = 20.0` under a dial reading 100.0 for the one Orb-verified account on
+ * this deployment. Both times the equation was assembled from a subset of the terms and never
+ * checked against the number above it. `matchesScore` is that check: a caller that gets `false`
+ * must not print the equation, because an equation that doesn't equal the score is worse than no
+ * equation at all.
+ *
+ * Anchors are deliberately not expressible here — their score is fixed at `ANCHOR` and ignores
+ * every inbound edge (errata E-6), so there is no sum to show. Callers branch on `kind` first.
+ */
+export function scoreTerms(r: ScoreResult): { terms: ScoreTerm[]; total: number; matchesScore: boolean } {
+  const terms: ScoreTerm[] = [{ label: "base", value: r.base }];
+  if (r.tenure > 0) terms.push({ label: "presence", value: r.tenure });
+  const vouches = r.breakdown.filter((b) => b.counted).reduce((sum, b) => sum + b.contribution, 0);
+  if (vouches > 0) terms.push({ label: "vouches", value: vouches });
+  const total = terms.reduce((sum, t) => sum + t.value, 0);
+  // One-decimal display, so agreement is judged at the precision actually printed.
+  return { terms, total, matchesScore: Math.abs(total - r.score) < 0.05 };
+}
+
 /**
  * The ONLY place "anchor: …" text is composed. Anchors here are genesis-testnet, not Orb
  * (contracts/script/GenesisAnchorBook.sol) — presenting one as the other would forge the single
@@ -83,6 +112,9 @@ export function tierLabel(tier: Tier): string {
  */
 export function anchorSourceLabel(source: AnchorSource | undefined): string {
   if (source === "genesis-testnet") return "anchor: genesis (testnet)";
+  // World Chain mainnet, backed by World ID's real Address Book — the only value here that
+  // represents an actual Orb-verified human.
+  if (source === "world-id-orb") return "anchor: world id orb";
   if (source === "orb") return "anchor: orb";
   return "anchor: unverified provenance";
 }
