@@ -1,15 +1,15 @@
 /**
  * scripts/dev/ens-provision.mts   —   run with:  npx tsx scripts/dev/ens-provision.mts …
  *
- * Provisions the aval.eth member population on Ethereum Sepolia through the SAME code path the app
+ * Provisions the vouchme.eth member population on Ethereum Sepolia through the SAME code path the app
  * uses (`app/src/lib/ens-core.ts`), so nothing here can drift from what `/api/ens/mint` does.
  *
  * For each label it guarantees the complete, wired state:
  *   1. the member's own `PermissionedRegistry` clone, deployed through the `VerifiableFactory` at
  *      a CREATE2 address that is a pure function of the label,
- *   2. `<label>.aval.eth` registered in the aval.eth registry with that clone as `Entry.subregistry`
+ *   2. `<label>.vouchme.eth` registered in the vouchme.eth registry with that clone as `Entry.subregistry`
  *      (or, for labels that already exist, `setSubregistry` — never a second `register`),
- *   3. `addr(namehash("<label>.aval.eth")) == the member's address`,
+ *   3. `addr(namehash("<label>.vouchme.eth")) == the member's address`,
  * and then re-reads all three with a FRESH client before claiming any of it worked.
  *
  * Usage:
@@ -17,7 +17,7 @@
  *   npx tsx scripts/dev/ens-provision.mts --label alice
  *   npx tsx scripts/dev/ens-provision.mts --all
  *   npx tsx scripts/dev/ens-provision.mts --vouch alice carol
- *   npx tsx scripts/dev/ens-provision.mts --setaddr erin.carol.alice.aval.eth erin
+ *   npx tsx scripts/dev/ens-provision.mts --setaddr erin.carol.alice.vouchme.eth erin
  */
 
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -29,8 +29,8 @@ import {
   ALL_ROLES,
   SOULBOUND_ROLES,
   isNameSoulbound,
-  AVAL_ETH_REGISTRY,
-  AVAL_ETH_RESOLVER,
+  VOUCHME_ETH_REGISTRY,
+  VOUCHME_ETH_RESOLVER,
   DEPLOYER_ADDRESS,
   MEMBER_REGISTRY_SALT_NAMESPACE,
   REGISTRY_ABI,
@@ -96,8 +96,8 @@ function writeLedger(members: Record<string, LedgerEntry>): void {
       {
         network: "Ethereum Sepolia",
         chainId: 11155111,
-        parentRegistry: AVAL_ETH_REGISTRY,
-        resolver: AVAL_ETH_RESOLVER,
+        parentRegistry: VOUCHME_ETH_REGISTRY,
+        resolver: VOUCHME_ETH_RESOLVER,
         deployer: DEPLOYER_ADDRESS,
         saltDerivation: `salt(label) = uint256(keccak256(utf8("${MEMBER_REGISTRY_SALT_NAMESPACE}::" + label)))`,
         addressDerivation:
@@ -117,11 +117,11 @@ function freshClient(): EnsPublicClient {
   return createPublicClient({ chain: sepolia, transport: http(RPC) }) as EnsPublicClient;
 }
 
-async function verify(label: string, expectAddr: Address, parent: Address = AVAL_ETH_REGISTRY, fqdn = `${label}.aval.eth`) {
+async function verify(label: string, expectAddr: Address, parent: Address = VOUCHME_ETH_REGISTRY, fqdn = `${label}.vouchme.eth`) {
   const c = freshClient();
   const sub = await c.readContract({ address: parent, abi: REGISTRY_ABI, functionName: "getSubregistry", args: [label] });
   const code = sub === ZERO_ADDRESS ? "0x" : ((await c.getCode({ address: sub })) ?? "0x");
-  const addr = await c.readContract({ address: AVAL_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [namehash(fqdn)] });
+  const addr = await c.readContract({ address: VOUCHME_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [namehash(fqdn)] });
   const owner = await c.readContract({ address: parent, abi: REGISTRY_ABI, functionName: "findOwner", args: [label] });
   const rolesOnRegistry =
     sub === ZERO_ADDRESS
@@ -146,7 +146,7 @@ async function provision(label: string) {
   if (!target) throw new Error(`no derived address for label "${label}"`);
   const salt = memberRegistrySalt(label);
   const predicted = predictMemberRegistryAddress(label);
-  console.log(`\n── ${label}.aval.eth  →  ${target}`);
+  console.log(`\n── ${label}.vouchme.eth  →  ${target}`);
   console.log(`    salt      0x${salt.toString(16).padStart(64, "0")}`);
   console.log(`    registry  ${predicted} (deterministic)`);
 
@@ -162,7 +162,7 @@ async function provision(label: string) {
   const members = readLedger();
   members[label] = {
     label,
-    name: `${label}.aval.eth`,
+    name: `${label}.vouchme.eth`,
     address: target,
     salt: `0x${salt.toString(16).padStart(64, "0")}`,
     registry: predicted,
@@ -179,7 +179,7 @@ async function provision(label: string) {
 async function provisionVouch(voucher: string, vouchee: string) {
   const voucheeAddr = addresses[vouchee];
   if (!voucheeAddr) throw new Error(`no derived address for "${vouchee}"`);
-  console.log(`\n── vouch ${voucher} → ${vouchee}   (${vouchee}.${voucher}.aval.eth)`);
+  console.log(`\n── vouch ${voucher} → ${vouchee}   (${vouchee}.${voucher}.vouchme.eth)`);
   const r = await mintVouchSubname(clients, voucher, vouchee, voucheeAddr);
   console.log(
     `    txs: register=${r.registerTxHash ?? "-"} setSubregistry=${r.setSubregistryTxHash ?? "-"} setAddr=${r.setAddrTxHash ?? "-"}`,
@@ -194,7 +194,7 @@ async function provisionVouch(voucher: string, vouchee: string) {
 
 /**
  * The resolver is node-keyed: registry traversal makes a deeper name like
- * `erin.carol.alice.aval.eth` structurally valid the moment each hop's subregistry exists, but the
+ * `erin.carol.alice.vouchme.eth` structurally valid the moment each hop's subregistry exists, but the
  * leaf still needs its own `setAddr` before `addr()` returns anything. This writes exactly that one
  * record for an already-traversable name — it registers nothing.
  */
@@ -202,15 +202,15 @@ async function setAddrFor(fqdn: string, labelForAddress: string) {
   const target = addresses[labelForAddress];
   if (!target) throw new Error(`no derived address for "${labelForAddress}"`);
   const node = namehash(fqdn);
-  const current = await publicClient.readContract({ address: AVAL_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [node] });
+  const current = await publicClient.readContract({ address: VOUCHME_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [node] });
   if (current.toLowerCase() === target.toLowerCase()) {
     console.log(`\n── ${fqdn} already resolves to ${target} — nothing written.`);
     return;
   }
-  const hash = await walletClient.writeContract({ address: AVAL_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "setAddr", args: [node, target] });
+  const hash = await walletClient.writeContract({ address: VOUCHME_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "setAddr", args: [node, target] });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error(`setAddr(${fqdn}) reverted: ${hash}`);
-  const readBack = await freshClient().readContract({ address: AVAL_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [node] });
+  const readBack = await freshClient().readContract({ address: VOUCHME_ETH_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [node] });
   console.log(`\n── setAddr ${fqdn} -> ${target}\n    tx ${hash}\n    read back: ${readBack} ${readBack.toLowerCase() === target.toLowerCase() ? "OK" : "MISMATCH"}`);
   if (readBack.toLowerCase() !== target.toLowerCase()) throw new Error("read-back mismatch");
 }
@@ -218,14 +218,14 @@ async function setAddrFor(fqdn: string, labelForAddress: string) {
 async function check() {
   const c = freshClient();
   for (const label of allLabels) {
-    const owner = await c.readContract({ address: AVAL_ETH_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: [label] });
-    const sub = await getSubregistry(c, AVAL_ETH_REGISTRY, label);
+    const owner = await c.readContract({ address: VOUCHME_ETH_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: [label] });
+    const sub = await getSubregistry(c, VOUCHME_ETH_REGISTRY, label);
     const code = sub === ZERO_ADDRESS ? "0x" : ((await c.getCode({ address: sub })) ?? "0x");
     const addr = await c.readContract({
-      address: AVAL_ETH_RESOLVER,
+      address: VOUCHME_ETH_RESOLVER,
       abi: RESOLVER_ABI,
       functionName: "addr",
-      args: [namehash(`${label}.aval.eth`)],
+      args: [namehash(`${label}.vouchme.eth`)],
     });
     const want = addresses[label];
     console.log(

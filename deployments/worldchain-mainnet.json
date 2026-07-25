@@ -6,10 +6,11 @@
   "governor": "0x87Ee33B2B9D46E0ACEab852550bDB891A3403864",
   "attestor": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
   "deployedAtBlock": 32833177,
-  "whyMainnetExists": "MiniKit refuses to send a transaction on any chain but World Chain mainnet. From @worldcoin/minikit-js 2.0.3's own send-transaction source: `var WORLD_CHAIN_ID = 480; ... if (chainId !== WORLD_CHAIN_ID) throw new SendTransactionError('invalid_operation', { reason: 'World App only supports World Chain (chainId: 480)' })`. The check is client-side and unconditional, and MiniKit's EIP-1193 provider also hardcodes eth_chainId to 0x1e0. So a Mini App user on World Chain Sepolia (4801) could sign in but could never transact \u2014 enroll, vouch and claim all failed with 'invalid_operation'. No flag or config changes this; the only fix is contracts on 480.",
+  "whyMainnetExists": "MiniKit refuses to send a transaction on any chain but World Chain mainnet. From @worldcoin/minikit-js 2.0.3's own send-transaction source: `var WORLD_CHAIN_ID = 480; ... if (chainId !== WORLD_CHAIN_ID) throw new SendTransactionError('invalid_operation', { reason: 'World App only supports World Chain (chainId: 480)' })`. The check is client-side and unconditional, and MiniKit's EIP-1193 provider also hardcodes eth_chainId to 0x1e0. So a Mini App user on World Chain Sepolia (4801) could sign in but could never transact — enroll, vouch and claim all failed with 'invalid_operation'. No flag or config changes this; the only fix is contracts on 480.",
+  "renameNote": "PRODUCT RENAME (Aval -> VouchMe). Every address, transaction hash and block number in this file is unchanged and still correct. The contracts at these addresses were COMPILED AND DEPLOYED UNDER THE OLD SOURCE NAMES `AvalRegistry` and `AvalToken`; their on-chain bytecode, and any verified source on the explorer, still carry those names. The keys and prose here were renamed only so the repo reads one consistent way — they do NOT mean a redeployment happened. It has not. Renaming the Solidity contracts changed the creation bytecode and the EIP-712 domain name (VouchMeRegistry instead of AvalRegistry), so signatures produced against the renamed source will NOT verify on these deployments. A redeploy is required before this file describes contracts whose source matches the repo.",
   "contracts": {
-    "AvalToken": "0xdF0cdF53981bdbcCF25cC0d51E8948579adA82Ef",
-    "AvalRegistry": "0x6fEfEf2d44203300a6a33d631840C972181b8722",
+    "VouchMeToken": "0xdF0cdF53981bdbcCF25cC0d51E8948579adA82Ef",
+    "VouchMeRegistry": "0x6fEfEf2d44203300a6a33d631840C972181b8722",
     "CredibilityVault": "0xE3bb69E90d124268A348A3ef17420d05CF6e177D",
     "PlatformRegistry": "0xbBEE544679F9C5a8784F30195a9030131f9E9106",
     "ReportRegistry": "0x4570B517C75A90F85c9FeD321113fB80FC777bcC",
@@ -17,52 +18,52 @@
   },
   "addressBook": {
     "address": "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D",
-    "what": "World ID's REAL Address Book \u2014 3095 bytes of code, confirmed live on chain 480 before deploying against it.",
-    "differenceFromSepolia": "The Sepolia deployment could not use this: the Address Book exists on World Chain mainnet ONLY, which is why contracts/script/GenesisAnchorBook.sol was written as a testnet stand-in. Here it is the real contract, so AvalRegistry.isAnchor() is answered by genuine Orb verification and anchorSource() returns 'world-id-orb', not 'genesis-testnet'."
+    "what": "World ID's REAL Address Book — 3095 bytes of code, confirmed live on chain 480 before deploying against it.",
+    "differenceFromSepolia": "The Sepolia deployment could not use this: the Address Book exists on World Chain mainnet ONLY, which is why contracts/script/GenesisAnchorBook.sol was written as a testnet stand-in. Here it is the real contract, so VouchMeRegistry.isAnchor() is answered by genuine Orb verification and anchorSource() returns 'world-id-orb', not 'genesis-testnet'."
   },
   "verifiedOnChain": {
-    "method": "eth_getCode on every address, plus getters read back with cast \u2014 not taken from the deploy script's own output.",
+    "method": "eth_getCode on every address, plus getters read back with cast — not taken from the deploy script's own output.",
     "codeBytes": {
-      "AvalToken": 2137,
-      "AvalRegistry": 7645,
+      "VouchMeToken": 2137,
+      "VouchMeRegistry": 7645,
       "CredibilityVault": 7199,
       "PlatformRegistry": 7692,
       "ReportRegistry": 9938,
       "PresenceDrip": 5444
     },
     "wiring": {
-      "AvalRegistry.addressBook": "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D",
-      "AvalRegistry.governor": "0x87Ee33B2B9D46E0ACEab852550bDB891A3403864",
-      "AvalRegistry.reportRegistry": "0x4570b517c75a90F85C9fED321113Fb80FC777bCc",
-      "AvalRegistry.presenceDrip": "0x4C0cF0D239A1012D432edEa47e3Bb1cb00f5192d",
-      "AvalRegistry.platformRegistry": "0xbBee544679f9c5a8784F30195a9030131F9E9106",
-      "AvalRegistry.attestors[0x69827C0F...]": true,
+      "VouchMeRegistry.addressBook": "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D",
+      "VouchMeRegistry.governor": "0x87Ee33B2B9D46E0ACEab852550bDB891A3403864",
+      "VouchMeRegistry.reportRegistry": "0x4570b517c75a90F85C9fED321113Fb80FC777bCc",
+      "VouchMeRegistry.presenceDrip": "0x4C0cF0D239A1012D432edEa47e3Bb1cb00f5192d",
+      "VouchMeRegistry.platformRegistry": "0xbBee544679f9c5a8784F30195a9030131F9E9106",
+      "VouchMeRegistry.attestors[0x69827C0F...]": true,
       "readAt": "re-read with cast against the LIVE redeployed registry after E-18, not carried over from the superseded deployment"
     },
     "isAnchorAfterE18Fix": {
       "isAnchor(0xB23a3B2384D721d7C487a3ACc6405a1d36672B47)": true,
       "isAnchor(0x000000000000000000000000000000000000dEaD)": false,
-      "note": "Read with cast against the redeployed AvalRegistry. Proves the corrected addressVerifiedUntil interface resolves real Orb status instead of reverting."
+      "note": "Read with cast against the redeployed VouchMeRegistry. Proves the corrected addressVerifiedUntil interface resolves real Orb status instead of reverting."
     },
-    "correction": "deployedAtBlock and AvalRegistry codeBytes were both wrong in the first version of this file: 32833180 and 7637. 7637 is the SUPERSEDED pre-E-18 registry's size, carried over by mistake; the live one is 7645 because the isAnchor fix changed the bytecode. The deploy receipt puts the constructor in block 32833177. Both re-read from chain (eth_getCode, cast receipt), not edited by hand."
+    "correction": "deployedAtBlock and VouchMeRegistry codeBytes were both wrong in the first version of this file: 32833180 and 7637. 7637 is the SUPERSEDED pre-E-18 registry's size, carried over by mistake; the live one is 7645 because the isAnchor fix changed the bytecode. The deploy receipt puts the constructor in block 32833177. Both re-read from chain (eth_getCode, cast receipt), not edited by hand."
   },
   "gas": {
     "estimated": "0.0000137866377 ETH at 0.0011 gwei",
     "actual": "0.000006335165773554 ETH",
     "deployerBalanceAfter": "0.002070419132412022 ETH"
   },
-  "noSeededGraph": "Deliberate. On Sepolia the anchor set was seeded through GenesisAnchorBook, which let alice/bob/anchor1-6/ring1-6 exist and made the 6-account collusion ring provable on chain. Here the anchor set is World ID's real Orb registry, so those generated keys are not anchors and the trust-math demonstration is NOT reproducible on this chain \u2014 it lives on worldchain-sepolia.json. The consequence to state plainly: every Orb-verified human who enrolls here is a depth-0 anchor with a FIXED score of 100 that ignores all inbound vouches (errata E-6), so on this deployment vouching for a verified human changes nothing. That is the spec behaving as written (docs/03-worldid.md \u00a73.1), and it contradicts the product's own thesis that proof-of-human is the floor rather than the ladder.",
+  "noSeededGraph": "Deliberate. On Sepolia the anchor set was seeded through GenesisAnchorBook, which let alice/bob/anchor1-6/ring1-6 exist and made the 6-account collusion ring provable on chain. Here the anchor set is World ID's real Orb registry, so those generated keys are not anchors and the trust-math demonstration is NOT reproducible on this chain — it lives on worldchain-sepolia.json. The consequence to state plainly: every Orb-verified human who enrolls here is a depth-0 anchor with a FIXED score of 100 that ignores all inbound vouches (errata E-6), so on this deployment vouching for a verified human changes nothing. That is the spec behaving as written (docs/03-worldid.md §3.1), and it contradicts the product's own thesis that proof-of-human is the floor rather than the ladder.",
   "notes": [
-    "ENS is unaffected and remains on Ethereum Sepolia (deployments/ens-sepolia.json, ens-members-sepolia.json) \u2014 a different chain entirely, already working, all 17 member names and their per-member registries live there.",
+    "ENS is unaffected and remains on Ethereum Sepolia (deployments/ens-sepolia.json, ens-members-sepolia.json) — a different chain entirely, already working, all 17 member names and their per-member registries live there.",
     "The World ID app ID and RP ID are unchanged and work against mainnet as-is.",
-    "governor == deployer here, so the eight post-deploy wiring setters ran in the same script. A real deployment would make governor a 2-of-3 multisig and submit those separately (docs/02-contracts.md \u00a76).",
+    "governor == deployer here, so the eight post-deploy wiring setters ran in the same script. A real deployment would make governor a 2-of-3 multisig and submit those separately (docs/02-contracts.md §6).",
     "The attestor is deliberately NOT the deployer: attestations are signed by 0x69827C0F..., the key the app already holds as ATTESTOR_PRIVATE_KEY, while the deployer key only ever deployed. Losing one does not immediately grant the other's power."
   ],
   "supersededFirstDeployment": {
-    "reason": "Redeployed after errata E-18: IAddressBook declared getIsUserVerified(address)->bool, which does not exist on World ID's real Address Book, so isAnchor() reverted for every address on mainnet. These contracts are DEAD \u2014 do not use.",
+    "reason": "Redeployed after errata E-18: IAddressBook declared getIsUserVerified(address)->bool, which does not exist on World ID's real Address Book, so isAnchor() reverted for every address on mainnet. These contracts are DEAD — do not use.",
     "contracts": {
-      "AvalToken": "0xe186dac8885af56CCD0786506ce4493cd3A03BfE",
-      "AvalRegistry": "0x7a294C7C969F509a76971F94DE198a02B9803bA2",
+      "VouchMeToken": "0xe186dac8885af56CCD0786506ce4493cd3A03BfE",
+      "VouchMeRegistry": "0x7a294C7C969F509a76971F94DE198a02B9803bA2",
       "CredibilityVault": "0x2f4D16BBC55655a2dAe48B12F8b283725B50105a",
       "PlatformRegistry": "0xCCe4468a406B559DA36D9e411C20747850bD4ABb",
       "ReportRegistry": "0xaB761aa734d47E3C0f3B99797d7Dc543912cdeEB",

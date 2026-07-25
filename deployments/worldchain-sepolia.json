@@ -6,8 +6,9 @@
   "deployedAt": "2026-07-25T12:04:02Z",
   "deploymentBlock": 32216305,
   "notes": "GenesisAnchorBook is a TESTNET-ONLY stand-in for World ID's Address Book (0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D on World Chain mainnet only). See contracts/script/GenesisAnchorBook.sol doc comment. anchorSource() on this contract returns \"genesis-testnet\", never \"world-id-orb\". ATTESTOR_ADDRESS and GOVERNOR_ADDRESS are both the deployer EOA on this testnet deployment, per the task's explicit instruction; attestations are signed with the deployer's own key, not the separate ATTESTOR_PRIVATE_KEY held in .env for other services.",
+  "renameNote": "PRODUCT RENAME (Aval -> VouchMe). Every address, transaction hash and block number in this file is unchanged and still correct. The contracts at these addresses were COMPILED AND DEPLOYED UNDER THE OLD SOURCE NAMES `AvalRegistry` and `AvalToken`; their on-chain bytecode, and any verified source on the explorer, still carry those names. The keys and prose here were renamed only so the repo reads one consistent way — they do NOT mean a redeployment happened. It has not. Renaming the Solidity contracts changed the creation bytecode and the EIP-712 domain name (VouchMeRegistry instead of AvalRegistry), so signatures produced against the renamed source will NOT verify on these deployments. A redeploy is required before this file describes contracts whose source matches the repo.",
   "abortedFirstAttempt": {
-    "reason": "The first deployment used anchor1/anchor2/anchor3 addresses derived from the well-known Anvil/Hardhat default mnemonic ('test test test ... junk'). Live chain data caught the problem before any real scenario data was written: funding those addresses with 0.01 ETH each was immediately followed by balance 0 and nonzero nonces (8 and 10 on the first two indices) from an unrelated sender — standing bots drain any funds sent to those addresses on public testnets because the keys are public knowledge. scripts/identities.mjs was changed to derive keys from a project-specific non-secret seed instead (keccak256-based, not BIP-39), and the whole stack (anchor book + all six contracts) was redeployed clean. The abandoned first GenesisAnchorBook was at 0x824C1D3126a25365182e194277D3749D7a1bC34e and the abandoned AvalToken/AvalRegistry/CredibilityVault/PlatformRegistry/ReportRegistry/PresenceDrip set began at deploy tx 0xa0e20b32b11741143421e68f0c7e0c5fed22f26f05e93f755306ff157922d480 (block 32216062) — both orphaned, no enroll/vouch data was ever written to them (only one enroll() call was attempted against the old registry and it reverted before any state changed)."
+    "reason": "The first deployment used anchor1/anchor2/anchor3 addresses derived from the well-known Anvil/Hardhat default mnemonic ('test test test ... junk'). Live chain data caught the problem before any real scenario data was written: funding those addresses with 0.01 ETH each was immediately followed by balance 0 and nonzero nonces (8 and 10 on the first two indices) from an unrelated sender — standing bots drain any funds sent to those addresses on public testnets because the keys are public knowledge. scripts/identities.mjs was changed to derive keys from a project-specific non-secret seed instead (keccak256-based, not BIP-39), and the whole stack (anchor book + all six contracts) was redeployed clean. The abandoned first GenesisAnchorBook was at 0x824C1D3126a25365182e194277D3749D7a1bC34e and the abandoned VouchMeToken/VouchMeRegistry/CredibilityVault/PlatformRegistry/ReportRegistry/PresenceDrip set began at deploy tx 0xa0e20b32b11741143421e68f0c7e0c5fed22f26f05e93f755306ff157922d480 (block 32216062) — both orphaned, no enroll/vouch data was ever written to them (only one enroll() call was attempted against the old registry and it reverted before any state changed)."
   },
   "contracts": {
     "GenesisAnchorBook": {
@@ -23,12 +24,12 @@
       },
       "explorer": "https://sepolia.worldscan.org/address/0x4129A5072477AA2619Fb468ee9Ad992DB384AdA1"
     },
-    "AvalToken": {
+    "VouchMeToken": {
       "address": "0x05B30B4fBb518382b94fD0caC353099Fc4c38286",
       "deployTx": "0x5e17b79c9250046d5e2ae9804c3d2a68af340b1e9c6e5242f43f8700affb1c30",
       "explorer": "https://sepolia.worldscan.org/address/0x05B30B4fBb518382b94fD0caC353099Fc4c38286"
     },
-    "AvalRegistry": {
+    "VouchMeRegistry": {
       "address": "0x1d9955CB9f2A531fa6D4f43E712c9B1Fa9A44514",
       "deployTx": "0x52c9b16fb1183a26621ddf272aaa765392910b3584d1173ac8f4449cceda02d8",
       "constructorArgs": {
@@ -60,29 +61,29 @@
     }
   },
   "wiring": {
-    "AvalRegistry.setReportRegistry": "0xb4350192127d771dce80074e8c8f133f83f25946a0ddb2bea9c3368e848274ee",
-    "AvalRegistry.setPresenceDrip": "0x185c212cb9b115e0b7bd6c36c0b1866282e79d66fcb66c86fd2616d49e3ecbe5",
-    "AvalRegistry.setPlatformRegistry": "0xb6775cde332867c6df64ab33e04e0c563912b50fdc718a8ade9db0f015d0fe50",
+    "VouchMeRegistry.setReportRegistry": "0xb4350192127d771dce80074e8c8f133f83f25946a0ddb2bea9c3368e848274ee",
+    "VouchMeRegistry.setPresenceDrip": "0x185c212cb9b115e0b7bd6c36c0b1866282e79d66fcb66c86fd2616d49e3ecbe5",
+    "VouchMeRegistry.setPlatformRegistry": "0xb6775cde332867c6df64ab33e04e0c563912b50fdc718a8ade9db0f015d0fe50",
     "PlatformRegistry.setReportRegistry": "0x68a38ad461b655b8077f0d97f47ca3500846c447bf1a24a162502315029bdcc7",
-    "PlatformRegistry.setAvalRegistry": "0x3fbe8f70dd8b576c87472a894f9cca03bc960800f5aac27caf93ee29d3486b6a",
+    "PlatformRegistry.setVouchMeRegistry": "0x3fbe8f70dd8b576c87472a894f9cca03bc960800f5aac27caf93ee29d3486b6a",
     "CredibilityVault.setReportRegistry": "0x50438c3ff5caa990322ea69fe51ae2791fee34b548cd22b12ac15a16aa2b5974",
     "ReportRegistry.setPresenceDrip": "0xf4b3c303ea671c1aa6712adc844b2d3ddac5fd29ec7e366b240ee00f783e3e9d",
-    "AvalToken.setMinter": "0xed5db804e654d299075fc3af832c1a3d21d49bb0d4a2dace20d2a5997dfc39c9"
+    "VouchMeToken.setMinter": "0xed5db804e654d299075fc3af832c1a3d21d49bb0d4a2dace20d2a5997dfc39c9"
   },
   "verifiedOnChain": {
     "method": "cast call against each address independently, not trusting forge script's own printed output",
     "bytecodePresentAtAllSevenAddresses": true,
-    "AvalRegistry.reportRegistry": "0x4490959A3461ACFE750E130DC43f1846eeD50506",
-    "AvalRegistry.presenceDrip": "0x511003a054A4A9Bcb5FAC67F13fCbD92496FAbDA",
-    "AvalRegistry.platformRegistry": "0xE787978c3bD7876458C74339b7C9EB0988Da9125",
+    "VouchMeRegistry.reportRegistry": "0x4490959A3461ACFE750E130DC43f1846eeD50506",
+    "VouchMeRegistry.presenceDrip": "0x511003a054A4A9Bcb5FAC67F13fCbD92496FAbDA",
+    "VouchMeRegistry.platformRegistry": "0xE787978c3bD7876458C74339b7C9EB0988Da9125",
     "PlatformRegistry.reportRegistry": "0x4490959A3461ACFE750E130DC43f1846eeD50506",
-    "PlatformRegistry.avalRegistry": "0x1d9955CB9f2A531fa6D4f43E712c9B1Fa9A44514",
+    "PlatformRegistry.vouchMeRegistry": "0x1d9955CB9f2A531fa6D4f43E712c9B1Fa9A44514",
     "CredibilityVault.reportRegistry": "0x4490959A3461ACFE750E130DC43f1846eeD50506",
     "ReportRegistry.presenceDrip": "0x511003a054A4A9Bcb5FAC67F13fCbD92496FAbDA",
-    "AvalToken.minters(PresenceDrip)": true,
-    "AvalRegistry.governor": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
-    "AvalRegistry.attestors(deployer)": true,
-    "AvalRegistry.addressBook": "0x4129A5072477AA2619Fb468ee9Ad992DB384AdA1",
+    "VouchMeToken.minters(PresenceDrip)": true,
+    "VouchMeRegistry.governor": "0x69827C0FEF274C63Ac4806106F2BA544E6129050",
+    "VouchMeRegistry.attestors(deployer)": true,
+    "VouchMeRegistry.addressBook": "0x4129A5072477AA2619Fb468ee9Ad992DB384AdA1",
     "GenesisAnchorBook.getIsUserVerified(anchor1/2/3)": true,
     "GenesisAnchorBook.anchorSource": "genesis-testnet"
   }

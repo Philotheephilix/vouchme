@@ -37,7 +37,7 @@ import { deriveKey } from './identities.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const D = JSON.parse(readFileSync(join(HERE, '../deployments/worldchain-sepolia.json'), 'utf8'));
-const REGISTRY = D.contracts.AvalRegistry.address;
+const REGISTRY = D.contracts.VouchMeRegistry.address;
 const BOOK = D.contracts.GenesisAnchorBook.address;
 
 const chain = { id: 4801, name: 'World Chain Sepolia', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [D.rpcUrl] } } };
@@ -46,10 +46,10 @@ const pub = createPublicClient({ chain, transport: http(D.rpcUrl) });
 const deployer = privateKeyToAccount(process.env.PRIVATE_KEY);
 const deployerWallet = createWalletClient({ account: deployer, chain, transport: http(D.rpcUrl) });
 
-const registryAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/AvalRegistry.sol/AvalRegistry.json'), 'utf8')).abi;
+const registryAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/VouchMeRegistry.sol/VouchMeRegistry.json'), 'utf8')).abi;
 const bookAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/GenesisAnchorBook.sol/GenesisAnchorBook.json'), 'utf8')).abi;
 
-const domain = () => ({ name: 'AvalRegistry', version: '1', chainId: 4801n, verifyingContract: REGISTRY });
+const domain = () => ({ name: 'VouchMeRegistry', version: '1', chainId: 4801n, verifyingContract: REGISTRY });
 const freshNonce = () => BigInt(keccak256(toBytes(`promote-${Date.now()}-${Math.random()}`)));
 const deadline = async () => (await pub.getBlock()).timestamp + 280n;
 const wait = (hash) => pub.waitForTransactionReceipt({ hash });
@@ -81,7 +81,7 @@ async function enroll(label, orb) {
     console.log(`enroll   ${label.padEnd(8)} SKIP (already enrolled)`); return;
   }
   const dl = await deadline(), n = freshNonce();
-  const nullifier = BigInt(keccak256(toBytes(`aval-livescenario-nullifier:${label}`)));
+  const nullifier = BigInt(keccak256(toBytes(`vouchme-livescenario-nullifier:${label}`)));
   const cred = keccak256(toBytes(orb ? 'orb' : 'selfie-check'));
   const sig = await deployer.signTypedData({
     domain: domain(),

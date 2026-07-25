@@ -1,6 +1,6 @@
 // scripts/live-scenario.mjs
 //
-// Runs the live scenario against AvalRegistry on World Chain Sepolia: real transactions, real
+// Runs the live scenario against VouchMeRegistry on World Chain Sepolia: real transactions, real
 // EIP-712 attestations, real gas. Re-runnable: every step checks on-chain state first and skips
 // work that already landed.
 //
@@ -8,13 +8,13 @@
 // ATTESTOR_ADDRESS is the deployer for this testnet deployment (contracts/.env), so all
 // attestations here are signed with the deployer's own PRIVATE_KEY, not the separate
 // ATTESTOR_PRIVATE_KEY in .env — only ATTESTOR_ADDRESS is in the on-chain `attestors` allowlist,
-// so that key would sign attestations AvalRegistry does not recognize.
+// so that key would sign attestations VouchMeRegistry does not recognize.
 //
 // This script's attestor does not query a real-time computed tier before signing a vouch
 // attestation — it asserts a nominal tier from the account's *kind* (2 for anchors, matching
 // the "Anchor: 10 slots" row of docs/01-trust-math.md §1; 1 for every other enrolled member,
 // matching "Member: can vouch if tier ≥ 1" / 3 slots) and nothing more. That is deliberate:
-// AvalRegistry.sol's own doc comment says outright that "a forged attestation buys an edge the
+// VouchMeRegistry.sol's own doc comment says outright that "a forged attestation buys an edge the
 // Subgraph recompute simply will not credit" — the contract's job is to record a fact (an edge
 // was attested and issued), not to arbitrate merit. The ring1..ring6 leg of this scenario only
 // makes sense under this model: those accounts have no anchor path and a true engine-computed
@@ -22,7 +22,7 @@
 // "Attested tier" (on-chain, asserted) and "computed tier" (off-chain, earned) are distinct.
 //
 // ── The anchor rate-limit collision (bob) ───────────────────────────────────────────────────
-// AvalRegistry's vouch rate limit is 1 vouch / 24h *per voucher*, not per (voucher, vouchee)
+// VouchMeRegistry's vouch rate limit is 1 vouch / 24h *per voucher*, not per (voucher, vouchee)
 // pair — so anchor1, having spent its one vouch for the day on alice, cannot also vouch bob in
 // the same session. With exactly 3 anchors and 2 anchor-vouches required for each of 2 targets,
 // that is 4 vouch-slots of demand against 3 anchors' worth of daily capacity: by pigeonhole,
@@ -43,9 +43,9 @@ process.loadEnvFile(`${REPO_ROOT}contracts/.env`);
 const RPC_URL = process.env.WORLDCHAIN_SEPOLIA_RPC;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const deployments = JSON.parse(readFileSync(`${REPO_ROOT}deployments/worldchain-sepolia.json`, "utf8"));
-const REGISTRY_ADDRESS = deployments.contracts.AvalRegistry.address;
+const REGISTRY_ADDRESS = deployments.contracts.VouchMeRegistry.address;
 const registryArtifact = JSON.parse(
-  readFileSync(`${REPO_ROOT}contracts/out/AvalRegistry.sol/AvalRegistry.json`, "utf8")
+  readFileSync(`${REPO_ROOT}contracts/out/VouchMeRegistry.sol/VouchMeRegistry.json`, "utf8")
 );
 const ABI = registryArtifact.abi;
 
@@ -72,7 +72,7 @@ const CRED_SELFIE = keccak256(toBytes("selfie-check"));
 
 function domain() {
   return {
-    name: "AvalRegistry",
+    name: "VouchMeRegistry",
     version: "1",
     chainId: BigInt(worldChainSepolia.id),
     verifyingContract: REGISTRY_ADDRESS,
@@ -91,7 +91,7 @@ function randomNonce() {
 }
 
 function nullifierFor(label) {
-  return BigInt(keccak256(toBytes(`aval-livescenario-nullifier:${label}`)));
+  return BigInt(keccak256(toBytes(`vouchme-livescenario-nullifier:${label}`)));
 }
 
 async function signEnroll(account, nullifierHash, credential, deadline, nonce) {
@@ -152,7 +152,7 @@ async function enrollIdentity(label, { orb }) {
   const deadline = await nowPlusTtl();
   const nonce = randomNonce();
   const attestation = await signEnroll(account.address, nullifierHash, credential, deadline, nonce);
-  const handle = `${label}.aval.eth`;
+  const handle = `${label}.vouchme.eth`;
 
   const hash = await walletClients[label].writeContract({
     address: REGISTRY_ADDRESS,
@@ -211,7 +211,7 @@ async function vouch(voucherLabel, voucheeLabel, tier, opts = {}) {
 }
 
 async function main() {
-  console.log(`AvalRegistry: ${REGISTRY_ADDRESS}\n`);
+  console.log(`VouchMeRegistry: ${REGISTRY_ADDRESS}\n`);
 
   console.log("── 1. enroll everyone ──────────────────────────────────────────");
   for (const label of ANCHOR_LABELS) await enrollIdentity(label, { orb: true });

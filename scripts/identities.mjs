@@ -12,7 +12,7 @@
 // A project-specific fixed string, still fully public/non-secret (printed below, and in every
 // copy of this repo), but *not* a globally circulated phrase, so it is not already being watched:
 //
-//     "aval/worldchain-sepolia/live-scenario/v1"
+//     "vouchme/worldchain-sepolia/live-scenario/v1"
 //
 // Each identity's private key is `keccak256(SEED + "::" + label)` — a plain deterministic hash
 // derivation (not BIP-39/HD; no mnemonic wordlist needed). Reproducible by construction: the same
@@ -23,7 +23,7 @@
 import { keccak256, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-export const SEED = "aval/worldchain-sepolia/live-scenario/v1";
+export const SEED = "vouchme/worldchain-sepolia/live-scenario/v1";
 
 // Six anchors, not three: 3 cannot supply 4 anchor-vouch-slots in one day
 // (1 vouch/voucher/24h), and anchor5+anchor6 exist to create erin — the third depth-1

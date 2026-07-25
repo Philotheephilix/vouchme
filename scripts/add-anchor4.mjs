@@ -3,7 +3,7 @@
 //
 // WHY THIS SCRIPT EXISTS
 // ----------------------
-// AvalRegistry enforces 1 new vouch per voucher per 24h, so 3 anchors cannot supply
+// VouchMeRegistry enforces 1 new vouch per voucher per 24h, so 3 anchors cannot supply
 // the 4 anchor-vouch-slots alice and bob need in one session (anchor1+anchor2 -> alice,
 // anchor1+anchor3 -> bob): by pigeonhole one of the four must fail with RateLimited().
 // With only one anchor vouch bob scores 30 and is blocked by gate 2 — the "1 anchor ->
@@ -23,7 +23,7 @@ import { deriveKey } from './identities.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const D = JSON.parse(readFileSync(join(HERE, '../deployments/worldchain-sepolia.json'), 'utf8'));
-const REGISTRY = D.contracts.AvalRegistry.address;
+const REGISTRY = D.contracts.VouchMeRegistry.address;
 const BOOK = D.contracts.GenesisAnchorBook.address;
 const RPC = D.rpcUrl;
 
@@ -38,10 +38,10 @@ const anchor4Wallet = createWalletClient({ account: anchor4, chain, transport: h
 
 const BOB = privateKeyToAccount(deriveKey('bob')).address;
 
-const registryAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/AvalRegistry.sol/AvalRegistry.json'), 'utf8')).abi;
+const registryAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/VouchMeRegistry.sol/VouchMeRegistry.json'), 'utf8')).abi;
 const bookAbi = JSON.parse(readFileSync(join(HERE, '../contracts/out/GenesisAnchorBook.sol/GenesisAnchorBook.json'), 'utf8')).abi;
 
-const domain = () => ({ name: 'AvalRegistry', version: '1', chainId: 4801n, verifyingContract: REGISTRY });
+const domain = () => ({ name: 'VouchMeRegistry', version: '1', chainId: 4801n, verifyingContract: REGISTRY });
 const nonce = () => BigInt(keccak256(toBytes(`anchor4-${Date.now()}-${Math.random()}`)));
 const deadline = async () => (await pub.getBlock()).timestamp + 280n;
 
@@ -74,7 +74,7 @@ if (!isAnchor) {
 const enrolled = await pub.readContract({ address: REGISTRY, abi: registryAbi, functionName: 'isEnrolled', args: [anchor4.address] });
 if (!enrolled) {
   const dl = await deadline(), n = nonce();
-  const nullifier = BigInt(keccak256(toBytes('aval-livescenario-nullifier:anchor4')));
+  const nullifier = BigInt(keccak256(toBytes('vouchme-livescenario-nullifier:anchor4')));
   const cred = keccak256(toBytes('orb'));
   const sig = await deployer.signTypedData({
     domain: domain(),

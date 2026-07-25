@@ -1,8 +1,8 @@
 {
-  "name": "aval",
+  "name": "vouchme",
   "version": "0.1.0",
   "private": true,
-  "description": "Proof of human is a floor. Aval is the ladder.",
+  "description": "Proof of human is a floor. VouchMe is the ladder.",
   "license": "MIT",
   "workspaces": [
     "engine",

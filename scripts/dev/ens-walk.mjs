@@ -9,12 +9,12 @@ const reg=[{type:"function",name:"getSubregistry",stateMutability:"view",inputs:
 {type:"function",name:"findOwner",stateMutability:"view",inputs:[{name:"l",type:"string"}],outputs:[{type:"address"}]},
 {type:"function",name:"findExpiry",stateMutability:"view",inputs:[{name:"l",type:"string"}],outputs:[{type:"uint64"}]}];
 const res=[{type:"function",name:"addr",stateMutability:"view",inputs:[{name:"n",type:"bytes32"}],outputs:[{type:"address"}]}];
-const name = process.argv[2] || "carol.alice.aval.eth";
+const name = process.argv[2] || "carol.alice.vouchme.eth";
 const labels = name.split(".").slice(0,-1).reverse(); // eth removed later
-// name like carol.alice.aval.eth -> walk eth registry with "aval", then "alice", then "carol"
+// name like carol.alice.vouchme.eth -> walk eth registry with "vouchme", then "alice", then "carol"
 const parts = name.split(".");
 if (parts.at(-1)!=="eth") throw new Error("expect .eth");
-const walk = parts.slice(0,-1).reverse(); // [aval, alice, carol]
+const walk = parts.slice(0,-1).reverse(); // [vouchme, alice, carol]
 let cur = ETH, path="eth";
 for (const l of walk){
   const owner = await c.readContract({address:cur,abi:reg,functionName:"findOwner",args:[l]});

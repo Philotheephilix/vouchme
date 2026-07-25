@@ -28,7 +28,7 @@
 //
 // Usage:
 //   node scripts/report-demo-mainnet.mjs --wire        governor: setAttestor + setMinter
-//   node scripts/report-demo-mainnet.mjs --fund        governor: gas + AVAL bonds for the demo accounts
+//   node scripts/report-demo-mainnet.mjs --fund        governor: gas + VOUCHME bonds for the demo accounts
 //   node scripts/report-demo-mainnet.mjs --enroll      enroll the three demo accounts
 //   node scripts/report-demo-mainnet.mjs --file        file the report (reportdemo-a -> reportdemo-target)
 //   node scripts/report-demo-mainnet.mjs --file-b      file a second one (reportdemo-b -> target)
@@ -51,7 +51,7 @@ import {
   toBytes,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { compute, weightNeg } from "@aval/engine";
+import { compute, weightNeg } from "@vouchme/engine";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -84,7 +84,7 @@ const CHAIN = {
 // Deployment facts, copied from deployments/worldchain-mainnet.json and re-checksummed (that file
 // stores ReportRegistry with a mis-typed EIP-55 capitalisation; the bytes are right).
 const ADDR = {
-  avalRegistry: getAddress("0x6fEfEf2d44203300a6a33d631840C972181b8722".toLowerCase()),
+  vouchMeRegistry: getAddress("0x6fEfEf2d44203300a6a33d631840C972181b8722".toLowerCase()),
   reportRegistry: getAddress("0x4570B517C75A90F85c9FeD321113fB80FC777bcC".toLowerCase()),
   platformRegistry: getAddress("0xbBEE544679F9C5a8784F30195a9030131f9E9106".toLowerCase()),
   vault: getAddress("0xE3bb69E90d124268A348A3ef17420d05CF6e177D".toLowerCase()),
@@ -100,7 +100,7 @@ const attestor = privateKeyToAccount(appEnv.ATTESTOR_PRIVATE_KEY);
 // ── demo identities ─────────────────────────────────────────────────────────────────────────────
 // Same public, non-secret derivation as scripts/identities.mjs, with mainnet-specific labels so
 // these keys are reproducible by anyone reading the repo and are obviously throwaway.
-const DEMO_SEED = "aval/worldchain-mainnet/report-demo/v1";
+const DEMO_SEED = "vouchme/worldchain-mainnet/report-demo/v1";
 const demoKey = (label) => keccak256(toBytes(`${DEMO_SEED}::${label}`));
 const DEMO = {
   reporterA: privateKeyToAccount(demoKey("reportdemo-a")),
@@ -108,9 +108,9 @@ const DEMO = {
   target: privateKeyToAccount(demoKey("reportdemo-target")),
 };
 const HANDLES = {
-  reporterA: "reportdemo-a.aval.eth",
-  reporterB: "reportdemo-b.aval.eth",
-  target: "reportdemo-target.aval.eth",
+  reporterA: "reportdemo-a.vouchme.eth",
+  reporterB: "reportdemo-b.vouchme.eth",
+  target: "reportdemo-target.vouchme.eth",
 };
 /** NOT a World ID nullifier. No World ID proof exists for these accounts; this is a derived,
  *  clearly-labelled placeholder so `usedNullifier` stays one-account-per-value, and it is the one
@@ -171,7 +171,7 @@ async function send(account, address, item, functionName, args) {
 }
 
 const EIP712 = {
-  enrollDomain: { name: "AvalRegistry", version: "1", chainId: 480, verifyingContract: ADDR.avalRegistry },
+  enrollDomain: { name: "VouchMeRegistry", version: "1", chainId: 480, verifyingContract: ADDR.vouchMeRegistry },
   reportDomain: { name: "ReportRegistry", version: "1", chainId: 480, verifyingContract: ADDR.reportRegistry },
 };
 
@@ -229,14 +229,14 @@ async function buildEngineInput() {
   };
 
   const enrolled = await logs(
-    ADDR.avalRegistry,
+    ADDR.vouchMeRegistry,
     "event Enrolled(address indexed account, uint256 indexed nullifierHash, bytes32 credential, uint64 credentialExpiresAt, string handle)",
   );
   const vouchedLogs = await logs(
-    ADDR.avalRegistry,
+    ADDR.vouchMeRegistry,
     "event Vouched(address indexed voucher, address indexed vouchee, uint64 issuedAt, uint64 expiresAt)",
   );
-  const revokedLogs = await logs(ADDR.avalRegistry, "event Revoked(address indexed voucher, address indexed vouchee, uint64 at)");
+  const revokedLogs = await logs(ADDR.vouchMeRegistry, "event Revoked(address indexed voucher, address indexed vouchee, uint64 at)");
   const filedLogs = await logs(
     ADDR.reportRegistry,
     "event ReportFiled(bytes32 indexed id, address indexed reporter, address indexed target, uint32 weightPoints, uint128 bond, bytes32 evidenceHash)",
@@ -297,7 +297,7 @@ function printState({ input, handles, rawReports, block }) {
     const w = out.reportWeights[r.id.toLowerCase()];
     console.log(
       `\n   report ${r.id}\n     tx ${r.tx}\n     ${handles.get(r.raw[0]) ?? r.raw[0]} -> ${handles.get(r.raw[1]) ?? r.raw[1]}` +
-        `  state=${r.stateName}  weightPoints=${r.raw[3]} (${(Number(r.raw[3]) / 100).toFixed(2)} pts)  bond=${formatEther(r.raw[4])} AVAL` +
+        `  state=${r.stateName}  weightPoints=${r.raw[3]} (${(Number(r.raw[3]) / 100).toFixed(2)} pts)  bond=${formatEther(r.raw[4])} VOUCHME` +
         `\n     filedAt=${new Date(Number(r.raw[5]) * 1000).toISOString()}  resolvedAt=${r.raw[6] === 0n ? "—" : new Date(Number(r.raw[6]) * 1000).toISOString()}` +
         `\n     engine: valid=${w?.valid} void=${w?.voidReason ?? "—"} base=${((w?.baseWeight ?? 0) / 100).toFixed(2)} ` +
         `decayed=${((w?.decayedWeight ?? 0) / 100).toFixed(2)} countedTowardScore=${w?.countedTowardScore} countedTowardRisk=${w?.countedTowardRisk}`,
@@ -317,16 +317,16 @@ async function wire() {
     await send(governor, ADDR.reportRegistry, abi.setAttestor, "setAttestor", [attestor.address, true]);
   }
   if (await read(ADDR.token, abi.minters, "minters", [governor.address])) {
-    console.log("   AvalToken.minters[governor] already true");
+    console.log("   VouchMeToken.minters[governor] already true");
   } else {
-    console.log(`   AvalToken.setMinter(${governor.address}, true)`);
+    console.log(`   VouchMeToken.setMinter(${governor.address}, true)`);
     await send(governor, ADDR.token, abi.setMinter, "setMinter", [governor.address, true]);
   }
 }
 
-/** Gas for three demo accounts, plus the AVAL bond each reporter needs in CredibilityVault.
- *  `BOND_PER_WEIGHT` is 10 AVAL per weight POINT and `weightPoints` is centi-points, so a 10.00-point
- *  report bonds 10 000 AVAL. */
+/** Gas for three demo accounts, plus the VOUCHME bond each reporter needs in CredibilityVault.
+ *  `BOND_PER_WEIGHT` is 10 VOUCHME per weight POINT and `weightPoints` is centi-points, so a 10.00-point
+ *  report bonds 10 000 VOUCHME. */
 async function fund(bondPerReporter) {
   console.log("── funding ──");
   // 0.00005 ETH. Gas on World Chain is ~0.0015 gwei, so this is far more than the ~5 transactions
@@ -350,11 +350,11 @@ async function fund(bondPerReporter) {
     const acct = DEMO[label];
     const pos = await read(ADDR.vault, abi.positions, "positions", [acct.address]);
     if (pos[0] >= bondPerReporter) {
-      console.log(`   ${label} already has ${formatEther(pos[0])} AVAL bonded`);
+      console.log(`   ${label} already has ${formatEther(pos[0])} VOUCHME bonded`);
       continue;
     }
     const need = bondPerReporter - pos[0];
-    console.log(`   mint ${formatEther(need)} AVAL -> governor, approve vault, bondFor(${label})`);
+    console.log(`   mint ${formatEther(need)} VOUCHME -> governor, approve vault, bondFor(${label})`);
     await send(governor, ADDR.token, abi.mint, "mint", [governor.address, need]);
     await send(governor, ADDR.token, abi.approve, "approve", [ADDR.vault, need]);
     await send(governor, ADDR.vault, abi.bondFor, "bondFor", [acct.address, need]);
@@ -364,7 +364,7 @@ async function fund(bondPerReporter) {
 async function enroll() {
   console.log("── enrolling demo accounts ──");
   for (const [label, acct] of Object.entries(DEMO)) {
-    const m = await read(ADDR.avalRegistry, abi.members, "members", [acct.address]);
+    const m = await read(ADDR.vouchMeRegistry, abi.members, "members", [acct.address]);
     if (m[6]) {
       console.log(`   ${label} ${acct.address} already enrolled`);
       continue;
@@ -378,7 +378,7 @@ async function enroll() {
     };
     const attestation = await signEnroll(message);
     console.log(`   enroll ${label} ${acct.address} as ${HANDLES[label]}`);
-    await send(acct, ADDR.avalRegistry, abi.enroll, "enroll", [
+    await send(acct, ADDR.vouchMeRegistry, abi.enroll, "enroll", [
       message.nullifierHash,
       message.credential,
       HANDLES[label],
@@ -456,13 +456,13 @@ async function main() {
   console.log(`attestor ${attestor.address}`);
   for (const [label, acct] of Object.entries(DEMO)) console.log(`${label.padEnd(10)} ${acct.address}`);
 
-  // 10.00 points of weight = 1000 centi-points = 10 000 AVAL at BOND_PER_WEIGHT = 10e18.
+  // 10.00 points of weight = 1000 centi-points = 10 000 VOUCHME at BOND_PER_WEIGHT = 10e18.
   const BOND = 10_000n * 10n ** 18n;
 
   if (args.includes("--wire")) await wire();
   if (args.includes("--fund")) await fund(BOND);
   if (args.includes("--enroll")) await enroll();
-  if (args.includes("--file")) await fileReport("reporterA", "aval-demo-evidence: reportdemo-a accuses reportdemo-target");
+  if (args.includes("--file")) await fileReport("reporterA", "vouchme-demo-evidence: reportdemo-a accuses reportdemo-target");
   if (args.includes("--file-b")) await fileReport("reporterB", null);
   if (args.includes("--withdraw-b")) await withdrawReport("reporterB");
   if (args.includes("--state") || args.length === 0) printState(await buildEngineInput());

@@ -1,5 +1,5 @@
 /**
- * scripts/dev/ensstate.mjs — one-screen truth about the aval.eth population on Ethereum Sepolia.
+ * scripts/dev/ensstate.mjs — one-screen truth about the vouchme.eth population on Ethereum Sepolia.
  *
  * Prints, per label: who owns the name, what it resolves to, and — the part that decides whether
  * nested vouch names are possible at all — whether the member owns a real `PermissionedRegistry`
@@ -26,7 +26,7 @@ const missing = [], noRegistry = [], haveName = [];
 for (const l of labels) {
   const o = await c.readContract({ address: REG, abi: regAbi, functionName: "findOwner", args: [l] }).catch(() => null);
   const sub = await c.readContract({ address: REG, abi: regAbi, functionName: "getSubregistry", args: [l] }).catch(() => null);
-  const a = await c.readContract({ address: RES, abi: resAbi, functionName: "addr", args: [namehash(`${l}.aval.eth`)] }).catch(() => null);
+  const a = await c.readContract({ address: RES, abi: resAbi, functionName: "addr", args: [namehash(`${l}.vouchme.eth`)] }).catch(() => null);
   const code = sub && sub !== ZERO ? await c.getCode({ address: sub }).catch(() => null) : null;
   const codeBytes = code ? (code.length - 2) / 2 : 0;
   if (!o || o === ZERO) { missing.push(l); continue; }
@@ -39,7 +39,7 @@ console.log(`MISSING (${missing.length}):`, missing.join(", ") || "—");
 console.log(`REGISTERED BUT NO OWN REGISTRY — cannot hold vouch subnames (${noRegistry.length}):`, noRegistry.join(", ") || "—");
 
 // Nested proof: every vouch subname that exists inside a member's own registry.
-console.log("\nNESTED (vouch subnames, <vouchee>.<voucher>.aval.eth):");
+console.log("\nNESTED (vouch subnames, <vouchee>.<voucher>.vouchme.eth):");
 let nested = 0;
 for (const voucher of labels) {
   const vr = await c.readContract({ address: REG, abi: regAbi, functionName: "getSubregistry", args: [voucher] }).catch(() => null);
@@ -47,7 +47,7 @@ for (const voucher of labels) {
   for (const vouchee of labels) {
     const o = await c.readContract({ address: vr, abi: regAbi, functionName: "findOwner", args: [vouchee] }).catch(() => null);
     if (!o || o === ZERO) continue;
-    const fq = `${vouchee}.${voucher}.aval.eth`;
+    const fq = `${vouchee}.${voucher}.vouchme.eth`;
     const a = await c.readContract({ address: RES, abi: resAbi, functionName: "addr", args: [namehash(fq)] }).catch(() => null);
     const sub = await c.readContract({ address: vr, abi: regAbi, functionName: "getSubregistry", args: [vouchee] }).catch(() => null);
     console.log(`  ${fq.padEnd(28)} addr=${a && a !== ZERO ? a : "NONE"} childRegistry=${sub && sub !== ZERO ? sub : "NONE"}`);

@@ -1,9 +1,9 @@
 // scripts/live-verify.mjs
 //
 // Proves the protocol against live World Chain Sepolia data: reads Enrolled/Vouched/Revoked/
-// Reaffirmed logs from the deployed AvalRegistry, reads anchor status live from
+// Reaffirmed logs from the deployed VouchMeRegistry, reads anchor status live from
 // GenesisAnchorBook.getIsUserVerified, builds an EngineInput exactly the way an indexer would,
-// and runs it through the real @aval/engine `compute()` — the same function the app/subgraph use.
+// and runs it through the real @vouchme/engine `compute()` — the same function the app/subgraph use.
 //
 // Asserts the expected values from docs/01-trust-math.md §12.1 and exits non-zero on mismatch.
 // A mismatch is reported, never silently reconciled by editing the assertion.
@@ -11,7 +11,7 @@
 import { createPublicClient, http } from "viem";
 import { readFileSync } from "node:fs";
 import { BASE } from "../engine/dist/constants.js";
-import { compute } from "@aval/engine";
+import { compute } from "@vouchme/engine";
 import { deriveIdentities } from "./identities.mjs";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
@@ -19,12 +19,12 @@ process.loadEnvFile(`${REPO_ROOT}contracts/.env`);
 
 const RPC_URL = process.env.WORLDCHAIN_SEPOLIA_RPC;
 const deployments = JSON.parse(readFileSync(`${REPO_ROOT}deployments/worldchain-sepolia.json`, "utf8"));
-const REGISTRY_ADDRESS = deployments.contracts.AvalRegistry.address;
+const REGISTRY_ADDRESS = deployments.contracts.VouchMeRegistry.address;
 const ANCHOR_BOOK_ADDRESS = deployments.contracts.GenesisAnchorBook.address;
 const DEPLOY_BLOCK = BigInt(deployments.deploymentBlock);
 
 const registryArtifact = JSON.parse(
-  readFileSync(`${REPO_ROOT}contracts/out/AvalRegistry.sol/AvalRegistry.json`, "utf8")
+  readFileSync(`${REPO_ROOT}contracts/out/VouchMeRegistry.sol/VouchMeRegistry.json`, "utf8")
 );
 const anchorBookArtifact = JSON.parse(
   readFileSync(`${REPO_ROOT}contracts/out/GenesisAnchorBook.sol/GenesisAnchorBook.json`, "utf8")
@@ -73,7 +73,7 @@ function chronological(logs) {
 }
 
 async function main() {
-  console.log(`AvalRegistry:     ${REGISTRY_ADDRESS}`);
+  console.log(`VouchMeRegistry:     ${REGISTRY_ADDRESS}`);
   console.log(`GenesisAnchorBook: ${ANCHOR_BOOK_ADDRESS}`);
   console.log(`From block:        ${DEPLOY_BLOCK}\n`);
 

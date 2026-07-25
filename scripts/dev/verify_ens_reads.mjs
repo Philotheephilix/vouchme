@@ -4,8 +4,8 @@ import { sepolia } from "viem/chains";
 process.loadEnvFile("/home/ubuntu/projects/lisboa/.env");
 
 const RPC = process.env.ETH_SEPOLIA_RPC;
-const AVAL_REGISTRY = "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33";
-const AVAL_RESOLVER = "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3";
+const VOUCHME_REGISTRY = "0xb8C3d3AD86b0b66CE5401c81e9c4a037DF69eF33";
+const VOUCHME_RESOLVER = "0x211D6CC339C7C6E4B4448c04cD034E363d9994d3";
 const ETH_REGISTRY = "0xDEDB92913A25abE1f7BCDD85D8A344a43B398B67";
 const DEPLOYER = "0x69827C0FEF274C63Ac4806106F2BA544E6129050";
 
@@ -27,30 +27,30 @@ const client = createPublicClient({ chain: sepolia, transport: http(RPC) });
 async function main() {
   console.log("ETH_SEPOLIA_RPC:", RPC);
 
-  const subOfAval = await client.readContract({ address: ETH_REGISTRY, abi: REGISTRY_ABI, functionName: "getSubregistry", args: ["aval"] });
-  console.log("ethRegistry.getSubregistry('aval'):", subOfAval, "expected:", AVAL_REGISTRY, "match:", subOfAval.toLowerCase() === AVAL_REGISTRY.toLowerCase());
+  const subOfVouchMe = await client.readContract({ address: ETH_REGISTRY, abi: REGISTRY_ABI, functionName: "getSubregistry", args: ["vouchme"] });
+  console.log("ethRegistry.getSubregistry('vouchme'):", subOfVouchMe, "expected:", VOUCHME_REGISTRY, "match:", subOfVouchMe.toLowerCase() === VOUCHME_REGISTRY.toLowerCase());
 
-  const carolOwner = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: ["carol"] });
-  console.log("avalRegistry.findOwner('carol'):", carolOwner);
+  const carolOwner = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: ["carol"] });
+  console.log("vouchMeRegistry.findOwner('carol'):", carolOwner);
 
-  const carolResolver = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "getResolver", args: ["carol"] });
-  console.log("avalRegistry.getResolver('carol'):", carolResolver, "expected:", AVAL_RESOLVER);
+  const carolResolver = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "getResolver", args: ["carol"] });
+  console.log("vouchMeRegistry.getResolver('carol'):", carolResolver, "expected:", VOUCHME_RESOLVER);
 
-  const carolExpiry = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "findExpiry", args: ["carol"] });
-  console.log("avalRegistry.findExpiry('carol'):", carolExpiry.toString());
+  const carolExpiry = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "findExpiry", args: ["carol"] });
+  console.log("vouchMeRegistry.findExpiry('carol'):", carolExpiry.toString());
 
-  const carolAddr = await client.readContract({ address: AVAL_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [namehash("carol.aval.eth")] });
-  console.log("resolver.addr(namehash('carol.aval.eth')):", carolAddr);
+  const carolAddr = await client.readContract({ address: VOUCHME_RESOLVER, abi: RESOLVER_ABI, functionName: "addr", args: [namehash("carol.vouchme.eth")] });
+  console.log("resolver.addr(namehash('carol.vouchme.eth')):", carolAddr);
 
   // check an UNUSED label is genuinely available
-  const testOwner = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: ["zztest001"] });
-  console.log("avalRegistry.findOwner('zztest001') (should be zero):", testOwner);
+  const testOwner = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "findOwner", args: ["zztest001"] });
+  console.log("vouchMeRegistry.findOwner('zztest001') (should be zero):", testOwner);
 
-  const rolesBitmap = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "roles", args: [0n, DEPLOYER] });
-  console.log("avalRegistry.roles(0, deployer):", "0x" + rolesBitmap.toString(16));
+  const rolesBitmap = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "roles", args: [0n, DEPLOYER] });
+  console.log("vouchMeRegistry.roles(0, deployer):", "0x" + rolesBitmap.toString(16));
 
-  const hasRegistrar = await client.readContract({ address: AVAL_REGISTRY, abi: REGISTRY_ABI, functionName: "hasRoles", args: [0n, 1n, DEPLOYER] });
-  console.log("avalRegistry.hasRoles(0, ROLE_REGISTRAR=1, deployer):", hasRegistrar);
+  const hasRegistrar = await client.readContract({ address: VOUCHME_REGISTRY, abi: REGISTRY_ABI, functionName: "hasRoles", args: [0n, 1n, DEPLOYER] });
+  console.log("vouchMeRegistry.hasRoles(0, ROLE_REGISTRAR=1, deployer):", hasRegistrar);
 
   const balance = await client.getBalance({ address: DEPLOYER });
   console.log("deployer ETH balance (wei):", balance.toString());
