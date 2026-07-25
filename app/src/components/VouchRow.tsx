@@ -1,4 +1,4 @@
-import { fmtCountdown, fmtMultiplier, fmtScore, fmtSigned, tierLabel, truncateMiddle } from "@/lib/format";
+import { anchorSourceLabel, fmtCountdown, fmtMultiplier, fmtScore, fmtSigned, tierLabel, truncateMiddle } from "@/lib/format";
 import type { VouchContribution } from "@/lib/types";
 
 /**
@@ -58,6 +58,11 @@ export function VouchRow({ row }: { row: VouchContribution }) {
       <div className="mt-1.5 font-mono text-2xs text-graphite">
         {fmtScore(row.voucher.score)} x {fmtMultiplier(row.weight)}
       </div>
+      {row.voucher.isAnchor ? (
+        <div className="mt-0.5 font-mono text-2xs uppercase tracking-wide" style={{ color: "var(--color-anchor)" }}>
+          {anchorSourceLabel(row.voucher.anchorSource)}
+        </div>
+      ) : null}
     </div>
   );
 }
