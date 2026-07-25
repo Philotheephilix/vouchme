@@ -3,7 +3,7 @@
  *
  * The live data source: World Chain Sepolia, read directly with viem. No subgraph, no indexer —
  * this reads `Enrolled` / `Vouched` / `Reaffirmed` / `Revoked` logs from `AvalRegistry` straight
- * off the chain, resolves anchor status live from `GenesisAnchorBook.getIsUserVerified` (never
+ * off the chain, resolves anchor status live from the Address Book's `addressVerifiedUntil` (never
  * cached into the scoring path — docs/03-worldid.md §3), and reads presence-drip state from
  * `PresenceDrip`. It assembles the exact `EngineInput` shape `@aval/engine` expects and hands the
  * caller that input plus the real `EngineOutput` from `compute()` — this module never formats a
@@ -14,6 +14,7 @@
 
 import {
   createPublicClient,
+  fallback,
   getAddress,
   http,
   type AbiEvent,
@@ -24,21 +25,23 @@ import {
 } from "viem";
 import { compute, type Account, type EngineInput, type EngineOutput, type Vouch } from "@aval/engine";
 
-// ─── World Chain Sepolia ──────────────────────────────────────────────────────────────────────
-// chainId 4801 is a stable public fact about the network itself (not a deployment artifact), so
-// it is a named constant here rather than an env var — same convention every script in this repo
-// uses (scripts/live-verify.mjs, scripts/live-scenario.mjs both hardcode `id: 4801`).
-export const WORLDCHAIN_SEPOLIA_ID = 4801;
+// ─── World Chain ──────────────────────────────────────────────────────────────────────────────
+// Which World Chain this is, is a DEPLOYMENT fact, not a fixed property of the code: Aval runs on
+// mainnet (480) because MiniKit will not broadcast anywhere else, and the Sepolia deployment
+// (4801) still exists and still holds the proven trust-math scenario. Hardcoding either one here
+// silently pointed the whole data layer at the wrong chain.
+export const WORLDCHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? "480");
 
-const worldChainSepolia = (rpcUrl: string): Chain => ({
-  id: WORLDCHAIN_SEPOLIA_ID,
-  name: "World Chain Sepolia",
+const worldChain = (rpcUrls: string[]): Chain => ({
+  id: WORLDCHAIN_ID,
+  name: WORLDCHAIN_ID === 480 ? "World Chain" : "World Chain Sepolia",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [rpcUrl] } },
+  rpcUrls: { default: { http: rpcUrls } },
   contracts: {
     // Required for the client's multicall batching to have somewhere to aggregate into —
     // without this entry viem silently falls back to one HTTP request per read.
-    // Canonical Multicall3 address; presence verified on chain 4801 (7618 bytes), not assumed.
+    // Canonical Multicall3 address; deployed at the same address on both World Chain networks,
+    // verified on chain rather than assumed from it being an OP-stack chain.
     multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
   },
 });
@@ -54,7 +57,8 @@ export function getChainMode(): ChainMode {
 }
 
 interface ChainConfig {
-  rpcUrl: string;
+  /** Ordered, deduped; index 0 is primary, the rest are failover targets. */
+  rpcUrls: string[];
   deploymentBlock: bigint;
   avalRegistry: Address;
   genesisAnchorBook: Address;
@@ -79,11 +83,18 @@ function requireEnv(name: string): string {
  *  app/.env.example's pre-existing `NEXT_PUBLIC_WORLDCHAIN_RPC`) or `WORLDCHAIN_SEPOLIA_RPC`
  *  (the name every script under scripts/ and contracts/.env uses) — so one RPC URL value works
  *  everywhere in the repo without duplicating it under two unrelated names. */
-function requireEnvAny(names: string[]): string {
+/** Every distinct URL among `names`, in order — NOT just the first one that happens to be set.
+ *  These become a viem `fallback()` transport, so a provider that rate-limits under the burst of
+ *  reads one page issues is routed around instead of failing the request. Returning a single URL
+ *  here (the previous behaviour) made `NEXT_PUBLIC_WORLDCHAIN_RPC_FALLBACK` dead config: it sat
+ *  last in the list and was only ever reached if no other name was set, which never happened. */
+function requireEnvAll(names: string[]): string[] {
+  const urls: string[] = [];
   for (const name of names) {
     const v = process.env[name];
-    if (v) return v;
+    if (v && !urls.includes(v)) urls.push(v);
   }
+  if (urls.length > 0) return urls;
   throw new ChainConfigError(
     `NEXT_PUBLIC_CHAIN_MODE=live but none of [${names.join(", ")}] is set. Live mode reads World ` +
       `Chain Sepolia directly and refuses to guess — see app/.env.example.`,
@@ -104,7 +115,7 @@ let cachedConfig: ChainConfig | null = null;
 function getConfig(): ChainConfig {
   if (cachedConfig) return cachedConfig;
   cachedConfig = {
-    rpcUrl: requireEnvAny([
+    rpcUrls: requireEnvAll([
       "NEXT_PUBLIC_WORLDCHAIN_RPC",
       "WORLDCHAIN_RPC",
       "WORLDCHAIN_SEPOLIA_RPC",
@@ -172,6 +183,13 @@ let cachedAnchorSource: LiveAnchorSource | null = null;
 
 async function getAnchorSource(client: PublicClient, book: Address): Promise<LiveAnchorSource> {
   if (cachedAnchorSource !== null) return cachedAnchorSource;
+  // Decided by WHICH contract is configured, not by whether a call happened to fail. The real
+  // Address Book has no anchorSource(), so asking it would revert — but a revert alone must never
+  // be read as "these are Orb anchors."
+  if (isWorldIdAddressBook(book)) {
+    cachedAnchorSource = "world-id-orb";
+    return cachedAnchorSource;
+  }
   cachedAnchorSource = assertKnownAnchorSource(
     await client.readContract({
       address: book,
@@ -188,7 +206,7 @@ function getClient(): PublicClient {
   if (cachedClient) return cachedClient;
   const cfg = getConfig();
   cachedClient = createPublicClient({
-    chain: worldChainSepolia(cfg.rpcUrl),
+    chain: worldChain(cfg.rpcUrls),
     // Aggregate concurrent eth_calls into Multicall3 instead of firing one request per account.
     //
     // Without this, each fetch issued roughly 3N+1 separate eth_calls — getIsUserVerified,
@@ -208,7 +226,16 @@ function getClient(): PublicClient {
     // transient throttle as "the chain is broken." A sustained outage still surfaces: retries
     // are bounded, and getLiveGraph()/getChainHealth() let a final failure propagate as a real
     // error rather than falling back to fixtures.
-    transport: http(cfg.rpcUrl, { retryCount: 5, retryDelay: 750, batch: true }),
+    // `fallback` over every configured URL, not just the first. Measured on 2026-07-25: a burst of
+    // 48 concurrent eth_blockNumber calls returned 40/48 on the Tenderly gateway (8 × HTTP 429)
+    // and 48/48 on Alchemy. Those empty-bodied 429s surfaced in the UI as
+    // "Cannot read properties of undefined (reading 'error')" and as `chain_unavailable`, because
+    // a throttled provider was the only provider. Retries alone can't fix that — the next attempt
+    // hits the same rate-limited host. `rank: false` keeps declared order (env order is intent).
+    transport: fallback(
+      cfg.rpcUrls.map((url) => http(url, { retryCount: 3, retryDelay: 750, batch: true })),
+      { rank: false, retryCount: 2 },
+    ),
   });
   return cachedClient;
 }
@@ -290,11 +317,14 @@ const AVAL_REGISTRY_ABI = [
 
 const GENESIS_ANCHOR_BOOK_ABI = [
   {
+    // Errata E-18: the real World ID Address Book has NO `getIsUserVerified` — that call reverts.
+    // It stores an EXPIRY (`addressVerifiedUntil`), because Orb verification lapses unless renewed.
+    // Both the contracts and the testnet stand-in now match this real shape.
     type: "function",
-    name: "getIsUserVerified",
+    name: "addressVerifiedUntil",
     stateMutability: "view",
     inputs: [{ name: "user", type: "address" }],
-    outputs: [{ name: "", type: "bool" }],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
@@ -331,14 +361,34 @@ const PRESENCE_DRIP_ABI = [
  *  reads that value live rather than assuming it, and refuses to guess a label if it's ever
  *  anything else — presenting a genesis anchor as an Orb anchor would forge the one
  *  externally-grounded fact in the protocol. */
-export type LiveAnchorSource = "genesis-testnet";
+export type LiveAnchorSource = "genesis-testnet" | "world-id-orb";
 
+/** World ID's real Address Book. It exists on World Chain MAINNET only — which is the entire
+ *  reason `GenesisAnchorBook` was written as a testnet stand-in. Verified live before the mainnet
+ *  deployment: 3095 bytes of code at chain 480 (deployments/worldchain-mainnet.json). */
+const WORLD_ID_ADDRESS_BOOK: Address = "0x57b930D551e677CC36e2fA036Ae2fe8FdaE0330D";
+
+/** Anchors are the one externally-grounded fact in the protocol, so how they are labelled is not
+ *  allowed to be a guess.
+ *
+ *  - `GenesisAnchorBook` answers `anchorSource()` with the compile-time constant `"genesis-testnet"`
+ *    and can never answer anything else (contracts/script/GenesisAnchorBook.sol).
+ *  - World ID's real Address Book has no `anchorSource()` at all — the call reverts. "Orb" is
+ *    therefore claimed ONLY when the configured book is the canonical Address Book address, never
+ *    merely because a call failed. A revert from some other contract is still an error.
+ *
+ *  Presenting a genesis anchor as Orb-verified would forge the protocol's root of trust, so this
+ *  fails loudly rather than falling back to a friendly default. */
 function assertKnownAnchorSource(raw: string): LiveAnchorSource {
   if (raw === "genesis-testnet") return raw;
   throw new Error(
     `GenesisAnchorBook.anchorSource() returned "${raw}", not the expected "genesis-testnet". ` +
       `Refusing to guess how to label anchors rather than risk presenting them as Orb-verified.`,
   );
+}
+
+function isWorldIdAddressBook(book: Address): boolean {
+  return book.toLowerCase() === WORLD_ID_ADDRESS_BOOK.toLowerCase();
 }
 
 // ─── log fetching, chunked — public RPCs cap the block range per eth_getLogs call. 400 blocks is
@@ -348,6 +398,56 @@ function assertKnownAnchorSource(raw: string): LiveAnchorSource {
 // endpoint — scripts/live-verify.mjs uses the same value for the same reason).
 const LOG_CHUNK_BLOCKS = BigInt(100);
 
+// How many chunk requests are in flight at once. The scan used to be strictly serial, which made
+// a cold start cost (span / 100) × 4 sequential round trips — measured 2026-07-25 at ~6 100 blocks
+// since deployment, that is ~244 calls at ~0.25s each, and `/api/identity/*` was answering 200 in
+// 45–101s. A cold start happens on every edit under `next dev` (module cache is discarded), and
+// once per process in production. 8 keeps the wall clock proportional to a single round trip
+// without reproducing the ~43-requests-at-once burst that trips provider rate limits.
+const LOG_CHUNK_CONCURRENCY = 8;
+
+// The 100-block cap is Alchemy's, not the chain's. Measured directly against both configured
+// providers on 2026-07-25, same address and range:
+//
+//     span   Alchemy                                        Tenderly
+//     100    OK                                             OK
+//     1000   "You can make eth_getLogs requests with up      OK
+//            to a 100 block range"
+//     10000  same error                                     OK
+//
+// Scanning the whole history at 100 blocks costs ~70 chunks × 4 event types = ~280 requests and
+// measured 66s. So: ask for a wide range first, and narrow to 100 ONLY for the ranges that are
+// actually refused. Against a wide-range provider the historical scan collapses to a handful of
+// requests; against Alchemy it degrades to exactly the old behaviour. Neither provider is assumed
+// — the code discovers which it is talking to from the error it gets back.
+const LOG_CHUNK_BLOCKS_WIDE = BigInt(10_000);
+
+/** True for a provider complaining that the requested block range is too large — as opposed to a
+ *  genuine RPC failure, which must propagate rather than trigger a pointless re-scan. */
+function isBlockRangeError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("block range") ||
+    msg.includes("block_range") ||
+    msg.includes("range is too large") ||
+    msg.includes("query returned more than") ||
+    msg.includes("logs matched") ||
+    msg.includes("exceed maximum block range") ||
+    // Every provider phrases this differently, and a phrase this list does not know about is not a
+    // cosmetic miss — the request fails hard instead of narrowing, and the whole app returns 503
+    // `chain_unavailable` while the chain is perfectly healthy. Observed verbatim in production:
+    //   thirdweb: "Log response size exceeded. Maximum allowed number of requested blocks is 1000"
+    //             (plus a bare "Request exceeds defined limit.")
+    //   Alchemy:  "You can make eth_getLogs requests with up to a 100 block range"
+    msg.includes("requested blocks") ||
+    msg.includes("log response size") ||
+    msg.includes("exceeds defined limit") ||
+    msg.includes("response size exceeded") ||
+    msg.includes("too many results") ||
+    msg.includes("limit exceeded")
+  );
+}
+
 async function getLogsChunked<const TEvent extends AbiEvent>(
   client: PublicClient,
   address: Address,
@@ -355,16 +455,48 @@ async function getLogsChunked<const TEvent extends AbiEvent>(
   fromBlock: bigint,
   toBlock: bigint,
 ): Promise<Log[]> {
-  const logs: Log[] = [];
-  let from = fromBlock;
-  while (from <= toBlock) {
-    const chunkEnd = from + LOG_CHUNK_BLOCKS - BigInt(1);
+  // Materialise the ranges first so they can be fetched with bounded concurrency and then
+  // re-assembled in block order — `getLogs` results must stay ordered, since downstream code
+  // treats vouch/revoke sequence as meaningful.
+  const ranges: Array<{ from: bigint; to: bigint }> = [];
+  for (let from = fromBlock; from <= toBlock; ) {
+    const chunkEnd = from + LOG_CHUNK_BLOCKS_WIDE - BigInt(1);
     const to = chunkEnd > toBlock ? toBlock : chunkEnd;
-    const chunk = await client.getLogs({ address, event, fromBlock: from, toBlock: to });
-    logs.push(...chunk);
+    ranges.push({ from, to });
     from = to + BigInt(1);
   }
-  return logs;
+
+  /** One wide range, narrowed to `LOG_CHUNK_BLOCKS` sub-chunks only if the provider refuses it. */
+  async function fetchRange(from: bigint, to: bigint): Promise<Log[]> {
+    try {
+      return await client.getLogs({ address, event, fromBlock: from, toBlock: to });
+    } catch (err) {
+      if (!isBlockRangeError(err) || to - from < LOG_CHUNK_BLOCKS) throw err;
+      const narrow: Log[] = [];
+      for (let f = from; f <= to; ) {
+        const end = f + LOG_CHUNK_BLOCKS - BigInt(1);
+        const t = end > to ? to : end;
+        narrow.push(...(await client.getLogs({ address, event, fromBlock: f, toBlock: t })));
+        f = t + BigInt(1);
+      }
+      return narrow;
+    }
+  }
+
+  const results: Log[][] = new Array(ranges.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= ranges.length) return;
+      const r = ranges[i];
+      results[i] = await fetchRange(r.from, r.to);
+    }
+  }
+  const workers = Math.min(LOG_CHUNK_CONCURRENCY, ranges.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+
+  return results.flat();
 }
 
 // ─── incremental log accumulation ─────────────────────────────────────────────────────────────
@@ -514,16 +646,21 @@ async function fetchLiveGraph(atBlock: bigint): Promise<LiveGraph> {
   // is one or two HTTP requests rather than one per address. They stay live and land at a single
   // block, which is what §3 actually requires — the requirement is freshness, not one request
   // each.
-  const anchorFlags = await Promise.all(
+  // An expiry, compared against the chain's own clock — not a stored flag. Someone whose Orb
+  // verification has lapsed stops being an anchor at that instant, which a boolean could not
+  // express (errata E-18).
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+  const anchorExpiries = await Promise.all(
     addresses.map((addr) =>
       client.readContract({
         address: cfg.genesisAnchorBook,
         abi: GENESIS_ANCHOR_BOOK_ABI,
-        functionName: "getIsUserVerified",
+        functionName: "addressVerifiedUntil",
         args: [addr],
       }),
     ),
   );
+  const anchorFlags = anchorExpiries.map((until) => until > nowSeconds);
   const anchorSource = await getAnchorSource(client, cfg.genesisAnchorBook);
   const isAnchorFor = new Map<Address, boolean>(addresses.map((addr, i) => [addr, anchorFlags[i]!]));
 
@@ -709,7 +846,7 @@ export interface ChainHealth {
 export async function getChainHealth(): Promise<ChainHealth> {
   const cfg = getConfig();
   const currentBlock = await getLatestBlockCached();
-  return { chainId: WORLDCHAIN_SEPOLIA_ID, currentBlock, deploymentBlock: cfg.deploymentBlock };
+  return { chainId: WORLDCHAIN_ID, currentBlock, deploymentBlock: cfg.deploymentBlock };
 }
 
 // ─── enrollment lookups for /api/enroll and /api/vouch/attest — all derived from the same cached,

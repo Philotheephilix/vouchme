@@ -17,7 +17,7 @@ import "server-only";
 import { privateKeyToAccount } from "viem/accounts";
 import { keccak256, toBytes, type Address, type Hex } from "viem";
 import { getAvalRegistryAddressServer, getPresenceDripAddressServer } from "./chain";
-import { WORLDCHAIN_SEPOLIA_ID } from "./worldchain";
+import { WORLDCHAIN_ID } from "./worldchain";
 
 export class AttestorConfigError extends Error {}
 
@@ -56,7 +56,7 @@ function avalRegistryDomain() {
   return {
     name: "AvalRegistry",
     version: "1",
-    chainId: BigInt(WORLDCHAIN_SEPOLIA_ID),
+    chainId: BigInt(WORLDCHAIN_ID),
     verifyingContract: getAvalRegistryAddressServer(),
   } as const;
 }
@@ -65,7 +65,7 @@ function presenceDripDomain() {
   return {
     name: "PresenceDrip",
     version: "1",
-    chainId: BigInt(WORLDCHAIN_SEPOLIA_ID),
+    chainId: BigInt(WORLDCHAIN_ID),
     verifyingContract: getPresenceDripAddressServer(),
   } as const;
 }
