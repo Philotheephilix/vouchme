@@ -206,6 +206,35 @@ export function compute(input: EngineInput): EngineOutput {
         `compute: report "${r.id}" upheldAt must be a finite integer (unix seconds) when present, got ${r.upheldAt}`,
       );
     }
+    // `upheldAt` is documented as required when state is "upheld" (types.ts), but only its FORMAT
+    // was checked, never its presence — so an upheld report could arrive without one and be
+    // silently privileged twice over:
+    //   - §7.4 decay is a function of age, so with no timestamp the report never decays and
+    //     inflicts maximum damage forever;
+    //   - the 180-day `isVoidedReporter` window is measured from the same field, so its reporter is
+    //     never voided and can keep filing.
+    // Both failure modes favour the reporter, which is the wrong direction to fail in. An absent
+    // timestamp is missing data, not "time zero", so refuse it rather than guess.
+    if (r.state === "upheld" && r.upheldAt === undefined) {
+      throw new RangeError(
+        `compute: report "${r.id}" has state "upheld" but no upheldAt. It drives both §7.4 decay ` +
+          `and the 180-day reporter-voiding window, so it cannot be defaulted.`,
+      );
+    }
+    // `snapshotWeight` is typed as required, and its own doc comment says a caller that cannot
+    // supply it "must fail to construct a `Report` at all, not silently fall back to live-only
+    // weight". TypeScript enforces that at compile time for TS callers — but the engine is consumed
+    // from plain JS (scripts/) and from data assembled at runtime out of chain logs, where a missing
+    // or malformed value arrives as `undefined`/`NaN` and propagates through `min(...)` into every
+    // score in the graph. A NaN score is not a wrong number, it is an unnoticed one: it compares
+    // false against every threshold, so tiers silently collapse rather than erroring.
+    if (!Number.isFinite(r.snapshotWeight) || !Number.isInteger(r.snapshotWeight) || r.snapshotWeight < 0) {
+      throw new RangeError(
+        `compute: report "${r.id}" snapshotWeight must be a non-negative integer (centi-points), ` +
+          `got ${r.snapshotWeight}. It bounds report damage to what the reporter actually paid for ` +
+          `(01-trust-math.md §7.1) and cannot be defaulted.`,
+      );
+    }
   }
 
   // ── setup: index accounts, filter to active ones, split by kind ────────────────────────────
