@@ -10,7 +10,11 @@ export type Address = `0x${string}`;
 export type EnsName = string;
 
 export type AccountKind = "anchor" | "member" | "platform" | "agent";
-export type AnchorSource = "orb" | "genesis";
+/** "orb" is the fixture's fictional demo anchor; "genesis-testnet" is what the LIVE
+ *  `GenesisAnchorBook.anchorSource()` actually returns on World Chain Sepolia — a testnet
+ *  stand-in for World ID's Address Book, not Orb verification. The UI must never conflate the
+ *  two (docs/07-app-api.md, contracts/script/GenesisAnchorBook.sol). */
+export type AnchorSource = "orb" | "genesis-testnet";
 
 /** docs/01-trust-math.md §11 — T1 = 30, T2 = 100. */
 export type Tier = 0 | 1 | 2;
@@ -38,6 +42,8 @@ export interface VoucherSummary {
   tier: Tier;
   depth: number | null;
   isAnchor: boolean;
+  /** Set only when `isAnchor` — which provenance backs that anchor status. See `AnchorSource`. */
+  anchorSource?: AnchorSource;
 }
 
 /** One row of the "visible arithmetic" on Home — docs/07-app-api.md §2.2. */
@@ -210,6 +216,11 @@ export interface HealthResult {
   indexedBlock: number;
   chainHead: number;
   lagBlocks: number;
+  /** LIVE mode only — the block AvalRegistry/GenesisAnchorBook/PresenceDrip were deployed at
+   *  (deployments/worldchain-sepolia.json), so a viewer can see both "how current is this" and
+   *  "how much history exists" at a glance. `undefined` in fixture mode, which has no real chain. */
+  deploymentBlock?: number;
+  chainId?: number;
 }
 
 /** docs/07-app-api.md §3 — carried on every response. */
@@ -218,6 +229,13 @@ export interface ApiMeta {
   computedAtBlock: number;
   indexerLagBlocks: number;
   engineVersion: string;
+  /** "live" reads World Chain Sepolia directly via viem; "fixture" is the static demo graph. */
+  mode: "live" | "fixture";
+  /** LIVE mode only. */
+  chainId?: number;
+  /** LIVE mode only — every deployed contract address in this set (docs/02-contracts.md), not
+   *  only the ones this request happened to read. */
+  contracts?: Record<string, string>;
 }
 
 export interface ApiEnvelope<T> {
@@ -239,6 +257,7 @@ export interface ExploreNode {
   tier: Tier;
   depth: number | null;
   isAnchor: boolean;
+  anchorSource?: AnchorSource;
 }
 export interface ExploreEdge {
   from: EnsName;
