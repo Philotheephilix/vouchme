@@ -13,9 +13,14 @@
  * port; it is to delete it. Below, this file supplies only the GRAPH — accounts, vouches,
  * platform vouches, reports — in `@aval/engine`'s own input shape, and calls the real `compute()`
  * / `breakdown()` for every score, tier, depth, and per-edge contribution. That is the only way
- * the UI can't drift from the protocol: one scoring implementation, used everywhere. A few display
- * fields genuinely have no engine equivalent (edge timestamps, slot bookkeeping, bond amounts) —
- * those are called out with a comment at the point they're derived.
+ * the UI can't drift from the protocol: one scoring implementation, used everywhere.
+ *
+ * LIVE vs FIXTURE (task: "Wire the Aval mini app to the LIVE World Chain Sepolia deployment"):
+ * the derivation logic below (`deriveAvalData`) is a single code path. What changes between modes
+ * is only where the GRAPH comes from — `buildFixtureContext()` (this file, a static demo graph)
+ * or `buildLiveContext()` (src/lib/chain.ts, real `Enrolled`/`Vouched`/`Reaffirmed`/`Revoked` logs
+ * read live from AvalRegistry). Every number downstream of a `GraphContext` still flows through
+ * `compute()` / `breakdown()` — there is no second path that formats raw chain data directly.
  */
 
 import {
@@ -24,11 +29,14 @@ import {
   GATE4_WINDOW_DAYS,
   MAX_DEPTH,
   MIN_VOUCHERS,
-  M_POS_DEN,
   M_POS_NUM,
+  M_POS_DEN,
   P1,
   SECONDS_PER_DAY,
+  SLOTS_TIER_1,
+  SLOTS_TIER_2,
   T1,
+  T2,
   breakdown,
   compute,
 } from "@aval/engine";
@@ -38,6 +46,8 @@ import type {
   AgentRecord,
   ApiMeta,
   CandidateVoucher,
+  Credential,
+  CredentialStatus,
   ExploreScenario,
   Gates,
   GatePolicy,
@@ -57,20 +67,37 @@ import type {
   VouchContribution,
   VoucherSummary,
 } from "./types";
+import type { Address, AnchorSource } from "./types";
 import { centiToScore, tenureCurve, tenureFromDays } from "./format";
+import {
+  getAccruedDrip,
+  getChainHealth,
+  getChainMode,
+  getContractAddressSet,
+  getDemoAddress,
+  getLiveGraph,
+  WORLDCHAIN_SEPOLIA_ID,
+} from "./chain";
 
-// ─── the "now" the whole fixture is dated relative to ───────────────────────────────────────────
+// ─── the "now" the fixture is dated relative to; LIVE mode uses the latest block's own timestamp
+// instead (src/lib/chain.ts `LiveGraph.now`), so every expiry/decay check is evaluated against a
+// real, consistent point in chain time rather than the server's wall clock. ──────────────────────
 
-export const NOW = new Date("2026-07-25T12:00:00.000Z");
+const FIXTURE_NOW = new Date("2026-07-25T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
-const iso = (daysFromNow: number): string => new Date(NOW.getTime() + daysFromNow * DAY_MS).toISOString();
+const fixtureIso = (daysFromNow: number): string => new Date(FIXTURE_NOW.getTime() + daysFromNow * DAY_MS).toISOString();
 /** The engine works in unix seconds, supplied by the caller (@aval/engine never reads a clock). */
-const GRAPH_NOW = Math.floor(NOW.getTime() / 1000);
+const FIXTURE_GRAPH_NOW = Math.floor(FIXTURE_NOW.getTime() / 1000);
 
 /** m+ = 0.25, for the "50.0 x 0.25" display line — imported from the engine's own constants
  *  rather than a hardcoded 0.25, so this can't drift from the real multiplier either. */
 const DISPLAY_M_POS = M_POS_NUM / M_POS_DEN;
 
+/** Score 10, tier 0 — what enrollment alone buys you (docs/07-app-api.md §2.1). Pure engine
+ *  constant, independent of graph source, so this stays a plain sync export in both modes. */
+export const ENROLLMENT_BASE_SCORE = centiToScore(BASE);
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
 // ─── the fixture graph, in @aval/engine's own input shape ───────────────────────────────────────
 //
 //   anchor1, anchor2          Orb-verified, depth 0
@@ -90,21 +117,21 @@ const DISPLAY_M_POS = M_POS_NUM / M_POS_DEN;
 //                              (§12.1 "6-account mutual ring" row: 10.00, Tier 0, blocked x3 under
 //                              the corrected gate 2 — this exact scenario is what R-8 was about)
 
-const ME_ID = "carol.alice.aval.eth";
+const FIXTURE_ME_ID = "carol.alice.aval.eth";
 const HENRY_ID = "henry.aval.eth";
 const IRIS_ID = "iris.aval.eth";
-const PLATFORM_ID = "marketpulse.aval.eth";
+const FIXTURE_PLATFORM_ID = "marketpulse.aval.eth";
 
 const RING_IDS = ["ring1.eth", "ring2.eth", "ring3.eth", "ring4.eth", "ring5.eth", "ring6.eth"];
 
-const ACCOUNTS: Account[] = [
+const FIXTURE_ACCOUNTS: Account[] = [
   { id: "anchor1.aval.eth", kind: "human", isAnchor: true },
   { id: "anchor2.aval.eth", kind: "human", isAnchor: true },
   { id: "alice.aval.eth", kind: "human" },
   { id: "bob.aval.eth", kind: "human" },
   { id: HENRY_ID, kind: "human" },
   { id: IRIS_ID, kind: "human" },
-  { id: ME_ID, kind: "human" },
+  { id: FIXTURE_ME_ID, kind: "human" },
   { id: "dave.carol.aval.eth", kind: "human" },
   { id: "erin.carol.aval.eth", kind: "human" },
   { id: "grace.bob.aval.eth", kind: "human" },
@@ -112,7 +139,7 @@ const ACCOUNTS: Account[] = [
   // from aval.eth" — the ring is unrepresentable in the real namespace. Kept as flat mock ids here
   // only so the fixture graph has six distinct, clearly-labelled ring accounts to compute over.
   ...RING_IDS.map((id): Account => ({ id, kind: "human" })),
-  { id: PLATFORM_ID, kind: "platform" },
+  { id: FIXTURE_PLATFORM_ID, kind: "platform" },
 ];
 
 function mkVouch(voucher: string, vouchee: string): Vouch {
@@ -128,11 +155,11 @@ const CORE_VOUCHES: Vouch[] = [
   mkVouch("anchor2.aval.eth", HENRY_ID),
   mkVouch("anchor1.aval.eth", IRIS_ID),
   mkVouch("anchor2.aval.eth", IRIS_ID),
-  mkVouch("alice.aval.eth", ME_ID),
-  mkVouch("bob.aval.eth", ME_ID),
-  mkVouch(ME_ID, "dave.carol.aval.eth"),
-  mkVouch("dave.carol.aval.eth", ME_ID), // reciprocal — zero-contribution row
-  mkVouch(ME_ID, "erin.carol.aval.eth"),
+  mkVouch("alice.aval.eth", FIXTURE_ME_ID),
+  mkVouch("bob.aval.eth", FIXTURE_ME_ID),
+  mkVouch(FIXTURE_ME_ID, "dave.carol.aval.eth"),
+  mkVouch("dave.carol.aval.eth", FIXTURE_ME_ID), // reciprocal — zero-contribution row
+  mkVouch(FIXTURE_ME_ID, "erin.carol.aval.eth"),
   mkVouch("bob.aval.eth", "grace.bob.aval.eth"),
 ];
 
@@ -140,10 +167,10 @@ const RING_VOUCHES: Vouch[] = RING_IDS.flatMap((src) =>
   RING_IDS.filter((dst) => dst !== src).map((dst) => mkVouch(src, dst)),
 );
 
-const ALL_VOUCHES: Vouch[] = [...CORE_VOUCHES, ...RING_VOUCHES];
+const FIXTURE_VOUCHES: Vouch[] = [...CORE_VOUCHES, ...RING_VOUCHES];
 
-const PLATFORM_VOUCHES: PlatformVouch[] = ["alice.aval.eth", "bob.aval.eth", HENRY_ID, IRIS_ID].map(
-  (voucher): PlatformVouch => ({ voucher, platform: PLATFORM_ID, active: true }),
+const FIXTURE_PLATFORM_VOUCHES: PlatformVouch[] = ["alice.aval.eth", "bob.aval.eth", HENRY_ID, IRIS_ID].map(
+  (voucher): PlatformVouch => ({ voucher, platform: FIXTURE_PLATFORM_ID, active: true }),
 );
 
 const OLD_UPHELD_AGO_DAYS = 185; // past the 180-day decay window (docs/01-trust-math.md §7.4)
@@ -154,690 +181,1085 @@ const OLD_UPHELD_AGO_DAYS = 185; // past the 180-day decay window (docs/01-trust
 // are meant to demonstrate the R-1 bonded-snapshot cap itself (that's covered by the engine's own
 // tests), so the snapshot is set to the max, making weight = min(live, cap) exactly as it would be
 // for an ordinary report that hasn't hit its bond ceiling.
-const GRAPH_REPORTS: Report[] = [
+const FIXTURE_REPORTS: Report[] = [
   {
     id: "rpt_pending_henry",
     reporter: HENRY_ID,
-    target: ME_ID,
+    target: FIXTURE_ME_ID,
     state: "pending",
     snapshotWeight: CAP_NEG,
   },
   {
     id: "rpt_decayed_anchor2",
     reporter: "anchor2.aval.eth",
-    target: ME_ID,
+    target: FIXTURE_ME_ID,
     state: "upheld",
-    upheldAt: GRAPH_NOW - OLD_UPHELD_AGO_DAYS * SECONDS_PER_DAY,
+    upheldAt: FIXTURE_GRAPH_NOW - OLD_UPHELD_AGO_DAYS * SECONDS_PER_DAY,
     snapshotWeight: CAP_NEG,
   },
   {
     id: "rpt_upheld_filed_by_me",
-    reporter: ME_ID,
+    reporter: FIXTURE_ME_ID,
     target: RING_IDS[0]!,
     state: "upheld",
-    upheldAt: GRAPH_NOW - 45 * SECONDS_PER_DAY,
+    upheldAt: FIXTURE_GRAPH_NOW - 45 * SECONDS_PER_DAY,
     snapshotWeight: CAP_NEG,
   },
 ];
 
-const ENGINE_INPUT: EngineInput = {
-  now: GRAPH_NOW,
-  accounts: ACCOUNTS,
-  vouches: ALL_VOUCHES,
-  platformVouches: PLATFORM_VOUCHES,
-  reports: GRAPH_REPORTS,
-};
-
-const RESULT: EngineOutput = compute(ENGINE_INPUT);
-
-// Same graph, minus bob -> carol, for the weakest-link / vouch-simulation fixtures.
-const VOUCHES_WITHOUT_BOB: Vouch[] = ALL_VOUCHES.filter(
-  (v) => !(v.voucher === "bob.aval.eth" && v.vouchee === ME_ID),
-);
-const RESULT_WITHOUT_BOB: EngineOutput = compute({ ...ENGINE_INPUT, vouches: VOUCHES_WITHOUT_BOB });
-
-// ─── small helpers over the two computed results ─────────────────────────────────────────────────
-
-function humanScore(id: string): number {
-  return centiToScore(RESULT.score[id] ?? BASE);
-}
-function humanSPlus(id: string): number {
-  return centiToScore(RESULT.sPlus[id] ?? BASE);
-}
-function humanScoreAtRisk(id: string): number {
-  return centiToScore(RESULT.scoreAtRisk[id] ?? BASE);
-}
-function depthOf(id: string): number | null {
-  const d = RESULT.depth[id];
-  return d !== undefined && Number.isFinite(d) ? d : null;
-}
-function tierOf(id: string): Tier {
-  return (RESULT.tier[id] ?? 0) as Tier;
-}
-function platformTierFromEngine(t: number | undefined): "P0" | "P1" | "P2" {
-  return (t ?? 0) >= 2 ? "P2" : (t ?? 0) >= 1 ? "P1" : "P0";
-}
-
-const breakdownCache = new Map<string, ReturnType<typeof breakdown>>();
-function breakdownFor(id: string): ReturnType<typeof breakdown> {
-  let bd = breakdownCache.get(id);
-  if (!bd) {
-    bd = breakdown(id, ENGINE_INPUT, RESULT);
-    breakdownCache.set(id, bd);
-  }
-  return bd;
-}
-
-/** No engine-exposed equivalent: `EngineOutput` publishes tiers, not the individual gate booleans
- *  that fed them (docs/01-trust-math.md §11). Mirrors the engine's own internal check purely over
- *  already-public data (`GRAPH_REPORTS` + `GRAPH_NOW`), for display only — it does not influence
- *  any score or tier, which the real engine already computed correctly. */
-function hasRecentUpheldReportAgainst(id: string): boolean {
-  return GRAPH_REPORTS.some(
-    (r) =>
-      r.target === id &&
-      r.state === "upheld" &&
-      r.upheldAt !== undefined &&
-      GRAPH_NOW - r.upheldAt < GATE4_WINDOW_DAYS * SECONDS_PER_DAY &&
-      GRAPH_NOW - r.upheldAt >= 0,
-  );
-}
-
-/** Gate 2 here is derived from `breakdown()`'s own `counted` flag — the exact same corrected,
- *  depth-ordered definition the real engine's gate 2 uses (R-8) — not re-counted independently. */
-function gatesFor(id: string): Gates {
-  const bd = breakdownFor(id);
-  const distinctCounted = new Set(bd.vouchers.filter((v) => v.counted).map((v) => v.voucher)).size;
-  const d = RESULT.depth[id];
-  const scoreCenti = RESULT.score[id] ?? BASE;
-  return {
-    g1ScoreThreshold: scoreCenti >= T1,
-    g2TwoDistinctVouchers: distinctCounted >= MIN_VOUCHERS,
-    g3PathToOrigin: d !== undefined && Number.isFinite(d) && d <= MAX_DEPTH,
-    g4NoRecentUpheldReport: !hasRecentUpheldReportAgainst(id),
-  };
-}
-
-function voucherSummary(id: string): VoucherSummary {
-  const acc = ACCOUNTS.find((a) => a.id === id);
-  return {
-    address: addressFor(id),
-    ensName: id,
-    score: humanScore(id),
-    tier: tierOf(id),
-    depth: depthOf(id),
-    isAnchor: acc?.isAnchor ?? false,
-  };
-}
-
-/** Deterministic fake address so every fixture identity has one, without a real keystore. */
-function addressFor(ensName: string): `0x${string}` {
-  let h = 0;
-  for (let i = 0; i < ensName.length; i++) h = (h * 31 + ensName.charCodeAt(i)) >>> 0;
-  const hex = h.toString(16).padStart(8, "0");
-  return `0x${hex.repeat(5).slice(0, 40)}`;
-}
-
-function displayLabel(ensName: string): string {
-  const [first] = ensName.split(".");
-  return first ? first[0]!.toUpperCase() + first.slice(1) : ensName;
-}
-
-type EngineVoucherRow = ReturnType<typeof breakdown>["vouchers"][number];
-
-/** Plain-language reason for a zero-contribution row, from the engine's own machine-readable
- *  reason code (docs/01-trust-math.md's own E-2 errata example: the zero-contribution rows are
- *  required UI, not decoration). */
-function voucherReasonText(row: EngineVoucherRow): string | null {
-  if (row.counted) return null;
-  switch (row.reason) {
-    case "anchor_ignores_inbound":
-      return "anchors ignore every inbound vouch — their score is fixed.";
-    case "vouch_inactive":
-      return "this vouch has expired or been revoked.";
-    case "voucher_not_human":
-      return "the source of this vouch is not a human account.";
-    case "voucher_unreachable":
-      return `${displayLabel(row.voucher)} has no path from any anchor, so it doesn't count.`;
-    case "voucher_depth_not_lower":
-      return (
-        `${displayLabel(row.voucher)} is at depth ${row.voucherDepth ?? "∞"}, which is not lower ` +
-        `than yours, so it doesn't count.`
-      );
-    default:
-      return null;
-  }
-}
-
-/** issuedAt/expiresAt/daysUntilExpiry/expiringSoon have NO engine equivalent — `Vouch` only
- *  carries a caller-resolved `active` boolean (see @aval/engine's own doc comment on that field),
- *  never timestamps. This is exactly the "no engine equivalent" case R-8's own fix instructions
- *  call out: derived here, deterministically, from fixture-authored edge metadata, everything else
- *  on the row taken straight from the engine's `breakdown()`. */
-function contributionRowFromEngine(
-  row: EngineVoucherRow,
-  edge: { issuedAgoDays: number; expiresInDays: number },
-): VouchContribution {
-  return {
-    voucher: voucherSummary(row.voucher),
-    weight: DISPLAY_M_POS,
-    contribution: centiToScore(row.contribution),
-    counted: row.counted,
-    reason: voucherReasonText(row),
-    issuedAt: iso(-edge.issuedAgoDays),
-    expiresAt: iso(edge.expiresInDays),
-    daysUntilExpiry: edge.expiresInDays,
-    expiringSoon: edge.expiresInDays <= 21,
-  };
-}
-
-// ─── meta envelope — docs/07-app-api.md §3, carried on every response ───────────────────────────
-
-export const MOCK_META: ApiMeta = {
-  subgraphDeployment: "QmXoT9auAvEZuwVUXCoAxzuUxKG1nGbXCn6UhtqrBQqLA5",
-  computedAtBlock: 8_214_552,
-  indexerLagBlocks: 2,
-  engineVersion: "0.1.0",
-};
-
-/** Score 10, tier 0 — what enrollment alone buys you (docs/07-app-api.md §2.1). */
-export const ENROLLMENT_BASE_SCORE = centiToScore(BASE);
-
-export const HEALTH: HealthResult = {
-  status: MOCK_META.indexerLagBlocks <= 50 ? "ok" : "degraded",
-  subgraphDeployment: MOCK_META.subgraphDeployment,
-  indexedBlock: MOCK_META.computedAtBlock,
-  chainHead: MOCK_META.computedAtBlock + MOCK_META.indexerLagBlocks,
-  lagBlocks: MOCK_META.indexerLagBlocks,
-};
-
-// ─── carol.alice.aval.eth — "you", the primary demo identity ────────────────────────────────────
-
-const ME_BD = breakdownFor(ME_ID);
-function meRow(voucherId: string, edge: { issuedAgoDays: number; expiresInDays: number }): VouchContribution {
-  const row = ME_BD.vouchers.find((v) => v.voucher === voucherId);
-  if (!row) throw new Error(`mock.ts: no breakdown row for voucher "${voucherId}" -> "${ME_ID}"`);
-  return contributionRowFromEngine(row, edge);
-}
-
-const ME_BREAKDOWN: VouchContribution[] = [
-  meRow("alice.aval.eth", { issuedAgoDays: 16, expiresInDays: 74 }),
-  meRow("bob.aval.eth", { issuedAgoDays: 72, expiresInDays: 18 }),
-  meRow("dave.carol.aval.eth", { issuedAgoDays: 5, expiresInDays: 85 }),
-];
-
-const ME_SLOTS: Slots = { total: 3, used: 2, free: 1 }; // no engine equivalent — carol vouched for
-// dave + erin; slot usage bookkeeping is a contract/indexer ledger, not part of scoring.
-
-const meScoreIfBobExpires = centiToScore(RESULT_WITHOUT_BOB.score[ME_ID] ?? BASE);
-const meTierIfBobExpires = (RESULT_WITHOUT_BOB.tier[ME_ID] ?? 0) as Tier;
-
-// docs/16-presence-drip.md §9 — an independent illustrative panel. Carol's own `tenure` field below
-// is 0.00 so that the Home arithmetic line reads exactly "base 10.0 + 25.0 = 35.0"
-// (docs/07-app-api.md §2.2); the drip/tenure panel demonstrates the *mechanism* using the real
-// engine's tenureCenti (via src/lib/format.ts `tenureFromDays`, R-7) rather than feeding back into
-// this fixture's score.
-const ME_PRESENT_DAYS = 214;
-const ME_ACCRUED_AVAL = 14.5;
-const ME_DAILY_RATE = 1.0; // Tier 1 => 100% of drip_nominal (docs/16-presence-drip.md §3)
-const ME_PRESENCE: PresenceState = {
-  dailyRateAval: ME_DAILY_RATE,
-  accruedAval: ME_ACCRUED_AVAL,
-  maxUnclaimedDays: 30,
-  daysUntilCap: 30 - ME_ACCRUED_AVAL / ME_DAILY_RATE,
-  presentDays: ME_PRESENT_DAYS,
-  tenureBonus: tenureFromDays(ME_PRESENT_DAYS),
-  tenureMaxBonus: 5.0,
-  tierRatePct: 100,
-  curve: tenureCurve(720, 72),
-};
-
-export const ME: ScoreResult = {
-  address: addressFor(ME_ID),
-  ensName: ME_ID,
-  kind: "member",
-  base: 10.0,
-  tenure: 0.0,
-  positiveScore: humanSPlus(ME_ID),
-  score: humanScore(ME_ID),
-  scoreAtRisk: humanScoreAtRisk(ME_ID),
-  tier: tierOf(ME_ID),
-  depth: depthOf(ME_ID),
-  gates: gatesFor(ME_ID),
-  breakdown: ME_BREAKDOWN,
-  slots: ME_SLOTS,
-  weakestLink: {
-    voucherEnsName: "bob.aval.eth",
-    contribution: ME_BREAKDOWN[1]!.contribution,
-    scoreIfExpired: meScoreIfBobExpires,
-    currentTier: tierOf(ME_ID),
-    tierIfExpired: meTierIfBobExpires,
-    losesTier: meTierIfBobExpires < tierOf(ME_ID),
-    daysUntilExpiry: ME_BREAKDOWN[1]!.daysUntilExpiry,
-  },
-  presence: ME_PRESENCE,
-  credentialStatus: "active",
-  credentialExpiresAt: iso(47),
-};
-
-export const ALICE = voucherSummary("alice.aval.eth");
-export const BOB = voucherSummary("bob.aval.eth");
-export const DAVE = voucherSummary("dave.carol.aval.eth");
-export const ERIN = voucherSummary("erin.carol.aval.eth");
-export const GRACE = voucherSummary("grace.bob.aval.eth");
-
-// ─── explore — honest path vs. six-account collusion ring ───────────────────────────────────────
-// docs/07-app-api.md §2.4: "both live, both at their real scores — 35.0 and 10.0."
-
-const HONEST_IDS = ["anchor1.aval.eth", "anchor2.aval.eth", "alice.aval.eth", "bob.aval.eth", ME_ID, "dave.carol.aval.eth"];
-
-function edgeContribution(voucher: string, vouchee: string): { contribution: number; counted: boolean; reason: string | null } {
-  const row = breakdownFor(vouchee).vouchers.find((v) => v.voucher === voucher);
-  if (!row) return { contribution: 0, counted: false, reason: "edge not found" };
-  return { contribution: centiToScore(row.contribution), counted: row.counted, reason: voucherReasonText(row) };
-}
-
-export const EXPLORE_HONEST: ExploreScenario = {
-  label: "Honest path",
-  exhibit: "EXHIBIT A",
-  description: "Every edge points down from an Orb anchor. Depth ordering lets each vouch count exactly once.",
-  nodes: HONEST_IDS.map((id) => ({
-    ensName: id,
-    address: addressFor(id),
-    kind: "member" as AccountKind,
-    score: humanScore(id),
-    tier: tierOf(id),
-    depth: depthOf(id),
-    isAnchor: ACCOUNTS.find((a) => a.id === id)?.isAnchor ?? false,
-  })),
-  edges: CORE_VOUCHES.filter((e) => HONEST_IDS.includes(e.voucher) && HONEST_IDS.includes(e.vouchee)).map((e) => {
-    const info = edgeContribution(e.voucher, e.vouchee);
-    return {
-      from: e.voucher,
-      to: e.vouchee,
-      contribution: info.contribution,
-      counted: info.counted,
-      reason: info.counted ? null : (info.reason ?? "same depth or higher — doesn't count"),
-    };
-  }),
-  finalScore: humanScore(ME_ID),
-  finalTier: tierOf(ME_ID),
-  gates: gatesFor(ME_ID),
-};
-
-export const EXPLORE_RING: ExploreScenario = {
-  label: "Six-account collusion ring",
-  exhibit: "EXHIBIT B",
-  description: "Six phones on a table, fully mutual. A valid solution to the scoring equation — and the least fixed point ignores it.",
-  nodes: RING_IDS.map((id) => ({
-    ensName: id,
-    address: addressFor(id),
-    kind: "member" as AccountKind,
-    score: humanScore(id),
-    tier: tierOf(id),
-    depth: depthOf(id),
-    isAnchor: false,
-  })),
-  edges: RING_VOUCHES.map((e) => {
-    const info = edgeContribution(e.voucher, e.vouchee);
-    return {
-      from: e.voucher,
-      to: e.vouchee,
-      contribution: info.contribution,
-      counted: info.counted,
-      reason: info.counted ? null : (info.reason ?? "no path to any anchor"),
-    };
-  }),
-  finalScore: humanScore(RING_IDS[0]!),
-  finalTier: tierOf(RING_IDS[0]!),
-  gates: gatesFor(RING_IDS[0]!),
-};
-
-export const EXPLORE_SCENARIOS: ExploreScenario[] = [EXPLORE_HONEST, EXPLORE_RING];
-
-// ─── reports — docs/12-reporting.md §3, docs/01-trust-math.md §7 ────────────────────────────────
-// filedAt / challenge-window / reasonCode have no engine equivalent (the engine only ever sees
-// `upheldAt`, never a filing time or a dispute-window length — those are indexer/contract facts),
-// so they're supplied here per report, alongside every weight/decay/status number, which all come
-// straight from `RESULT.reportWeights` (R-8/R-1).
 const REPORT_DISPLAY_META: Record<string, { filedAgoDays: number; reasonCode: string; challengeWindowHours: number | null }> = {
   rpt_pending_henry: { filedAgoDays: 1, reasonCode: "SUSPECTED_SYBIL", challengeWindowHours: 72 },
   rpt_decayed_anchor2: { filedAgoDays: OLD_UPHELD_AGO_DAYS + 3, reasonCode: "MISREPRESENTED_AFFILIATION", challengeWindowHours: null },
   rpt_upheld_filed_by_me: { filedAgoDays: 48, reasonCode: "COLLUSION_RING", challengeWindowHours: null },
 };
 
-function reportStatus(r: Report, decayedWeight: number): ReportStatus {
-  if (r.state === "rejected" || r.state === "withdrawn") return "rejected";
-  if (r.state === "pending") return "pending";
-  return decayedWeight === 0 ? "decayed" : "upheld";
-}
-
-function reporterScoreCenti(reporterId: string): number {
-  const acct = ACCOUNTS.find((a) => a.id === reporterId);
-  if (acct?.kind === "platform") return RESULT.sPlatform[reporterId] ?? 0;
-  return RESULT.score[reporterId] ?? BASE;
-}
-
-export const REPORTS: ReportEntry[] = GRAPH_REPORTS.map((r): ReportEntry => {
-  const rw = RESULT.reportWeights[r.id];
-  const meta = REPORT_DISPLAY_META[r.id]!;
-  const reporterAcct = ACCOUNTS.find((a) => a.id === r.reporter);
-  const reporterKind: AccountKind = reporterAcct?.kind === "platform" ? "platform" : reporterAcct?.isAnchor ? "anchor" : "member";
-  const baseWeight = rw?.baseWeight ?? 0;
-  const decayedW = rw?.decayedWeight ?? 0;
-  const filedAtIso = iso(-meta.filedAgoDays);
-
-  return {
-    id: r.id,
-    direction: r.target === ME_ID ? "against" : "filed",
-    reporter: { ensName: r.reporter, kind: reporterKind, score: centiToScore(reporterScoreCenti(r.reporter)) },
-    target: r.target,
-    status: reportStatus(r, decayedW),
-    weight: centiToScore(decayedW),
-    filedAt: filedAtIso,
-    upheldAt: r.state === "upheld" && r.upheldAt !== undefined ? new Date(r.upheldAt * 1000).toISOString() : null,
-    decayRemainingPct: baseWeight > 0 ? Math.round((decayedW / baseWeight) * 100) : 0,
-    challengeDeadline:
-      meta.challengeWindowHours !== null
-        ? new Date(new Date(filedAtIso).getTime() + meta.challengeWindowHours * 60 * 60 * 1000).toISOString()
-        : null,
-    reasonCode: meta.reasonCode,
-  };
-});
-
-// ─── platform — docs/13-platforms.md §3, docs/01-trust-math.md §12.3 "4 x T1 @ 50" row ──────────
-
-const platformSpCenti = RESULT.sPlatform[PLATFORM_ID] ?? 0;
-
-export const PLATFORM: PlatformScoreResult = {
-  address: addressFor(PLATFORM_ID),
-  ensName: PLATFORM_ID,
-  score: centiToScore(platformSpCenti),
-  tier: platformTierFromEngine(RESULT.platformTier[PLATFORM_ID]),
-  voucherCount: PLATFORM_VOUCHES.length,
-  bondAval: 5_200, // no engine equivalent — bond amount is a token-vault fact (docs/11-token-vault.md)
-  requestsLast30d: 812, // no engine equivalent — request volume is a gateway/analytics metric
-  upheldRatePct: 82, // no engine equivalent — historical report-outcome ratio, not a score input
-  gates: {
-    g1ScoreThreshold: platformSpCenti >= P1,
-    g2TwoDistinctVouchers: new Set(PLATFORM_VOUCHES.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
-    g3BondPosted: true, // no engine equivalent — bond posting is on-chain registry state
-  },
-};
-
-// ─── agent — docs/04-ens.md §4, docs/07-app-api.md §2.5 ──────────────────────────────────────────
-
-export const AGENT: AgentRecord = {
-  subname: `trader.${ME_ID}`,
-  operator: ME_ID,
-  operatorScore: humanScore(ME_ID),
-  inheritedTier: tierOf(ME_ID),
-  endpointMcp: `https://mcp.aval.xyz/agent/trader.${ME_ID}`,
-  endpointA2a: `https://a2a.aval.xyz/trader.${ME_ID}`,
-  ensip26: {
-    "agent-context": `# trader.${ME_ID}\n\nAutonomous trading agent. Operated by ${ME_ID} (Aval tier ${tierOf(
-      ME_ID,
-    )}, score ${humanScore(ME_ID).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${tierOf(
-      ME_ID,
-    )}. It CANNOT issue vouches — vouching requires human presence, and ENSIP-26 agents have none.`,
-    "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/trader.${ME_ID}`,
-    "agent-endpoint[a2a]": `https://a2a.aval.xyz/trader.${ME_ID}`,
-    "agent-endpoint[web]": `https://aval.xyz/a/trader.${ME_ID}`,
-  },
-  ensip25RegistrationKey: `agent-registration[eip155:480:0x9F2b...4C11][0x01]`,
-};
-
-// ─── candidates — prospective vouchers for ME (docs/07-app-api.md §3) ───────────────────────────
-
-export const CANDIDATES: CandidateVoucher[] = [
-  {
-    ensName: GRACE.ensName,
-    address: GRACE.address,
-    score: GRACE.score,
-    tier: GRACE.tier,
-    mutualConnections: 1, // no engine equivalent — "shared connections" isn't a scoring concept;
-    // both ME and grace are reachable via bob, but this exact count is authored, not computed.
-    slotsFree: 3, // no engine equivalent — see ME_SLOTS comment on slot bookkeeping.
-  },
-  {
-    ensName: HENRY_ID,
-    address: addressFor(HENRY_ID),
-    score: humanScore(HENRY_ID),
-    tier: tierOf(HENRY_ID),
-    mutualConnections: 0,
-    slotsFree: 2, // no engine equivalent — see ME_SLOTS comment.
-  },
-];
-
-// ─── vouch simulation — docs/07-app-api.md §2.3 step 2 preview ──────────────────────────────────
-// Reproduces the exact moment bob's vouch lands on carol: 22.5 -> 35.0, Tier 0 -> Tier 1 — and its
-// side effects downstream (anyone whose own score depends, even indirectly, on carol's).
-
-function secondaryEffectsBetween(before: EngineOutput, after: EngineOutput, exclude: string): SimulateVouchStep[] {
-  return ACCOUNTS.filter((a) => a.kind === "human" && a.id !== exclude)
-    .map((a) => ({
-      ensName: a.id,
-      before: centiToScore(before.score[a.id] ?? BASE),
-      after: centiToScore(after.score[a.id] ?? BASE),
-    }))
-    .filter((s) => s.before !== s.after);
-}
-
-export const VOUCH_SIMULATION: SimulateVouchResult = {
-  voucher: "bob.aval.eth",
-  target: ME_ID,
-  targetBefore: { score: meScoreIfBobExpires, tier: meTierIfBobExpires },
-  targetAfter: { score: humanScore(ME_ID), tier: tierOf(ME_ID) },
-  promotes: meTierIfBobExpires < tierOf(ME_ID),
-  voucherSlotsBefore: 3, // no engine equivalent — see ME_SLOTS comment on slot bookkeeping.
-  voucherSlotsAfter: 2,
-  nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact.
-  secondaryEffects: secondaryEffectsBetween(RESULT_WITHOUT_BOB, RESULT, ME_ID),
-};
-
-// ─── generic score lookup — powers /api/score/[address] and /api/explain/[address] for accounts
-// other than ME, which is fully hand-curated above. Deterministic, not random: edge metadata is a
-// stable function of edge index, not Math.random(), so repeated requests return identical bytes. ──
-
-function genericBreakdown(id: string): VouchContribution[] {
-  return breakdownFor(id).vouchers.map((row, i) => {
-    const issuedAgoDays = 10 + ((i * 17) % 60);
-    const expiresInDays = 90 - issuedAgoDays;
-    return contributionRowFromEngine(row, { issuedAgoDays, expiresInDays });
-  });
-}
-
-export function getScoreResult(idOrAddress: string): ScoreResult | undefined {
-  if (idOrAddress === ME_ID || idOrAddress === ME.address) return ME;
-  const acc = ACCOUNTS.find((a) => a.kind === "human" && (a.id === idOrAddress || addressFor(a.id) === idOrAddress));
-  if (!acc) return undefined;
-  const id = acc.id;
-  const t = tierOf(id);
-  return {
-    address: addressFor(id),
-    ensName: id,
-    kind: acc.isAnchor ? "anchor" : "member",
-    ...(acc.isAnchor ? { anchorSource: "orb" as const } : {}),
-    base: acc.isAnchor ? 100.0 : 10.0,
-    tenure: 0,
-    positiveScore: humanSPlus(id),
-    score: humanScore(id),
-    scoreAtRisk: humanScoreAtRisk(id),
-    tier: t,
-    depth: depthOf(id),
-    gates: gatesFor(id),
-    breakdown: acc.isAnchor ? [] : genericBreakdown(id),
-    slots: acc.isAnchor
-      ? { total: 10, used: 0, free: 10 }
-      : { total: t >= 1 ? 3 : 0, used: 0, free: t >= 1 ? 3 : 0 },
-    weakestLink: null,
-    presence: null,
-    credentialStatus: "active",
-    credentialExpiresAt: iso(60),
-  };
-}
-
-/** Prose for /api/explain/[address] — docs/07-app-api.md §3. */
-export function explainProse(idOrAddress: string): string | undefined {
-  const r = getScoreResult(idOrAddress);
-  if (!r) return undefined;
-  if (r.kind === "anchor") {
-    return `${r.ensName} is an Orb-verified anchor. Its score is fixed at 100.00 and ignores every inbound edge, positive or negative (docs/01-trust-math.md §2) — it is depth 0 by definition, the externally-grounded floor the rest of the graph is measured from.`;
-  }
-  const counted = r.breakdown.filter((b) => b.counted);
-  const zero = r.breakdown.filter((b) => !b.counted);
-  const countedSum = counted.reduce((sum, b) => sum + b.contribution, 0);
-  const parts: string[] = [];
-  parts.push(
-    `${r.ensName} is Tier ${r.tier} with a score of ${r.score.toFixed(1)}, at depth ${r.depth ?? "∞"} from the nearest Orb anchor.`,
-  );
-  parts.push(
-    `That score is base ${r.base.toFixed(1)} plus ${counted
-      .map((b) => `${b.voucher.ensName} contributing +${b.contribution.toFixed(1)} (${b.voucher.score.toFixed(1)} x 0.25)`)
-      .join(", ")}${counted.length ? ` = ${(r.base + countedSum).toFixed(1)}` : ""}.`,
-  );
-  if (zero.length) {
-    parts.push(zero.map((b) => `${b.voucher.ensName} also vouches but contributes +0.0 — ${b.reason}`).join(" "));
-  }
-  if (r.weakestLink) {
-    parts.push(
-      `If ${r.weakestLink.voucherEnsName}'s vouch expires, the score drops to ${r.weakestLink.scoreIfExpired.toFixed(1)}${
-        r.weakestLink.losesTier ? ` and Tier ${r.weakestLink.currentTier} is lost` : ""
-      }.`,
-    );
-  }
-  return parts.join(" ");
-}
-
-/** /api/simulate/vouch — docs/07-app-api.md §2.3 step 2. Genuinely simulates the hypothetical edge
- *  by adding it to the graph and calling `compute()` again — not a standalone "voucher.score x
- *  0.25" approximation, which (unlike the real engine) wouldn't even check depth ordering. */
-export function simulateVouch(voucherId: string, targetId: string): SimulateVouchResult {
-  if (voucherId === "bob.aval.eth" && targetId === ME_ID) return VOUCH_SIMULATION;
-
-  const voucherAcc = ACCOUNTS.find((a) => a.id === voucherId && a.kind === "human");
-  const targetAcc = ACCOUNTS.find((a) => a.id === targetId && a.kind === "human");
-  if (!voucherAcc || !targetAcc) {
-    return {
-      voucher: voucherId,
-      target: targetId,
-      targetBefore: { score: 10, tier: 0 },
-      targetAfter: { score: 10, tier: 0 },
-      promotes: false,
-      voucherSlotsBefore: 0,
-      voucherSlotsAfter: 0,
-      nextVouchAvailableInHours: 24,
-      secondaryEffects: [],
-    };
-  }
-
-  const alreadyVouches = ALL_VOUCHES.some((v) => v.voucher === voucherId && v.vouchee === targetId && v.active);
-  const afterResult = alreadyVouches
-    ? RESULT
-    : compute({ ...ENGINE_INPUT, vouches: [...ALL_VOUCHES, mkVouch(voucherId, targetId)] });
-
-  const beforeScore = humanScore(targetId);
-  const beforeTier = tierOf(targetId);
-  const afterScore = centiToScore(afterResult.score[targetId] ?? BASE);
-  const afterTier = (afterResult.tier[targetId] ?? 0) as Tier;
-
-  return {
-    voucher: voucherId,
-    target: targetId,
-    targetBefore: { score: beforeScore, tier: beforeTier },
-    targetAfter: { score: afterScore, tier: afterTier },
-    promotes: afterTier > beforeTier,
-    voucherSlotsBefore: 3, // no engine equivalent — see ME_SLOTS comment.
-    voucherSlotsAfter: 2,
-    nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact.
-    secondaryEffects: alreadyVouches ? [] : secondaryEffectsBetween(RESULT, afterResult, targetId),
-  };
-}
-
-// ─── identity directory + gate + path — docs/07-app-api.md §3 ───────────────────────────────────
-
 interface DirectoryEntry {
   id: string;
   kind: AccountKind;
-  credential: "orb" | "selfie" | "document";
+  credential: Credential;
   registeredAgoDays: number;
 }
 
-const DIRECTORY: DirectoryEntry[] = [
+const FIXTURE_DIRECTORY: DirectoryEntry[] = [
   { id: "anchor1.aval.eth", kind: "anchor", credential: "orb", registeredAgoDays: 400 },
   { id: "anchor2.aval.eth", kind: "anchor", credential: "orb", registeredAgoDays: 380 },
   { id: "alice.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 200 },
   { id: "bob.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 190 },
-  { id: ME_ID, kind: "member", credential: "selfie", registeredAgoDays: 214 },
+  { id: FIXTURE_ME_ID, kind: "member", credential: "selfie", registeredAgoDays: 214 },
   { id: "dave.carol.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
   { id: "erin.carol.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 5 },
   { id: "grace.bob.aval.eth", kind: "member", credential: "selfie", registeredAgoDays: 60 },
-  { id: PLATFORM_ID, kind: "platform", credential: "document", registeredAgoDays: 120 },
+  { id: FIXTURE_PLATFORM_ID, kind: "platform", credential: "document", registeredAgoDays: 120 },
 ];
 
-export function findIdentity(idOrAddress: string): IdentityResult | undefined {
-  const entry = DIRECTORY.find((d) => d.id === idOrAddress || addressFor(d.id) === idOrAddress);
-  if (!entry) return undefined;
+/** Deterministic fake address so every fixture identity has one, without a real keystore. */
+function fixtureAddressFor(ensName: string): Address {
+  let h = 0;
+  for (let i = 0; i < ensName.length; i++) h = (h * 31 + ensName.charCodeAt(i)) >>> 0;
+  const hex = h.toString(16).padStart(8, "0");
+  return `0x${hex.repeat(5).slice(0, 40)}`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// ─── GraphContext — the one seam between "where the graph comes from" and "how it's displayed" ──
+
+/** Real (live) or synthetic (fixture) issue/expiry timing for one inbound vouch row. */
+interface EdgeTiming {
+  issuedAt: string;
+  expiresAt: string;
+  daysUntilExpiry: number;
+}
+
+interface GraphContext {
+  mode: "live" | "fixture";
+  meta: ApiMeta;
+  now: Date;
+  graphNow: number;
+  meId: string;
+  accounts: Account[];
+  vouches: Vouch[];
+  platformVouches: PlatformVouch[];
+  reports: Report[];
+  addressFor: (id: string) => Address;
+  ensNameFor: (id: string) => string;
+  anchorSourceFor: (id: string) => AnchorSource | undefined;
+  edgeTiming: (voucherId: string, voucheeId: string) => EdgeTiming;
+  /** Which counted inbound voucher of `meId` is its "weakest link" for the Home-screen warning.
+   *  Fixture pins this to the authored narrative ("bob"); live mode picks the counted voucher
+   *  closest to real expiry — both flow through the same generic recompute in `deriveAvalData`. */
+  weakestLinkVoucherId: (countedVoucherIds: string[]) => string | null;
+  slotsFor: (id: string, tier: Tier) => Slots;
+  credentialFor: (id: string) => { status: CredentialStatus; expiresAt: string; credential: Credential };
+  /** Prospective vouchers for `id`: real enrolled humans, tier >= 1, not `id` itself, not already
+   *  vouching `id`, sorted best-first. Generalized off any id (task correction: "Home ... signed
+   *  in user's own"), not hardcoded to `meId`. */
+  candidatesFor: (id: string) => string[];
+  /** `null` when no platform exists in this graph (true of the live deployment — nobody has
+   *  registered one yet). The platform screen renders the honest empty state in that case. */
+  platformId: string | null;
+  reportDisplayMeta: (reportId: string) => { filedAgoDays: number; reasonCode: string; challengeWindowHours: number | null };
+  directory: DirectoryEntry[];
+  /** Real `PresenceDrip` state for `id`. `accruedAval` is only ever non-zero for the address
+   *  actually being viewed this request (one live `accrued()` read, not one per account — see
+   *  `buildLiveContext`) since claiming only ever applies to the signed-in viewer. */
+  presenceFor: (id: string) => { epochsClaimed: number; accruedAval: number };
+  isEnrolledId: (id: string) => boolean;
+  /** True when this render is for a signed-in wallet's own data (cookie-sourced address passed to
+   *  `loadAvalData`), false when it fell back to the `ME_ADDRESS` demo identity because nobody is
+   *  signed in. Drives the "viewing carol — sign in to see your own" banner. */
+  viewerIsSelf: boolean;
+}
+
+function buildFixtureContext(): GraphContext {
+  const edgeDays: Record<string, { issuedAgoDays: number; expiresInDays: number }> = {
+    [`alice.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 16, expiresInDays: 74 },
+    [`bob.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 72, expiresInDays: 18 },
+    [`dave.carol.aval.eth::${FIXTURE_ME_ID}`]: { issuedAgoDays: 5, expiresInDays: 85 },
+  };
+  let genericIndex = 0;
+
   return {
-    address: addressFor(entry.id),
-    ensName: entry.id,
-    kind: entry.kind,
-    registeredAt: iso(-entry.registeredAgoDays),
-    credential: entry.credential,
-    credentialStatus: "active",
-    ...(entry.kind === "anchor" ? { anchorSource: "orb" as const } : {}),
+    mode: "fixture",
+    meta: {
+      subgraphDeployment: "QmXoT9auAvEZuwVUXCoAxzuUxKG1nGbXCn6UhtqrBQqLA5",
+      computedAtBlock: 8_214_552,
+      indexerLagBlocks: 2,
+      engineVersion: "0.1.0",
+      mode: "fixture",
+    },
+    now: FIXTURE_NOW,
+    graphNow: FIXTURE_GRAPH_NOW,
+    meId: FIXTURE_ME_ID,
+    accounts: FIXTURE_ACCOUNTS,
+    vouches: FIXTURE_VOUCHES,
+    platformVouches: FIXTURE_PLATFORM_VOUCHES,
+    reports: FIXTURE_REPORTS,
+    addressFor: fixtureAddressFor,
+    ensNameFor: (id) => id,
+    anchorSourceFor: (id) => (FIXTURE_ACCOUNTS.find((a) => a.id === id)?.isAnchor ? "orb" : undefined),
+    edgeTiming: (voucherId, voucheeId) => {
+      const known = edgeDays[`${voucherId}::${voucheeId}`];
+      const { issuedAgoDays, expiresInDays } = known ?? { issuedAgoDays: 10 + ((genericIndex++ * 17) % 60), expiresInDays: 0 };
+      const expires = known ? expiresInDays : 90 - issuedAgoDays;
+      return { issuedAt: fixtureIso(-issuedAgoDays), expiresAt: fixtureIso(expires), daysUntilExpiry: expires };
+    },
+    weakestLinkVoucherId: () => "bob.aval.eth",
+    slotsFor: (id) => (id === FIXTURE_ME_ID ? { total: 3, used: 2, free: 1 } : { total: 0, used: 0, free: 0 }),
+    credentialFor: () => ({ status: "active", expiresAt: fixtureIso(60), credential: "selfie" }),
+    candidatesFor: (id) => (id === FIXTURE_ME_ID ? ["grace.bob.aval.eth", HENRY_ID] : []),
+    platformId: FIXTURE_PLATFORM_ID,
+    reportDisplayMeta: (id) => REPORT_DISPLAY_META[id] ?? { filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null },
+    directory: FIXTURE_DIRECTORY,
+    // 214 days present (docs/16-presence-drip.md §9 demo panel) — authored only for the fixture's
+    // one narrative identity; every other id honestly has no presence authored, so it's zero.
+    presenceFor: (id) => (id === FIXTURE_ME_ID ? { epochsClaimed: 856, accruedAval: 14.5 } : { epochsClaimed: 0, accruedAval: 0 }),
+    isEnrolledId: (id) => FIXTURE_ACCOUNTS.some((a) => a.id === id),
+    viewerIsSelf: false,
   };
 }
 
-export function checkGate(idOrAddress: string, policy: GatePolicy): GateResult {
-  const identity = findIdentity(idOrAddress);
-  if (!identity) return { allow: false, reasons: ["identity_not_found"] };
-  const reasons: string[] = [];
-  const isPlatform = identity.kind === "platform";
-  const t = isPlatform ? (RESULT.platformTier[identity.ensName] ?? 0) : tierOf(identity.ensName);
-  const s = isPlatform ? centiToScore(RESULT.sPlatform[identity.ensName] ?? 0) : humanScore(identity.ensName);
-  if (policy.minTier !== undefined && t < policy.minTier) reasons.push(`tier ${t} below required tier ${policy.minTier}`);
-  if (policy.minScore !== undefined && s < policy.minScore) reasons.push(`score ${s.toFixed(1)} below required score ${policy.minScore.toFixed(1)}`);
-  if (policy.requireCredential && identity.credential !== policy.requireCredential) {
-    reasons.push(`credential ${identity.credential} does not satisfy required credential ${policy.requireCredential}`);
-  }
-  return { allow: reasons.length === 0, reasons };
+function pairKey(voucher: string, vouchee: string): string {
+  return `${voucher.toLowerCase()}::${vouchee.toLowerCase()}`;
 }
 
-function parentOf(id: string): string | undefined {
-  const d = RESULT.depth[id];
-  if (d === undefined) return undefined;
-  const edge = ALL_VOUCHES.find((e) => e.vouchee === id && RESULT.depth[e.voucher] === d - 1);
-  return edge?.voucher;
-}
+async function buildLiveContext(viewingAddress?: Address): Promise<GraphContext> {
+  const graph = await getLiveGraph();
+  // Task correction: "Delete ME_ADDRESS as the source of 'me'." `ME_ADDRESS` now only fires as a
+  // read-only demo fallback when nobody is signed in (`viewingAddress` undefined — no cookie).
+  const meAddress = viewingAddress ?? getDemoAddress();
+  const meId = meAddress; // chain.ts uses the checksummed address as the account id
+  const viewerIsSelf = viewingAddress !== undefined;
 
-/** Walks from `fromEnsName` back to the literal string "anchor", or to a specific target name. */
-export function findPath(fromEnsName: string, toEnsName: string): PathResult {
-  // R-12 (docs/97-review-engine-app.md): an entirely unknown starting identity must yield zero
-  // hops, so the route's existing `hops.length === 0` check 404s — not a single synthetic hop for
-  // an id that resolves to nothing.
-  const fromKnown = ACCOUNTS.some((a) => a.id === fromEnsName);
-  if (!fromKnown) return { from: fromEnsName, to: toEnsName, found: false, hops: [] };
+  const nowSeconds = graph.now;
+  const nowDate = new Date(nowSeconds * 1000);
 
-  const hops: PathResult["hops"] = [];
-  let cursor: string | undefined = fromEnsName;
-  let previous: string | undefined;
-  const visited = new Set<string>();
-  while (cursor && !visited.has(cursor)) {
-    visited.add(cursor);
-    const contributionCenti =
-      previous === undefined ? 0 : (breakdownFor(previous).vouchers.find((v) => v.voucher === cursor)?.contribution ?? 0);
-    hops.push({
-      ensName: cursor,
-      address: addressFor(cursor),
-      depth: depthOf(cursor) ?? -1,
-      contribution: centiToScore(contributionCenti),
-    });
-    if ((toEnsName === "anchor" && (RESULT.depth[cursor] ?? Number.POSITIVE_INFINITY) === 0) || cursor === toEnsName) {
-      return { from: fromEnsName, to: toEnsName, found: true, hops };
+  const ensNameFor = (id: string): string => graph.ensNameFor.get(id as Address) ?? id;
+
+  const anchorSourceFor = (id: string): AnchorSource | undefined => {
+    const acc = graph.engineInput.accounts.find((a) => a.id === id);
+    return acc?.isAnchor ? graph.anchorSource : undefined;
+  };
+
+  const edgeTiming = (voucherId: string, voucheeId: string): EdgeTiming => {
+    const meta = graph.vouchMeta.get(pairKey(voucherId, voucheeId));
+    if (!meta) {
+      // Shouldn't happen for an edge the engine itself reported as inbound, but stay honest
+      // rather than fabricate a date if it ever does.
+      return { issuedAt: nowDate.toISOString(), expiresAt: nowDate.toISOString(), daysUntilExpiry: 0 };
     }
-    previous = cursor;
-    cursor = parentOf(cursor);
+    const daysUntilExpiry = (meta.expiresAt - nowSeconds) / SECONDS_PER_DAY;
+    return {
+      issuedAt: new Date(meta.issuedAt * 1000).toISOString(),
+      expiresAt: new Date(meta.expiresAt * 1000).toISOString(),
+      daysUntilExpiry,
+    };
+  };
+
+  // Weakest link, generalized: the counted inbound voucher soonest to really expire. If several
+  // are tied, or none are counted, this still resolves deterministically (Array.reduce over a
+  // stable input order).
+  const weakestLinkVoucherId = (countedVoucherIds: string[]): string | null => {
+    if (countedVoucherIds.length === 0) return null;
+    let best = countedVoucherIds[0]!;
+    let bestExpiry = graph.vouchMeta.get(pairKey(best, meId))?.expiresAt ?? Number.POSITIVE_INFINITY;
+    for (const id of countedVoucherIds.slice(1)) {
+      const exp = graph.vouchMeta.get(pairKey(id, meId))?.expiresAt ?? Number.POSITIVE_INFINITY;
+      if (exp < bestExpiry) {
+        best = id;
+        bestExpiry = exp;
+      }
+    }
+    return best;
+  };
+
+  const tierOfLive = (id: string): Tier => (graph.engineOutput.tier[id] ?? 0) as Tier;
+
+  const slotsFor = (id: string, tierArg?: Tier): Slots => {
+    const t = tierArg ?? tierOfLive(id);
+    const total = t >= 2 ? SLOTS_TIER_2 : t >= 1 ? SLOTS_TIER_1 : 0;
+    const used = Math.min(total, graph.members.get(id as Address)?.activeOutbound ?? 0);
+    return { total, used, free: total - used };
+  };
+
+  const credentialFor = (id: string): { status: CredentialStatus; expiresAt: string; credential: Credential } => {
+    const m = graph.members.get(id as Address);
+    const expiresAt = m ? new Date(m.credentialExpiresAt * 1000).toISOString() : nowDate.toISOString();
+    const graceEndsAt = (m?.credentialExpiresAt ?? 0) + 14 * SECONDS_PER_DAY;
+    const status: CredentialStatus = !m
+      ? "active"
+      : nowSeconds <= m.credentialExpiresAt
+        ? "active"
+        : nowSeconds <= graceEndsAt
+          ? "grace"
+          : "suspended";
+    return { status, expiresAt, credential: "selfie" };
+  };
+
+  // Prospective vouchers for any id: real enrolled humans, computed tier >= 1 (FR-3: tier 0
+  // cannot vouch), not the target itself, and not already actively vouching it — sorted by real
+  // score, best first. Generalized off `id` (was hardcoded to `meId`) so any signed-in viewer, not
+  // only the demo identity, gets a real candidate list.
+  const candidatesFor = (targetId: string): string[] => {
+    const alreadyVouching = new Set(
+      graph.engineInput.vouches.filter((v) => v.active && v.vouchee === targetId).map((v) => v.voucher),
+    );
+    return graph.engineInput.accounts
+      .filter((a) => a.id !== targetId && tierOfLive(a.id) >= 1 && !alreadyVouching.has(a.id))
+      .sort((a, b) => (graph.engineOutput.score[b.id] ?? 0) - (graph.engineOutput.score[a.id] ?? 0))
+      .map((a) => a.id);
+  };
+
+  const directory: DirectoryEntry[] = graph.engineInput.accounts.map((a) => {
+    const m = graph.members.get(a.id as Address);
+    const registeredAgoDays = m ? Math.max(0, (nowSeconds - m.enrolledAt) / SECONDS_PER_DAY) : 0;
+    return {
+      id: a.id,
+      kind: a.isAnchor ? "anchor" : "member",
+      credential: "selfie",
+      registeredAgoDays,
+    };
+  });
+
+  // Real accrued AVAL, but only for the identity actually being viewed this request — one
+  // `PresenceDrip.accrued()` read (docs/16-presence-drip.md §9's "Claim button ... updates the
+  // accrued figure"), not one per account in the graph (that would be exactly the N-account
+  // fan-out the Multicall3 batch config exists to avoid).
+  const accruedWei = await getAccruedDrip(meAddress);
+  const accruedAvalForViewed = Number(accruedWei) / 1e18;
+
+  const presenceFor = (id: string): { epochsClaimed: number; accruedAval: number } => {
+    const p = graph.presence.get(id as Address);
+    return { epochsClaimed: p?.epochsClaimed ?? 0, accruedAval: id === meAddress ? accruedAvalForViewed : 0 };
+  };
+
+  const isEnrolledId = (id: string): boolean => graph.members.get(id as Address)?.enrolled ?? false;
+
+  return {
+    mode: "live",
+    meta: {
+      subgraphDeployment: `direct-chain-read:${WORLDCHAIN_SEPOLIA_ID}`,
+      computedAtBlock: Number(graph.block),
+      indexerLagBlocks: 0, // no separate indexer in live mode — this app reads AvalRegistry directly
+      engineVersion: "0.1.0",
+      mode: "live",
+      chainId: WORLDCHAIN_SEPOLIA_ID,
+      contracts: getContractAddressSet(),
+    },
+    now: nowDate,
+    graphNow: nowSeconds,
+    meId,
+    accounts: graph.engineInput.accounts,
+    vouches: graph.engineInput.vouches,
+    platformVouches: graph.engineInput.platformVouches,
+    reports: graph.engineInput.reports,
+    addressFor: (id) => id as Address,
+    ensNameFor,
+    anchorSourceFor,
+    edgeTiming,
+    weakestLinkVoucherId,
+    slotsFor,
+    credentialFor,
+    candidatesFor,
+    platformId: null, // no platform is registered on this deployment (PlatformRegistry untouched)
+    reportDisplayMeta: () => ({ filedAgoDays: 0, reasonCode: "UNKNOWN", challengeWindowHours: null }),
+    directory,
+    presenceFor,
+    isEnrolledId,
+    viewerIsSelf,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// ─── shared derivation — the single code path both modes flow through ───────────────────────────
+
+export interface AvalData {
+  mode: "live" | "fixture";
+  meta: ApiMeta;
+  /** True when `ME` is the signed-in viewer's own data; false when nobody is signed in and this
+   *  fell back to the read-only `ME_ADDRESS` demo identity (task correction §1). */
+  viewerIsSelf: boolean;
+  ME: ScoreResult;
+  PLATFORM: PlatformScoreResult;
+  REPORTS: ReportEntry[];
+  AGENT: AgentRecord;
+  EXPLORE_HONEST: ExploreScenario;
+  EXPLORE_RING: ExploreScenario;
+  HEALTH: HealthResult;
+  CANDIDATES: CandidateVoucher[];
+  VOUCH_SIMULATION: SimulateVouchResult;
+  NOW: Date;
+  getScoreResult: (idOrAddress: string) => ScoreResult | undefined;
+  getCandidates: (idOrAddress: string) => CandidateVoucher[] | undefined;
+  isEnrolled: (idOrAddress: string) => boolean;
+  explainProse: (idOrAddress: string) => string | undefined;
+  findIdentity: (idOrAddress: string) => IdentityResult | undefined;
+  checkGate: (idOrAddress: string, policy: GatePolicy) => GateResult;
+  findPath: (fromEnsName: string, toEnsName: string) => PathResult;
+  simulateVouch: (voucherId: string, targetId: string) => SimulateVouchResult;
+}
+
+function deriveAvalData(ctx: GraphContext): AvalData {
+  const engineInput: EngineInput = {
+    now: ctx.graphNow,
+    accounts: ctx.accounts,
+    vouches: ctx.vouches,
+    platformVouches: ctx.platformVouches,
+    reports: ctx.reports,
+  };
+  const result: EngineOutput = compute(engineInput);
+
+  function humanScore(id: string): number {
+    return centiToScore(result.score[id] ?? BASE);
   }
-  return { from: fromEnsName, to: toEnsName, found: false, hops };
+  function humanSPlus(id: string): number {
+    return centiToScore(result.sPlus[id] ?? BASE);
+  }
+  function humanScoreAtRisk(id: string): number {
+    return centiToScore(result.scoreAtRisk[id] ?? BASE);
+  }
+  function depthOf(id: string): number | null {
+    const d = result.depth[id];
+    return d !== undefined && Number.isFinite(d) ? d : null;
+  }
+  function tierOf(id: string): Tier {
+    return (result.tier[id] ?? 0) as Tier;
+  }
+  function platformTierFromEngine(t: number | undefined): "P0" | "P1" | "P2" {
+    return (t ?? 0) >= 2 ? "P2" : (t ?? 0) >= 1 ? "P1" : "P0";
+  }
+
+  const breakdownCache = new Map<string, ReturnType<typeof breakdown>>();
+  function breakdownFor(id: string): ReturnType<typeof breakdown> {
+    let bd = breakdownCache.get(id);
+    if (!bd) {
+      bd = breakdown(id, engineInput, result);
+      breakdownCache.set(id, bd);
+    }
+    return bd;
+  }
+
+  /** No engine-exposed equivalent: `EngineOutput` publishes tiers, not the individual gate
+   *  booleans that fed them. Mirrors the engine's own internal check purely over already-public
+   *  data (`ctx.reports` + `ctx.graphNow`), for display only. */
+  function hasRecentUpheldReportAgainst(id: string): boolean {
+    return ctx.reports.some(
+      (r) =>
+        r.target === id &&
+        r.state === "upheld" &&
+        r.upheldAt !== undefined &&
+        ctx.graphNow - r.upheldAt < GATE4_WINDOW_DAYS * SECONDS_PER_DAY &&
+        ctx.graphNow - r.upheldAt >= 0,
+    );
+  }
+
+  /** Gate 2 here is derived from `breakdown()`'s own `counted` flag — the exact same corrected,
+   *  depth-ordered definition the real engine's gate 2 uses (R-8) — not re-counted independently. */
+  function gatesFor(id: string): Gates {
+    const bd = breakdownFor(id);
+    const distinctCounted = new Set(bd.vouchers.filter((v) => v.counted).map((v) => v.voucher)).size;
+    const d = result.depth[id];
+    const scoreCenti = result.score[id] ?? BASE;
+    return {
+      g1ScoreThreshold: scoreCenti >= T1,
+      g2TwoDistinctVouchers: distinctCounted >= MIN_VOUCHERS,
+      g3PathToOrigin: d !== undefined && Number.isFinite(d) && d <= MAX_DEPTH,
+      g4NoRecentUpheldReport: !hasRecentUpheldReportAgainst(id),
+    };
+  }
+
+  function voucherSummary(id: string): VoucherSummary {
+    const acc = ctx.accounts.find((a) => a.id === id);
+    return {
+      address: ctx.addressFor(id),
+      ensName: ctx.ensNameFor(id),
+      score: humanScore(id),
+      tier: tierOf(id),
+      depth: depthOf(id),
+      isAnchor: acc?.isAnchor ?? false,
+      anchorSource: acc?.isAnchor ? ctx.anchorSourceFor(id) : undefined,
+    };
+  }
+
+  function displayLabel(id: string): string {
+    const [first] = ctx.ensNameFor(id).split(".");
+    return first ? first[0]!.toUpperCase() + first.slice(1) : ctx.ensNameFor(id);
+  }
+
+  type EngineVoucherRow = ReturnType<typeof breakdown>["vouchers"][number];
+
+  /** Plain-language reason for a zero-contribution row, from the engine's own machine-readable
+   *  reason code (docs/01-trust-math.md's own E-2 errata example: the zero-contribution rows are
+   *  required UI, not decoration). */
+  function voucherReasonText(row: EngineVoucherRow): string | null {
+    if (row.counted) return null;
+    switch (row.reason) {
+      case "anchor_ignores_inbound":
+        return "anchors ignore every inbound vouch — their score is fixed.";
+      case "vouch_inactive":
+        return "this vouch has expired or been revoked.";
+      case "voucher_not_human":
+        return "the source of this vouch is not a human account.";
+      case "voucher_unreachable":
+        return `${displayLabel(row.voucher)} has no path from any anchor, so it doesn't count.`;
+      case "voucher_depth_not_lower":
+        return (
+          `${displayLabel(row.voucher)} is at depth ${row.voucherDepth ?? "∞"}, which is not lower ` +
+          `than yours, so it doesn't count.`
+        );
+      default:
+        return null;
+    }
+  }
+
+  function contributionRowFromEngine(row: EngineVoucherRow, timing: EdgeTiming): VouchContribution {
+    return {
+      voucher: voucherSummary(row.voucher),
+      weight: DISPLAY_M_POS,
+      contribution: centiToScore(row.contribution),
+      counted: row.counted,
+      reason: voucherReasonText(row),
+      issuedAt: timing.issuedAt,
+      expiresAt: timing.expiresAt,
+      daysUntilExpiry: timing.daysUntilExpiry,
+      expiringSoon: timing.daysUntilExpiry <= 21,
+    };
+  }
+
+  function genericBreakdown(id: string): VouchContribution[] {
+    return breakdownFor(id).vouchers.map((row) => contributionRowFromEngine(row, ctx.edgeTiming(row.voucher, id)));
+  }
+
+  // ─── weakest link / presence — generalized off any id, not hardcoded to `meId` (task
+  // correction: Home must show the signed-in viewer's own data, and `/api/score/[address]` must
+  // return real values for any address, not `null` placeholders once you're not "ME"). ──────────
+
+  function weakestLinkForId(id: string, tier: Tier, bd: ReturnType<typeof breakdown>, displayBreakdown: VouchContribution[]): ScoreResult["weakestLink"] {
+    const countedIds = bd.vouchers.filter((v) => v.counted).map((v) => v.voucher);
+    const weakestId = ctx.weakestLinkVoucherId(countedIds);
+    if (!weakestId) return null;
+    const withoutIt: Vouch[] = ctx.vouches.map((v) => (v.voucher === weakestId && v.vouchee === id ? { ...v, active: false } : v));
+    const resultWithout = compute({ ...engineInput, vouches: withoutIt });
+    const scoreIfExpired = centiToScore(resultWithout.score[id] ?? BASE);
+    const tierIfExpired = (resultWithout.tier[id] ?? 0) as Tier;
+    const row = displayBreakdown.find((r) => r.voucher.ensName === ctx.ensNameFor(weakestId));
+    return {
+      voucherEnsName: ctx.ensNameFor(weakestId),
+      contribution: row?.contribution ?? 0,
+      scoreIfExpired,
+      currentTier: tier,
+      tierIfExpired,
+      losesTier: tierIfExpired < tier,
+      daysUntilExpiry: row?.daysUntilExpiry ?? 0,
+    };
+  }
+
+  function presenceStateForId(id: string, tier: Tier): PresenceState {
+    const p = ctx.presenceFor(id);
+    const presentDays = p.epochsClaimed / 4; // 6h epochs, 4/day
+    const tierRatePct = tier >= 1 ? 100 : 25;
+    const dailyRateAval = tier >= 1 ? 1.0 : 0.25;
+    const accruedAval = p.accruedAval;
+    return {
+      dailyRateAval,
+      accruedAval,
+      maxUnclaimedDays: 30,
+      daysUntilCap: Math.max(0, 30 - accruedAval / dailyRateAval),
+      presentDays,
+      tenureBonus: tenureFromDays(presentDays),
+      tenureMaxBonus: 5.0,
+      tierRatePct,
+      curve: tenureCurve(720, 72),
+    };
+  }
+
+  // ─── ME — the identity `loadAvalData(viewingAddress)` was called for: the signed-in viewer's
+  // own address when one was passed, else the `ME_ADDRESS` demo fallback (`ctx.viewerIsSelf`
+  // records which). ────────────────────────────────────────────────────────────────────────────
+
+  const meBd = breakdownFor(ctx.meId);
+  const meBreakdown: VouchContribution[] = meBd.vouchers.map((row) => contributionRowFromEngine(row, ctx.edgeTiming(row.voucher, ctx.meId)));
+  const meTier = tierOf(ctx.meId);
+  const meDepth = depthOf(ctx.meId);
+  const meSlots = ctx.slotsFor(ctx.meId, meTier);
+  const meCredential = ctx.credentialFor(ctx.meId);
+
+  const ME: ScoreResult = {
+    address: ctx.addressFor(ctx.meId),
+    ensName: ctx.ensNameFor(ctx.meId),
+    kind: "member",
+    base: 10.0,
+    tenure: centiToScore(meBd.tenure),
+    positiveScore: humanSPlus(ctx.meId),
+    score: humanScore(ctx.meId),
+    scoreAtRisk: humanScoreAtRisk(ctx.meId),
+    tier: meTier,
+    depth: meDepth,
+    gates: gatesFor(ctx.meId),
+    breakdown: meBreakdown,
+    slots: meSlots,
+    weakestLink: weakestLinkForId(ctx.meId, meTier, meBd, meBreakdown),
+    presence: presenceStateForId(ctx.meId, meTier),
+    credentialStatus: meCredential.status,
+    credentialExpiresAt: meCredential.expiresAt,
+  };
+
+  // ─── explore — honest path vs. six-account collusion ring ─────────────────────────────────────
+  // docs/07-app-api.md §2.4: "both live, both at their real scores." Fixture mode uses its
+  // authored HONEST_IDS/RING_IDS; live mode selects the same shapes generically off the real
+  // graph — the anchors/alice/bob/carol honest path, and the ring1..ring6 cycle — by their real
+  // on-chain `handle` (identical in spirit, not hand-picked addresses).
+  const honestIds =
+    ctx.mode === "fixture"
+      ? ["anchor1.aval.eth", "anchor2.aval.eth", "alice.aval.eth", "bob.aval.eth", ctx.meId, "dave.carol.aval.eth"]
+      : ctx.accounts
+          .map((a) => a.id)
+          .filter((id) => /^(anchor\d+|alice|bob|carol)\.aval\.eth$/.test(ctx.ensNameFor(id)));
+  const ringIds =
+    ctx.mode === "fixture" ? RING_IDS : ctx.accounts.map((a) => a.id).filter((id) => ctx.ensNameFor(id).startsWith("ring"));
+
+  function edgeContribution(voucher: string, vouchee: string): { contribution: number; counted: boolean; reason: string | null } {
+    const row = breakdownFor(vouchee).vouchers.find((v) => v.voucher === voucher);
+    if (!row) return { contribution: 0, counted: false, reason: "edge not found" };
+    return { contribution: centiToScore(row.contribution), counted: row.counted, reason: voucherReasonText(row) };
+  }
+
+  const honestVouches = ctx.vouches.filter((e) => honestIds.includes(e.voucher) && honestIds.includes(e.vouchee));
+  const ringVouches = ctx.vouches.filter((e) => ringIds.includes(e.voucher) && ringIds.includes(e.vouchee));
+
+  // Honesty about provenance extends to prose, not just badges (task requirement #5) — this
+  // description must not call a genesis-testnet anchor "Orb" any more than a badge may.
+  const anchorWord = ctx.mode === "fixture" ? "an Orb anchor" : "a genesis (testnet) anchor";
+  const EXPLORE_HONEST: ExploreScenario = {
+    label: "Honest path",
+    exhibit: "EXHIBIT A",
+    description: `Every edge points down from ${anchorWord}. Depth ordering lets each vouch count exactly once.`,
+    nodes: honestIds.map((id) => ({
+      ensName: ctx.ensNameFor(id),
+      address: ctx.addressFor(id),
+      kind: "member" as AccountKind,
+      score: humanScore(id),
+      tier: tierOf(id),
+      depth: depthOf(id),
+      isAnchor: ctx.accounts.find((a) => a.id === id)?.isAnchor ?? false,
+      anchorSource: ctx.anchorSourceFor(id),
+    })),
+    edges: honestVouches.map((e) => {
+      const info = edgeContribution(e.voucher, e.vouchee);
+      return {
+        from: ctx.ensNameFor(e.voucher),
+        to: ctx.ensNameFor(e.vouchee),
+        contribution: info.contribution,
+        counted: info.counted,
+        reason: info.counted ? null : (info.reason ?? "same depth or higher — doesn't count"),
+      };
+    }),
+    finalScore: humanScore(ctx.meId),
+    finalTier: tierOf(ctx.meId),
+    gates: gatesFor(ctx.meId),
+  };
+
+  const ringRepresentative = ringIds[0];
+  const EXPLORE_RING: ExploreScenario = {
+    label: "Six-account collusion ring",
+    exhibit: "EXHIBIT B",
+    description: "Six phones on a table. A valid solution to the scoring equation — and the least fixed point ignores it.",
+    nodes: ringIds.map((id) => ({
+      ensName: ctx.ensNameFor(id),
+      address: ctx.addressFor(id),
+      kind: "member" as AccountKind,
+      score: humanScore(id),
+      tier: tierOf(id),
+      depth: depthOf(id),
+      isAnchor: false,
+    })),
+    edges: ringVouches.map((e) => {
+      const info = edgeContribution(e.voucher, e.vouchee);
+      return {
+        from: ctx.ensNameFor(e.voucher),
+        to: ctx.ensNameFor(e.vouchee),
+        contribution: info.contribution,
+        counted: info.counted,
+        reason: info.counted ? null : (info.reason ?? "no path to any anchor"),
+      };
+    }),
+    finalScore: ringRepresentative ? humanScore(ringRepresentative) : ENROLLMENT_BASE_SCORE,
+    finalTier: ringRepresentative ? tierOf(ringRepresentative) : 0,
+    gates: ringRepresentative ? gatesFor(ringRepresentative) : { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3PathToOrigin: false, g4NoRecentUpheldReport: true },
+  };
+
+  // ─── reports ─────────────────────────────────────────────────────────────────────────────────
+
+  function reportStatus(r: Report, decayedWeight: number): ReportStatus {
+    if (r.state === "rejected" || r.state === "withdrawn") return "rejected";
+    if (r.state === "pending") return "pending";
+    return decayedWeight === 0 ? "decayed" : "upheld";
+  }
+
+  function reporterScoreCenti(reporterId: string): number {
+    const acct = ctx.accounts.find((a) => a.id === reporterId);
+    if (acct?.kind === "platform") return result.sPlatform[reporterId] ?? 0;
+    return result.score[reporterId] ?? BASE;
+  }
+
+  const REPORTS: ReportEntry[] = ctx.reports.map((r): ReportEntry => {
+    const rw = result.reportWeights[r.id];
+    const meta = ctx.reportDisplayMeta(r.id);
+    const reporterAcct = ctx.accounts.find((a) => a.id === r.reporter);
+    const reporterKind: AccountKind = reporterAcct?.kind === "platform" ? "platform" : reporterAcct?.isAnchor ? "anchor" : "member";
+    const baseWeight = rw?.baseWeight ?? 0;
+    const decayedW = rw?.decayedWeight ?? 0;
+    const filedAtIso = ctx.mode === "fixture" ? fixtureIso(-meta.filedAgoDays) : ctx.now.toISOString();
+
+    return {
+      id: r.id,
+      direction: r.target === ctx.meId ? "against" : "filed",
+      reporter: { ensName: ctx.ensNameFor(r.reporter), kind: reporterKind, score: centiToScore(reporterScoreCenti(r.reporter)) },
+      target: ctx.ensNameFor(r.target),
+      status: reportStatus(r, decayedW),
+      weight: centiToScore(decayedW),
+      filedAt: filedAtIso,
+      upheldAt: r.state === "upheld" && r.upheldAt !== undefined ? new Date(r.upheldAt * 1000).toISOString() : null,
+      decayRemainingPct: baseWeight > 0 ? Math.round((decayedW / baseWeight) * 100) : 0,
+      challengeDeadline:
+        meta.challengeWindowHours !== null
+          ? new Date(new Date(filedAtIso).getTime() + meta.challengeWindowHours * 60 * 60 * 1000).toISOString()
+          : null,
+      reasonCode: meta.reasonCode,
+    };
+  });
+
+  // ─── platform — docs/13-platforms.md §3 ────────────────────────────────────────────────────────
+
+  const PLATFORM: PlatformScoreResult = ctx.platformId
+    ? (() => {
+        const platformSpCenti = result.sPlatform[ctx.platformId!] ?? 0;
+        const platformVouchesFor = ctx.platformVouches.filter((pv) => pv.platform === ctx.platformId);
+        return {
+          address: ctx.addressFor(ctx.platformId!),
+          ensName: ctx.ensNameFor(ctx.platformId!),
+          score: centiToScore(platformSpCenti),
+          tier: platformTierFromEngine(result.platformTier[ctx.platformId!]),
+          voucherCount: platformVouchesFor.length,
+          bondAval: ctx.mode === "fixture" ? 5_200 : 0, // no engine equivalent — token-vault fact
+          requestsLast30d: ctx.mode === "fixture" ? 812 : 0, // no engine equivalent — gateway metric
+          upheldRatePct: ctx.mode === "fixture" ? 82 : 0, // no engine equivalent — historical ratio
+          gates: {
+            g1ScoreThreshold: platformSpCenti >= P1,
+            g2TwoDistinctVouchers: new Set(platformVouchesFor.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
+            g3BondPosted: ctx.mode === "fixture",
+          },
+        };
+      })()
+    : {
+        // No platform registered on this live deployment (PlatformRegistry is a different
+        // agent's surface, and no `registerPlatform` call has landed) — the honest empty state,
+        // still computed the same way an unvouched platform's s_P would be: base_P = 0, P0.
+        address: "0x0000000000000000000000000000000000000000",
+        ensName: "no platform registered",
+        score: 0,
+        tier: "P0",
+        voucherCount: 0,
+        bondAval: 0,
+        requestsLast30d: 0,
+        upheldRatePct: 0,
+        gates: { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3BondPosted: false },
+      };
+
+  // ─── agent — docs/04-ens.md §4, docs/07-app-api.md §2.5 ────────────────────────────────────────
+
+  const meHandle = ctx.ensNameFor(ctx.meId);
+  const AGENT: AgentRecord = {
+    subname: `trader.${meHandle}`,
+    operator: meHandle,
+    operatorScore: humanScore(ctx.meId),
+    inheritedTier: meTier,
+    endpointMcp: `https://mcp.aval.xyz/agent/trader.${meHandle}`,
+    endpointA2a: `https://a2a.aval.xyz/trader.${meHandle}`,
+    ensip26: {
+      "agent-context": `# trader.${meHandle}\n\nAutonomous trading agent. Operated by ${meHandle} (Aval tier ${meTier}, score ${humanScore(
+        ctx.meId,
+      ).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${meTier}. It CANNOT issue vouches — vouching requires human presence, and ENSIP-26 agents have none.`,
+      "agent-endpoint[mcp]": `https://mcp.aval.xyz/agent/trader.${meHandle}`,
+      "agent-endpoint[a2a]": `https://a2a.aval.xyz/trader.${meHandle}`,
+      "agent-endpoint[web]": `https://aval.xyz/a/trader.${meHandle}`,
+    },
+    ensip25RegistrationKey: `agent-registration[eip155:480:${ctx.addressFor(ctx.meId)}][0x01]`,
+  };
+
+  // ─── candidates — prospective vouchers for any id ──────────────────────────────────────────────
+
+  function candidatesForId(idOrAddress: string): CandidateVoucher[] {
+    return ctx.candidatesFor(idOrAddress).map((id) => ({
+      ensName: ctx.ensNameFor(id),
+      address: ctx.addressFor(id),
+      score: humanScore(id),
+      tier: tierOf(id),
+      mutualConnections: 0, // no engine equivalent — "shared connections" isn't a scoring concept
+      slotsFree: ctx.slotsFor(id, tierOf(id)).free,
+    }));
+  }
+
+  const CANDIDATES: CandidateVoucher[] = candidatesForId(ctx.meId);
+
+  // ─── vouch simulation preview — docs/07-app-api.md §2.3 step 2 ─────────────────────────────────
+  // Genuinely simulates the hypothetical edge by adding it to the graph and calling `compute()`
+  // again, for whichever candidate is best-ranked — not a standalone "voucher.score x 0.25"
+  // approximation, which (unlike the real engine) wouldn't even check depth ordering.
+
+  function secondaryEffectsBetween(before: EngineOutput, after: EngineOutput, exclude: string): SimulateVouchStep[] {
+    return ctx.accounts
+      .filter((a) => a.kind === "human" && a.id !== exclude)
+      .map((a) => ({
+        ensName: ctx.ensNameFor(a.id),
+        before: centiToScore(before.score[a.id] ?? BASE),
+        after: centiToScore(after.score[a.id] ?? BASE),
+      }))
+      .filter((s) => s.before !== s.after);
+  }
+
+  function simulateVouchGeneric(voucherId: string, targetId: string): SimulateVouchResult {
+    const voucherAcc = ctx.accounts.find((a) => a.id === voucherId && a.kind === "human");
+    const targetAcc = ctx.accounts.find((a) => a.id === targetId && a.kind === "human");
+    if (!voucherAcc || !targetAcc) {
+      return {
+        voucher: ctx.ensNameFor(voucherId),
+        target: ctx.ensNameFor(targetId),
+        targetBefore: { score: 10, tier: 0 },
+        targetAfter: { score: 10, tier: 0 },
+        promotes: false,
+        voucherSlotsBefore: 0,
+        voucherSlotsAfter: 0,
+        nextVouchAvailableInHours: 24,
+        secondaryEffects: [],
+      };
+    }
+    const alreadyVouches = ctx.vouches.some((v) => v.voucher === voucherId && v.vouchee === targetId && v.active);
+    const afterResult = alreadyVouches ? result : compute({ ...engineInput, vouches: [...ctx.vouches, mkVouch(voucherId, targetId)] });
+
+    const beforeScore = humanScore(targetId);
+    const beforeTier = tierOf(targetId);
+    const afterScore = centiToScore(afterResult.score[targetId] ?? BASE);
+    const afterTier = (afterResult.tier[targetId] ?? 0) as Tier;
+    const voucherSlots = ctx.slotsFor(voucherId, tierOf(voucherId));
+
+    return {
+      voucher: ctx.ensNameFor(voucherId),
+      target: ctx.ensNameFor(targetId),
+      targetBefore: { score: beforeScore, tier: beforeTier },
+      targetAfter: { score: afterScore, tier: afterTier },
+      promotes: afterTier > beforeTier,
+      voucherSlotsBefore: voucherSlots.free,
+      voucherSlotsAfter: Math.max(0, voucherSlots.free - 1),
+      nextVouchAvailableInHours: 24, // no engine equivalent — rate-limit window, a contract fact
+      secondaryEffects: alreadyVouches ? [] : secondaryEffectsBetween(result, afterResult, targetId),
+    };
+  }
+
+  const defaultVoucherId = ctx.candidatesFor(ctx.meId)[0];
+  const VOUCH_SIMULATION: SimulateVouchResult =
+    ctx.mode === "fixture"
+      ? (() => {
+          // Reproduces the exact moment bob's vouch lands on carol: 22.5 -> 35.0, Tier 0 -> Tier 1
+          const withoutBob = ctx.vouches.filter((v) => !(v.voucher === "bob.aval.eth" && v.vouchee === ctx.meId));
+          const resultWithoutBob = compute({ ...engineInput, vouches: withoutBob });
+          const meScoreIfBobExpires = centiToScore(resultWithoutBob.score[ctx.meId] ?? BASE);
+          const meTierIfBobExpires = (resultWithoutBob.tier[ctx.meId] ?? 0) as Tier;
+          return {
+            voucher: "bob.aval.eth",
+            target: ctx.meId,
+            targetBefore: { score: meScoreIfBobExpires, tier: meTierIfBobExpires },
+            targetAfter: { score: humanScore(ctx.meId), tier: meTier },
+            promotes: meTierIfBobExpires < meTier,
+            voucherSlotsBefore: 3,
+            voucherSlotsAfter: 2,
+            nextVouchAvailableInHours: 24,
+            secondaryEffects: secondaryEffectsBetween(resultWithoutBob, result, ctx.meId),
+          };
+        })()
+      : defaultVoucherId
+        ? simulateVouchGeneric(defaultVoucherId, ctx.meId)
+        : {
+            voucher: "",
+            target: ctx.ensNameFor(ctx.meId),
+            targetBefore: { score: humanScore(ctx.meId), tier: meTier },
+            targetAfter: { score: humanScore(ctx.meId), tier: meTier },
+            promotes: false,
+            voucherSlotsBefore: 0,
+            voucherSlotsAfter: 0,
+            nextVouchAvailableInHours: 24,
+            secondaryEffects: [],
+          };
+
+  function simulateVouch(voucherId: string, targetId: string): SimulateVouchResult {
+    if (ctx.mode === "fixture" && voucherId === "bob.aval.eth" && targetId === ctx.meId) return VOUCH_SIMULATION;
+    return simulateVouchGeneric(voucherId, targetId);
+  }
+
+  // ─── generic score lookup — powers /api/score/[address] and /api/explain/[address] ─────────────
+
+  function getScoreResult(idOrAddress: string): ScoreResult | undefined {
+    if (idOrAddress === ctx.meId || idOrAddress === ME.address || idOrAddress === ME.ensName) return ME;
+    const acc = ctx.accounts.find(
+      (a) => a.kind === "human" && (a.id === idOrAddress || ctx.addressFor(a.id) === idOrAddress || ctx.ensNameFor(a.id) === idOrAddress),
+    );
+    if (!acc) return undefined;
+    const id = acc.id;
+    const t = tierOf(id);
+    const cred = ctx.credentialFor(id);
+    const bd = breakdownFor(id);
+    const displayBreakdown = acc.isAnchor ? [] : genericBreakdown(id);
+    return {
+      address: ctx.addressFor(id),
+      ensName: ctx.ensNameFor(id),
+      kind: acc.isAnchor ? "anchor" : "member",
+      ...(acc.isAnchor ? { anchorSource: ctx.anchorSourceFor(id) } : {}),
+      base: acc.isAnchor ? 100.0 : 10.0,
+      tenure: centiToScore(bd.tenure),
+      positiveScore: humanSPlus(id),
+      score: humanScore(id),
+      scoreAtRisk: humanScoreAtRisk(id),
+      tier: t,
+      depth: depthOf(id),
+      gates: gatesFor(id),
+      breakdown: displayBreakdown,
+      slots: acc.isAnchor ? { total: 10, used: 0, free: 10 } : ctx.slotsFor(id, t),
+      // Anchors ignore inbound edges entirely (score fixed at 100) — a weakest-link warning about
+      // an edge that can't move their score would be noise, not signal.
+      weakestLink: acc.isAnchor ? null : weakestLinkForId(id, t, bd, displayBreakdown),
+      presence: presenceStateForId(id, t),
+      credentialStatus: cred.status,
+      credentialExpiresAt: cred.expiresAt,
+    };
+  }
+
+  /** Powers `/api/candidates/[address]` for any enrolled address, not only `ME` (task correction:
+   *  the vouch wizard needs the signed-in viewer's own candidate list). */
+  function getCandidates(idOrAddress: string): CandidateVoucher[] | undefined {
+    if (idOrAddress === ctx.meId || idOrAddress === ME.address || idOrAddress === ME.ensName) return CANDIDATES;
+    const acc = ctx.accounts.find(
+      (a) => a.kind === "human" && (a.id === idOrAddress || ctx.addressFor(a.id) === idOrAddress || ctx.ensNameFor(a.id) === idOrAddress),
+    );
+    if (!acc) return undefined;
+    return candidatesForId(acc.id);
+  }
+
+  /** Whether `idOrAddress` has an `Enrolled` record at all — distinct from "score/tier exist",
+   *  since every generic lookup above already defaults gracefully to base score for an address
+   *  that was never enrolled. The enroll wizard needs the sharper "is this address already a
+   *  member" fact on its own. */
+  function isEnrolled(idOrAddress: string): boolean {
+    const acc = ctx.accounts.find(
+      (a) => a.id === idOrAddress || ctx.addressFor(a.id) === idOrAddress || ctx.ensNameFor(a.id) === idOrAddress,
+    );
+    return acc ? ctx.isEnrolledId(acc.id) : false;
+  }
+
+  function explainProse(idOrAddress: string): string | undefined {
+    const r = getScoreResult(idOrAddress);
+    if (!r) return undefined;
+    if (r.kind === "anchor") {
+      const provenance = r.anchorSource === "genesis-testnet" ? "genesis-testnet" : "Orb-verified";
+      return `${r.ensName} is a ${provenance} anchor. Its score is fixed at 100.00 and ignores every inbound edge, positive or negative (docs/01-trust-math.md §2) — it is depth 0 by definition, the externally-grounded floor the rest of the graph is measured from.`;
+    }
+    const counted = r.breakdown.filter((b) => b.counted);
+    const zero = r.breakdown.filter((b) => !b.counted);
+    const countedSum = counted.reduce((sum, b) => sum + b.contribution, 0);
+    const parts: string[] = [];
+    parts.push(
+      `${r.ensName} is Tier ${r.tier} with a score of ${r.score.toFixed(1)}, at depth ${r.depth ?? "∞"} from the nearest anchor.`,
+    );
+    parts.push(
+      `That score is base ${r.base.toFixed(1)} plus ${counted
+        .map((b) => `${b.voucher.ensName} contributing +${b.contribution.toFixed(1)} (${b.voucher.score.toFixed(1)} x 0.25)`)
+        .join(", ")}${counted.length ? ` = ${(r.base + countedSum).toFixed(1)}` : ""}.`,
+    );
+    if (zero.length) {
+      parts.push(zero.map((b) => `${b.voucher.ensName} also vouches but contributes +0.0 — ${b.reason}`).join(" "));
+    }
+    if (r.weakestLink) {
+      parts.push(
+        `If ${r.weakestLink.voucherEnsName}'s vouch expires, the score drops to ${r.weakestLink.scoreIfExpired.toFixed(1)}${
+          r.weakestLink.losesTier ? ` and Tier ${r.weakestLink.currentTier} is lost` : ""
+        }.`,
+      );
+    }
+    return parts.join(" ");
+  }
+
+  // ─── identity directory + gate + path ──────────────────────────────────────────────────────────
+
+  function findIdentity(idOrAddress: string): IdentityResult | undefined {
+    const entry = ctx.directory.find(
+      (d) => d.id === idOrAddress || ctx.addressFor(d.id) === idOrAddress || ctx.ensNameFor(d.id) === idOrAddress,
+    );
+    if (!entry) return undefined;
+    const cred = ctx.credentialFor(entry.id);
+    return {
+      address: ctx.addressFor(entry.id),
+      ensName: ctx.ensNameFor(entry.id),
+      kind: entry.kind,
+      registeredAt: ctx.mode === "fixture" ? fixtureIso(-entry.registeredAgoDays) : new Date(ctx.now.getTime() - entry.registeredAgoDays * DAY_MS).toISOString(),
+      credential: entry.credential,
+      credentialStatus: cred.status,
+      ...(entry.kind === "anchor" ? { anchorSource: ctx.anchorSourceFor(entry.id) } : {}),
+    };
+  }
+
+  function checkGate(idOrAddress: string, policy: GatePolicy): GateResult {
+    const identity = findIdentity(idOrAddress);
+    if (!identity) return { allow: false, reasons: ["identity_not_found"] };
+    const reasons: string[] = [];
+    const isPlatform = identity.kind === "platform";
+    const idKey = ctx.accounts.find((a) => ctx.ensNameFor(a.id) === identity.ensName)?.id ?? identity.ensName;
+    const t = isPlatform ? (result.platformTier[idKey] ?? 0) : tierOf(idKey);
+    const s = isPlatform ? centiToScore(result.sPlatform[idKey] ?? 0) : humanScore(idKey);
+    if (policy.minTier !== undefined && t < policy.minTier) reasons.push(`tier ${t} below required tier ${policy.minTier}`);
+    if (policy.minScore !== undefined && s < policy.minScore) reasons.push(`score ${s.toFixed(1)} below required score ${policy.minScore.toFixed(1)}`);
+    if (policy.requireCredential && identity.credential !== policy.requireCredential) {
+      reasons.push(`credential ${identity.credential} does not satisfy required credential ${policy.requireCredential}`);
+    }
+    return { allow: reasons.length === 0, reasons };
+  }
+
+  function parentOf(id: string): string | undefined {
+    const d = result.depth[id];
+    if (d === undefined) return undefined;
+    const edge = ctx.vouches.find((e) => e.vouchee === id && result.depth[e.voucher] === d - 1);
+    return edge?.voucher;
+  }
+
+  /** Walks from `fromEnsName` back to the literal string "anchor", or to a specific target name. */
+  function findPath(fromEnsName: string, toEnsName: string): PathResult {
+    // R-12 (docs/97-review-engine-app.md): an entirely unknown starting identity must yield zero
+    // hops, so the route's existing `hops.length === 0` check 404s — not a single synthetic hop.
+    const fromId = ctx.accounts.find((a) => a.id === fromEnsName || ctx.ensNameFor(a.id) === fromEnsName)?.id;
+    if (!fromId) return { from: fromEnsName, to: toEnsName, found: false, hops: [] };
+    const toId = ctx.accounts.find((a) => a.id === toEnsName || ctx.ensNameFor(a.id) === toEnsName)?.id;
+
+    const hops: PathResult["hops"] = [];
+    let cursor: string | undefined = fromId;
+    let previous: string | undefined;
+    const visited = new Set<string>();
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor);
+      const contributionCenti =
+        previous === undefined ? 0 : (breakdownFor(previous).vouchers.find((v) => v.voucher === cursor)?.contribution ?? 0);
+      hops.push({
+        ensName: ctx.ensNameFor(cursor),
+        address: ctx.addressFor(cursor),
+        depth: depthOf(cursor) ?? -1,
+        contribution: centiToScore(contributionCenti),
+      });
+      if ((toEnsName === "anchor" && (result.depth[cursor] ?? Number.POSITIVE_INFINITY) === 0) || cursor === toId || ctx.ensNameFor(cursor) === toEnsName) {
+        return { from: fromEnsName, to: toEnsName, found: true, hops };
+      }
+      previous = cursor;
+      cursor = parentOf(cursor);
+    }
+    return { from: fromEnsName, to: toEnsName, found: false, hops };
+  }
+
+  // ─── health ─────────────────────────────────────────────────────────────────────────────────
+
+  const HEALTH: HealthResult =
+    ctx.mode === "fixture"
+      ? {
+          status: "ok",
+          subgraphDeployment: ctx.meta.subgraphDeployment,
+          indexedBlock: ctx.meta.computedAtBlock,
+          chainHead: ctx.meta.computedAtBlock + ctx.meta.indexerLagBlocks,
+          lagBlocks: ctx.meta.indexerLagBlocks,
+        }
+      : // filled in by loadAvalData(), which has the async chain-health call this sync function
+        // can't make — see the live branch below.
+        {
+          status: "ok",
+          subgraphDeployment: ctx.meta.subgraphDeployment,
+          indexedBlock: ctx.meta.computedAtBlock,
+          chainHead: ctx.meta.computedAtBlock,
+          lagBlocks: 0,
+        };
+
+  return {
+    mode: ctx.mode,
+    meta: ctx.meta,
+    viewerIsSelf: ctx.viewerIsSelf,
+    ME,
+    PLATFORM,
+    REPORTS,
+    AGENT,
+    EXPLORE_HONEST,
+    EXPLORE_RING,
+    HEALTH,
+    CANDIDATES,
+    VOUCH_SIMULATION,
+    NOW: ctx.now,
+    getScoreResult,
+    getCandidates,
+    isEnrolled,
+    explainProse,
+    findIdentity,
+    checkGate,
+    findPath,
+    simulateVouch,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// ─── entry point — memoized per mode; LIVE additionally caches by block via chain.ts ─────────────
+
+let fixtureCache: AvalData | null = null;
+
+/**
+ * `viewingAddress`, when provided, is the signed-in wallet whose own data `ME` should reflect
+ * (from the `aval_addr` cookie `session.tsx` sets — see `page.tsx`). Omitted, it falls back to
+ * the read-only `ME_ADDRESS` demo identity, and `viewerIsSelf` comes back `false` so the UI can
+ * label the fallback plainly rather than silently pretending it's the visitor's own account.
+ *
+ * No block-keyed second-layer cache here anymore: the result is per-viewer now (two different
+ * signed-in addresses must never share a cached `ME`), and the actually expensive part — the
+ * Multicall3-batched chain read — is already cached inside `getLiveGraph()` (15s TTL). What's left
+ * (`compute()` over an already-fetched graph) is cheap enough to just always run.
+ */
+export async function loadAvalData(viewingAddress?: Address): Promise<AvalData> {
+  if (getChainMode() === "fixture") {
+    if (!fixtureCache) fixtureCache = deriveAvalData(buildFixtureContext());
+    return fixtureCache;
+  }
+
+  const ctx = await buildLiveContext(viewingAddress);
+  const blockNum = ctx.meta.computedAtBlock;
+  const data = deriveAvalData(ctx);
+  const chainHealth = await getChainHealth();
+  data.HEALTH = {
+    status: "ok",
+    subgraphDeployment: ctx.meta.subgraphDeployment,
+    indexedBlock: blockNum,
+    chainHead: Number(chainHealth.currentBlock),
+    lagBlocks: Math.max(0, Number(chainHealth.currentBlock) - blockNum),
+    deploymentBlock: Number(chainHealth.deploymentBlock),
+    chainId: chainHealth.chainId,
+  };
+
+  return data;
 }
