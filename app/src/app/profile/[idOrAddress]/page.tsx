@@ -42,7 +42,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   // Return BEFORE reading any chain data, as every other gated route does (explore, reports,
-  // platform, agents, home): whatever renders here ships in the RSC payload, so a signed-out
+  // platform, home): whatever renders here ships in the RSC payload, so a signed-out
   // `curl` would read the subject's handle, address, score, tier, depth, credential and full
   // voucher list. Rendering nothing is the gate; painting a login screen over it is not.
   if (!viewingAddress) return null;
@@ -154,10 +154,6 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           </a>
           <a href="/reports" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
             Reports — against you / filed by you
-          </a>
-          {/* Minting an agent subname is not built, so this link must not advertise it as one. */}
-          <a href="/agents" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
-            Agents — ENSIP-26 records, preview only
           </a>
         </section>
       ) : null}

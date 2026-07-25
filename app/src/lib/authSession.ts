@@ -7,9 +7,9 @@
  * is that session, and the only cookie any server page trusts for authorization.
  *
  * `vouchme_addr` is written (mirrored) alongside it, plain and client-writable, because
- * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load, and
- * because src/app/agents/page.tsx still reads it directly. It is display/back-compat only: nothing
- * that grants access to another member's data in Home, Reports or Profile trusts it.
+ * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load. It is
+ * display-only: nothing that grants access to another member's data in Home, Reports or Profile
+ * trusts it.
  *
  * Nonce pattern deliberately mirrors src/app/api/enroll/rp-context/route.ts: a nonce + issuedAt +
  * expiresAt signed server-side with the same secret this deployment already provisions

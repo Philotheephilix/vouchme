@@ -18,7 +18,7 @@ export function BottomNav() {
       href: address ? `/profile/${address}` : "/enroll",
       label: "Profile",
       testid: "nav-profile",
-      active: pathname.startsWith("/profile") || pathname.startsWith("/agents"),
+      active: pathname.startsWith("/profile"),
     },
   ];
 

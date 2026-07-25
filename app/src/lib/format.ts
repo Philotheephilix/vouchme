@@ -17,17 +17,9 @@ export function centiToScore(centi: number): number {
   return centi / CENTI;
 }
 
-export function scoreToCenti(score: number): number {
-  return Math.round(score * CENTI);
-}
-
 /** Fixed one-decimal display: 35 -> "35.0", 12.5 -> "12.5". */
 export function fmtScore(score: number): string {
   return score.toFixed(1);
-}
-
-export function fmtCentiScore(centi: number): string {
-  return fmtScore(centiToScore(centi));
 }
 
 /** Signed one-decimal display for contribution rows: 12.5 -> "+12.5", 0 -> "+0.0". */
@@ -39,10 +31,6 @@ export function fmtSigned(score: number): string {
 /** Multiplier display: 0.25 -> "0.25". */
 export function fmtMultiplier(weight: number): string {
   return weight.toFixed(2);
-}
-
-export function fmtPct(pct: number): string {
-  return `${pct.toFixed(0)}%`;
 }
 
 export function fmtVouchMe(amount: number): string {
@@ -119,11 +107,6 @@ export function platformTierLabel(tier: PlatformTier): string {
   return tier;
 }
 
-export function daysUntil(iso: string, now: Date = new Date()): number {
-  const diffMs = new Date(iso).getTime() - now.getTime();
-  return diffMs / (1000 * 60 * 60 * 24);
-}
-
 export function hoursUntil(iso: string, now: Date = new Date()): number {
   const diffMs = new Date(iso).getTime() - now.getTime();
   return diffMs / (1000 * 60 * 60);
@@ -131,12 +114,6 @@ export function hoursUntil(iso: string, now: Date = new Date()): number {
 
 export function fmtDate(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
-}
-
-export function addDays(iso: string, days: number): string {
-  const d = new Date(iso);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString();
 }
 
 /**
@@ -174,10 +151,6 @@ const EPOCHS_PER_DAY = 4; // 6h epochs
 
 export function tenureFromDays(presentDays: number): number {
   return centiToScore(tenureCenti(Math.floor(presentDays * EPOCHS_PER_DAY)));
-}
-
-export function daysFromEpochs(epochs: number): number {
-  return epochs / EPOCHS_PER_DAY;
 }
 
 /** Sampled points for the tenure curve chart, flattening toward the T_MAX dashed ceiling. */

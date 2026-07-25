@@ -2,14 +2,14 @@ import { cookies } from "next/headers";
 import { Header } from "@/components/Header";
 import { StatLine } from "@/components/StatLine";
 import { readVerifiedAddress } from "@/lib/authSession";
-import { fmtVouchMe, fmtPct, fmtScore, platformTierLabel } from "@/lib/format";
+import { fmtVouchMe, fmtScore, platformTierLabel } from "@/lib/format";
 import { loadVouchMeData } from "@/lib/mock";
 
 // LIVE mode reads World Chain on every request — never bake a snapshot into the build.
 export const dynamic = "force-dynamic";
 
-/** A metric with no source in this mode renders as a stated gap, never as `0` — a zero is a
- *  measurement, and none of these were measured. */
+/** A metric whose registry this deployment does not read renders as a stated gap, never as `0` —
+ *  a zero is a measurement, and that one was never taken. */
 function unknownOr(value: number | null, format: (n: number) => string): string {
   return value === null ? "not tracked" : format(value);
 }
@@ -23,9 +23,10 @@ export default async function PlatformPage() {
 
   const { PLATFORM, platformsAvailable } = await loadVouchMeData(viewingAddress);
 
-  // No platform on this graph. In live mode that is because PlatformRegistry is never read at
-  // all, so rendering the console's zeros and FAILing gates here would print measurements that
-  // were never taken as results.
+  // No platform on this graph — either PlatformRegistry was read and holds none, or this
+  // deployment has none configured to read. `platformsAvailable` tells the two apart below;
+  // rendering the console's zeros and FAILing gates for either would print measurements that were
+  // never taken as results.
   if (!PLATFORM.registered) {
     return (
       <div className="pb-8">
@@ -60,13 +61,7 @@ export default async function PlatformPage() {
         </div>
 
         <StatLine label="Vouchers" value={String(PLATFORM.voucherCount)} hint="distinct humans" />
-        <StatLine label="Bond posted" value={unknownOr(PLATFORM.bondVouchMe, fmtVouchMe)} hint="CredibilityVault" />
-        <StatLine label="Requests, last 30d" value={unknownOr(PLATFORM.requestsLast30d, String)} hint="gateway" />
-        <StatLine
-          label="Upheld rate"
-          value={unknownOr(PLATFORM.upheldRatePct, fmtPct)}
-          hint="of reports it has filed"
-        />
+        <StatLine label="Bond posted" value={unknownOr(PLATFORM.bondVouchMe, fmtVouchMe)} hint="PlatformRegistry" />
 
         <div className="mt-6">
           <div className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">Gates</div>

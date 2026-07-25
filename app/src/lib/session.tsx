@@ -11,8 +11,7 @@
  *   - `vouchme_session` (httpOnly, HMAC-bound to the verified address) — the only cookie any server
  *     page (Home, Reports, Profile, this gate) trusts for authorization.
  *   - `vouchme_addr` (plain) — kept only so this module can read it back here for a fast,
- *     non-blocking UI restore on load, and because src/app/agents/ still reads it directly. It is
- *     display-only; nothing security-relevant reads it.
+ *     non-blocking UI restore on load. It is display-only; nothing security-relevant reads it.
  */
 
 "use client";

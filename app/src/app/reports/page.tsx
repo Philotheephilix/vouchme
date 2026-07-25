@@ -101,14 +101,6 @@ export default async function ReportsPage() {
           )}
         </div>
       </section>
-
-      <section className="px-4">
-        <p className="text-2xs leading-relaxed text-graphite">
-          Filing a report is not wired into this screen: it needs a VOUCHME bond in CredibilityVault before the
-          transaction can succeed, and this build has no bonding flow. The attestation a filing needs is served
-          by <span className="font-mono">/api/report/attest</span>.
-        </p>
-      </section>
     </div>
   );
 }

@@ -9,7 +9,7 @@
 export type Address = `0x${string}`;
 export type EnsName = string;
 
-export type AccountKind = "anchor" | "member" | "platform" | "agent";
+export type AccountKind = "anchor" | "member" | "platform";
 /** Three distinct things, deliberately not collapsed:
  *  - "orb" — the FIXTURE's fictional demo anchor. Not real verification.
  *  - "genesis-testnet" — what `GenesisAnchorBook.anchorSource()` returns on World Chain Sepolia.
@@ -133,12 +133,9 @@ export interface PlatformScoreResult {
   score: number;
   tier: PlatformTier;
   voucherCount: number;
-  /** `null` where the value has no source in this mode: the bond lives in CredibilityVault,
-   *  request counts in the gateway, the upheld ratio in ReportRegistry — none of which the live
-   *  reader touches. `null` renders as "not tracked"; it must never be flattened to 0. */
+  /** `PlatformRegistry.platforms(addr).bond`. `null` only when this deployment has no
+   *  PlatformRegistry to read; it must never be flattened to 0, which would read as "unbonded". */
   bondVouchMe: number | null;
-  requestsLast30d: number | null;
-  upheldRatePct: number | null;
   gates: { g1ScoreThreshold: boolean; g2TwoDistinctVouchers: boolean; g3BondPosted: boolean | null };
 }
 
@@ -335,23 +332,4 @@ export interface ExploreScenario {
   finalScore: number;
   finalTier: Tier;
   gates: Gates;
-}
-
-/** docs/04-ens.md §4, docs/07-app-api.md §2.5 — agent subnames.
- *
- *  NOTHING in this record is published. There is no ENSIP-26/25 registrar call in this repo, and
- *  mcp.vouchme.xyz / a2a.vouchme.xyz / vouchme.xyz do not serve this app. `published` is false everywhere
- *  today; `exampleLabel` is the placeholder label the preview is composed with, and the UI must
- *  present it as an example rather than as a name the operator chose. */
-export interface AgentRecord {
-  published: boolean;
-  exampleLabel: string;
-  subname: EnsName;
-  operator: EnsName;
-  operatorScore: number;
-  inheritedTier: Tier;
-  endpointMcp: string;
-  endpointA2a: string;
-  ensip26: Record<string, string>;
-  ensip25RegistrationKey: string;
 }

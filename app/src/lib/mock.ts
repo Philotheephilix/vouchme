@@ -45,7 +45,6 @@ import {
 import type { Account, EngineInput, EngineOutput, PlatformVouch, Report, Vouch } from "@vouchme/engine";
 import type {
   AccountKind,
-  AgentRecord,
   ApiMeta,
   CandidateVoucher,
   Credential,
@@ -653,7 +652,6 @@ export interface VouchMeData {
   ME: ScoreResult;
   PLATFORM: PlatformScoreResult;
   REPORTS: ReportEntry[];
-  AGENT: AgentRecord;
   EXPLORE_HONEST: ExploreScenario;
   EXPLORE_RING: ExploreScenario;
   HEALTH: HealthResult;
@@ -1093,16 +1091,8 @@ function deriveVouchMeData(ctx: GraphContext): VouchMeData {
           score: centiToScore(platformSpCenti),
           tier: platformTierFromEngine(result.platformTier[ctx.platformId!]),
           voucherCount: platformVouchesFor.length,
-          // `bondVouchMe` is read from chain — `PlatformRegistry` custodies platform bonds itself.
-          // The other two stay `null` in live mode because they have no source: request counts
-          // live in the gateway (not deployed), and "upheld rate"
-          // is not a quantity ReportRegistry exposes for a platform (the reports it holds are
-          // reports FILED BY and AGAINST accounts, with no notion of a platform's hit rate).
-          // Rendering 0 / 0 / 0% would present measurements that were never taken as if they had
-          // been. The fixture's figures stay, because the fixture says it is a demo graph.
+          // Read from chain — `PlatformRegistry` custodies platform bonds itself.
           bondVouchMe: ctx.platformBondVouchMe(ctx.platformId!),
-          requestsLast30d: ctx.mode === "fixture" ? 812 : null,
-          upheldRatePct: ctx.mode === "fixture" ? 82 : null,
           gates: {
             g1ScoreThreshold: platformSpCenti >= P1,
             g2TwoDistinctVouchers: new Set(platformVouchesFor.map((pv) => pv.voucher)).size >= MIN_VOUCHERS,
@@ -1127,42 +1117,8 @@ function deriveVouchMeData(ctx: GraphContext): VouchMeData {
         tier: "P0",
         voucherCount: 0,
         bondVouchMe: null,
-        requestsLast30d: null,
-        upheldRatePct: null,
         gates: { g1ScoreThreshold: false, g2TwoDistinctVouchers: false, g3BondPosted: null },
       };
-
-  // ─── agent — docs/04-ens.md §4, docs/07-app-api.md §2.5 ────────────────────────────────────────
-
-  const meHandle = ctx.ensNameFor(ctx.meId);
-  // Nothing in this record exists. Agent subname registration has not shipped: `/api/ens/mint`
-  // only ever mints the operator's own `<handle>.vouchme.eth`, there is no ENSIP-26/25 registrar
-  // call anywhere in this repo, and none of the hostnames below serve anything. `exampleLabel`
-  // is exactly that — an example, not a name anyone chose or reserved — and `/agents` is required
-  // to say so on screen next to every value it prints.
-  const AGENT_EXAMPLE_LABEL = "agent";
-  const agentSubname = `${AGENT_EXAMPLE_LABEL}.${meHandle}`;
-  const AGENT: AgentRecord = {
-    published: false,
-    exampleLabel: AGENT_EXAMPLE_LABEL,
-    subname: agentSubname,
-    operator: meHandle,
-    operatorScore: humanScore(ctx.meId),
-    inheritedTier: meTier,
-    endpointMcp: `https://mcp.vouchme.xyz/agent/${agentSubname}`,
-    endpointA2a: `https://a2a.vouchme.xyz/${agentSubname}`,
-    ensip26: {
-      "agent-context": `# ${agentSubname}\n\nOperated by ${meHandle} (VouchMe tier ${meTier}, score ${humanScore(
-        ctx.meId,
-      ).toFixed(1)}).\n\n**Delegated authority:** this agent inherits tier ${meTier}. It CANNOT issue vouches — vouching requires a human, and ENSIP-26 agents are not one.`,
-      "agent-endpoint[mcp]": `https://mcp.vouchme.xyz/agent/${agentSubname}`,
-      "agent-endpoint[a2a]": `https://a2a.vouchme.xyz/${agentSubname}`,
-      "agent-endpoint[web]": `https://vouchme.xyz/a/${agentSubname}`,
-    },
-    // Chain id from the configured chain, not a literal 480 that silently becomes wrong the day
-    // this points anywhere else.
-    ensip25RegistrationKey: `agent-registration[eip155:${WORLDCHAIN_ID}:${ctx.addressFor(ctx.meId)}][0x01]`,
-  };
 
   // ─── candidates — prospective vouchers for any id ──────────────────────────────────────────────
 
@@ -1507,7 +1463,6 @@ function deriveVouchMeData(ctx: GraphContext): VouchMeData {
     ME,
     PLATFORM,
     REPORTS,
-    AGENT,
     EXPLORE_HONEST,
     EXPLORE_RING,
     HEALTH,
