@@ -3,6 +3,13 @@ pragma solidity ^0.8.24;
 
 import {AvalToken} from "./AvalToken.sol";
 
+/// @dev Minimal local interface mirroring `AvalRegistry.isEnrolled`, used only for the dual-role
+///      guard in `registerPlatform` (docs/02-contracts.md §0, gap review G-B5). Settable post-deploy
+///      by governor — see `AvalRegistry.platformRegistry` for the matching reasoning in reverse.
+interface IAvalRegistryCheck {
+    function isEnrolled(address account) external view returns (bool);
+}
+
 /// @title PlatformRegistry
 /// @notice "Humans add trust. Platforms only subtract it." (docs/13-platforms.md §1). A platform is
 ///         a first-class account with its own score, granted by humans who vouch for it, starting
@@ -77,6 +84,9 @@ contract PlatformRegistry {
     address   public governor;
     address   public treasury;
     address   public reportRegistry;
+    /// @dev Dual-role guard counterpart (G-B5): `registerPlatform` reverts if this address reports
+    ///      the caller as an enrolled human. No-ops (permits registration) while unset.
+    address   public avalRegistry;
 
     mapping(address => Platform) public platforms;
     mapping(bytes32 => bool)     public scoreRequests;         // keccak(platform, subject) => queried
@@ -99,6 +109,7 @@ contract PlatformRegistry {
     event GovernorTransferred(address indexed previousGovernor, address indexed newGovernor);
     event TreasurySet(address indexed treasury);
     event ReportRegistrySet(address indexed reportRegistry);
+    event AvalRegistrySet(address indexed avalRegistry);
 
     // ─── errors ─────────────────────────────────────────────────────────────
     error NotGovernor(); error NotReportRegistry(); error ZeroAddress();
@@ -107,6 +118,9 @@ contract PlatformRegistry {
     error NoSlots(); error RateLimited(); error VouchExists(); error NoSuchVouch();
     error InsufficientTier(); error OpenReportsExist(); error UnbondNotMatured();
     error NotDeregistering();
+    /// @notice Dual-role guard (G-B5): raised by `registerPlatform` when `msg.sender` is already
+    ///         enrolled as a human in the wired `AvalRegistry`.
+    error AlreadyEnrolledHuman();
 
     modifier onlyGovernor() {
         if (msg.sender != governor) revert NotGovernor();
@@ -147,6 +161,14 @@ contract PlatformRegistry {
         emit ReportRegistrySet(_reportRegistry);
     }
 
+    /// @notice Wires the `AvalRegistry` address for the dual-role guard in `registerPlatform`
+    ///         (docs/02-contracts.md §0, G-B5). Governor-only, post-deploy, same reasoning as
+    ///         `setReportRegistry`.
+    function setAvalRegistry(address _avalRegistry) external onlyGovernor {
+        avalRegistry = _avalRegistry;
+        emit AvalRegistrySet(_avalRegistry);
+    }
+
     function setTreasury(address _treasury) external onlyGovernor {
         if (_treasury == address(0)) revert ZeroAddress();
         treasury = _treasury;
@@ -171,6 +193,11 @@ contract PlatformRegistry {
     ) external {
         if (platforms[msg.sender].active) revert AlreadyRegistered();
         if (bond < MIN_REGISTRATION_BOND) revert InsufficientBond();
+        // Dual-role guard (G-B5): no-ops (permits registration) until governor wires `avalRegistry`
+        // post-deploy — same convention as `AvalRegistry.enroll`'s mirror-image check.
+        if (avalRegistry != address(0) && IAvalRegistryCheck(avalRegistry).isEnrolled(msg.sender)) {
+            revert AlreadyEnrolledHuman();
+        }
 
         bytes32 structHash = keccak256(
             abi.encode(REGISTER_TYPEHASH, msg.sender, keccak256(bytes(ensName)), deadline, nonce)

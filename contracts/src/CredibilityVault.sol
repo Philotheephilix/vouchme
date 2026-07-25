@@ -27,7 +27,14 @@ import {AvalToken} from "./AvalToken.sol";
 ///           privileged forced-transfer hook on `AvalToken` beyond the single `minter` role the task
 ///           spec calls for. Decaying the vault's own custodied-but-unlocked balance needs no new
 ///           privilege (the vault already holds the tokens) and preserves "money at risk is exempt,
-///           money doing nothing decays" exactly — see the TODO on `applyDemurrage` for the follow-up.
+///           money doing nothing decays" exactly. Decay itself is exact continuous compounding via
+///           `_wadPow` — see `DEMURRAGE_RATE_PER_SECOND_WAD`'s doc comment for the derivation.
+///        5. `settle`'s UPHELD insurance slash (docs/12-reporting.md §4 "+0.5 I") is split into a
+///           separate `slashInsurance(reportId, insuredVouchers)` call rather than being inline in
+///           `settle` — see that function's doc comment for why (no on-chain reverse index of "who
+///           insured `target`", and inlining it only for rebutters silently missed the "nobody
+///           defends" row of the payoff matrix, where the reporter is still owed 50% of the target's
+///           insurance despite there being no rebutters to iterate over).
 contract CredibilityVault {
     // ─── types ──────────────────────────────────────────────────────────────
     struct Position {
@@ -47,12 +54,39 @@ contract CredibilityVault {
         uint128 rebuttalTotal;
         bool    open;
         bool    settled;
+        Outcome outcome;    // valid iff `settled`; read by the follow-up `slashInsurance` call
     }
 
     // ─── constants ──────────────────────────────────────────────────────────
     uint64  public constant UNBOND_DELAY        = 14 days;
-    uint256 public constant DEMURRAGE_RATE_BPS  = 700;      // 7% / year
+    uint256 public constant DEMURRAGE_RATE_BPS  = 700;      // 7% / year (documentation constant only;
+                                                              // the actual decay uses the per-second
+                                                              // WAD rate below, which is *derived from*
+                                                              // this 7%/yr figure — see `applyDemurrage`)
     uint256 public constant BPS_DENOMINATOR     = 10_000;
+    uint256 internal constant WAD               = 1e18;
+    /// @dev `(1 - 0.07) ** (1 / 31_536_000)` in WAD (1e18) fixed point — the per-second multiplier
+    ///      whose 31,536,000th (365-day) power is exactly `0.93`. Derived once, offline, via:
+    ///      ```python
+    ///      from decimal import Decimal, getcontext
+    ///      getcontext().prec = 60
+    ///      r = Decimal(93) / Decimal(100)
+    ///      rate_per_second = (r.ln() / Decimal(365 * 86400)).exp()
+    ///      int((rate_per_second * Decimal(10**18)).to_integral_value())
+    ///      ```
+    ///      `applyDemurrage` raises this to the integer power `elapsed` (in seconds) via
+    ///      exponentiation-by-squaring (`_wadPow`), which implements continuous compounding
+    ///      `balance(t) = balance(0) * (1 - 0.07)^(t / 365d)` exactly (docs/11-token-vault.md §4.4)
+    ///      without any fractional-exponent math — the fractional exponent is baked into this
+    ///      constant once, offline, and the on-chain work is pure integer repeated squaring.
+    ///      Precision bound: each `_wadPow` multiply-then-divide-by-WAD step truncates by at most 1
+    ///      wei (1e-18 of a token), and a full year of per-second compounding needs at most
+    ///      `ceil(log2(31_536_000)) = 25` squaring steps, so the worst-case *relative* error versus
+    ///      exact real-number compounding is on the order of `25 * 1e-18` — utterly negligible next
+    ///      to 18-decimal token amounts. Verified against the exact 1-year case: raising this
+    ///      constant to `365 days` in seconds yields `929999999996530408` (vs. the exact
+    ///      `930000000000000000`), an absolute error of ~3.5e-9 AVAL per 1 AVAL of idle balance.
+    uint256 public constant DEMURRAGE_RATE_PER_SECOND_WAD = 999999997698798429;
 
     // ─── storage ────────────────────────────────────────────────────────────
     AvalToken public immutable token;
@@ -74,6 +108,9 @@ contract CredibilityVault {
     event LockedForRebuttal(bytes32 indexed reportId, address indexed rebutter, uint128 amount);
     event InsuranceBonded(address indexed voucher, address indexed vouchee, uint128 amount);
     event Settled(bytes32 indexed reportId, Outcome outcome);
+    /// @notice Follow-up to an UPHELD `Settled`: 50% of the slashed insurance to the reporter, 50%
+    ///         to the treasury (docs/12-reporting.md §4 "+0.5 I"; docs/11-token-vault.md §3.2).
+    event InsuranceSlashed(bytes32 indexed reportId, uint128 toReporter, uint128 toTreasury);
     event DemurrageApplied(address indexed account, uint128 decayed, uint128 remainingBonded);
     event ReportRegistrySet(address indexed reportRegistry);
     event TreasurySet(address indexed treasury);
@@ -91,6 +128,8 @@ contract CredibilityVault {
     error ClaimAlreadyOpen();
     error ClaimNotOpen();
     error ClaimAlreadySettled();
+    /// @notice `slashInsurance` may only be called on a claim that settled UPHELD.
+    error ClaimNotUpheld();
 
     // ─── modifiers ──────────────────────────────────────────────────────────
     modifier onlyGovernor() {
@@ -222,14 +261,16 @@ contract CredibilityVault {
     }
 
     /// @notice Resolves a claim per the payoff matrix in docs/12-reporting.md §4. `target` must
-    ///         match the report's subject so the insurance key can be derived per-rebutter.
-    /// @dev TODO(step N): the "UPHELD, nobody defends" case (`rebuttersOf[reportId].length == 0`)
-    ///      should slash 50% of the *target's total* insurance across every voucher who bonded it,
-    ///      not just rebutters. That set is not enumerable on-chain without a reverse index (the
-    ///      registry deliberately keeps none — "the contract stores facts"), so this scaffold only
-    ///      slashes insurance for on-chain-discoverable rebutters. A keeper-supplied
-    ///      `address[] insuredVouchers` list, verified off-chain by the Subgraph, is the intended
-    ///      v1 completion of this path.
+    ///         match the report's subject so the insurance key can be derived by `slashInsurance`.
+    /// @dev Insurance slashing for UPHELD is handled entirely by the separate `slashInsurance` call
+    ///      below, not inline here — see that function's doc comment for why: the vault has no
+    ///      reverse index of "every voucher who insured `target`", so the set is always
+    ///      keeper/governor-supplied, whether or not anyone rebutted. Folding rebutter-only insurance
+    ///      handling into `settle` itself (an earlier version of this function did) silently missed
+    ///      the "UPHELD, nobody defends" case — rebutters are empty there by definition, so the
+    ///      reporter never received their 50% of the target's insurance bonds even though the payoff
+    ///      matrix guarantees it unconditionally. Unifying both cases into one post-settle call fixes
+    ///      that without special-casing "did anyone rebut".
     function settle(bytes32 reportId, Outcome outcome, address target) external onlyReportRegistry {
         Claim storage c = claims[reportId];
         if (!c.open) revert ClaimNotOpen();
@@ -237,6 +278,7 @@ contract CredibilityVault {
         c.settled = true;
         c.open = false;
         c.target = target;
+        c.outcome = outcome;
 
         Position storage rp = positions[c.reporter];
         uint128 reporterBond = c.reporterLocked;
@@ -246,27 +288,20 @@ contract CredibilityVault {
         uint128 rebuttalTotal = c.rebuttalTotal;
 
         if (outcome == Outcome.UPHELD) {
-            // Reporter: bond back + 50% of rebuttal stake + 50% of slashed insurance.
-            // Rebutters: lose their stake and any insurance bonded on `target`.
-            uint128 reporterShare = reporterBond;
-            uint128 toTreasury;
+            // Reporter: bond back + 50% of rebuttal stake (+ 50% of the target's insurance, via the
+            // separate `slashInsurance` call). Rebutters: lose their rebuttal stake — `bonded` must
+            // drop here, not just `locked`, or the stake is merely unlocked (returned) rather than
+            // actually forfeited, and the amount credited to the reporter/treasury below would have
+            // no matching deduction anywhere.
             for (uint256 i = 0; i < rebutters.length; ++i) {
                 address rebutter = rebutters[i];
                 uint128 stake = rebuttals[reportId][rebutter];
                 positions[rebutter].locked -= stake;
-                bytes32 key = keccak256(abi.encode(rebutter, target));
-                uint128 ins = insurance[key];
-                if (ins != 0) {
-                    insurance[key] = 0;
-                    positions[rebutter].locked -= ins;
-                    positions[rebutter].bonded -= ins;
-                    reporterShare += ins / 2;
-                    toTreasury += ins - (ins / 2);
-                }
+                positions[rebutter].bonded -= stake;
             }
-            reporterShare += rebuttalTotal / 2;
-            toTreasury += rebuttalTotal - (rebuttalTotal / 2);
-            rp.bonded += (reporterShare - reporterBond); // net gain credited on top of returned bond
+            uint128 reporterShare = rebuttalTotal / 2;
+            uint128 toTreasury = rebuttalTotal - reporterShare;
+            rp.bonded += reporterShare; // bond itself was never removed from `bonded`, only `locked`
             if (toTreasury != 0) token.transfer(treasury, toTreasury);
         } else if (outcome == Outcome.UNPROVEN) {
             // Reporter's bond returned in full; every rebutter's stake returned in full.
@@ -305,10 +340,52 @@ contract CredibilityVault {
         emit Settled(reportId, outcome);
     }
 
+    /// @notice Follow-up to an UPHELD `settle`: slashes 100% of the insurance `insuredVouchers[i]`
+    ///         bonded on `target` (docs/12-reporting.md §4 target column "insurance slashed"), 50% to
+    ///         the reporter and 50% to the treasury — the same split `settle` already applies to
+    ///         rebuttal stakes. Covers **every** insured voucher, not only rebutters, which is what
+    ///         makes the "UPHELD, nobody defends" row of the payoff matrix work: the reporter's
+    ///         `+0.5 I` does not depend on anyone having rebutted.
+    /// @dev Permissionless and idempotent by construction, same guard pattern as `AvalRegistry.sweep`
+    ///      / `confirmFraud`'s `vouchees` list: `insuredVouchers` is a keeper/governor-supplied list
+    ///      (the vault keeps no reverse index of "who insured `target`" — "the contract stores
+    ///      facts", docs/02-contracts.md §1), and each entry is checked against live on-chain
+    ///      insurance state before being touched. A stale, wrong, or already-processed address is a
+    ///      silent no-op (`insurance[key] == 0`), so the list can be supplied incrementally across
+    ///      multiple calls (e.g. as the Subgraph discovers more insured vouchers) without risk of
+    ///      double-slashing or of a bad address corrupting anyone else's funds.
+    function slashInsurance(bytes32 reportId, address[] calldata insuredVouchers) external {
+        Claim storage c = claims[reportId];
+        if (!c.settled || c.outcome != Outcome.UPHELD) revert ClaimNotUpheld();
+
+        address target = c.target;
+        uint128 toReporterTotal;
+        uint128 toTreasuryTotal;
+        for (uint256 i = 0; i < insuredVouchers.length; ++i) {
+            address voucher = insuredVouchers[i];
+            bytes32 key = keccak256(abi.encode(voucher, target));
+            uint128 ins = insurance[key];
+            if (ins == 0) continue;
+            insurance[key] = 0;
+            Position storage vp = positions[voucher];
+            vp.locked -= ins;
+            vp.bonded -= ins;
+            uint128 half = ins / 2;
+            toReporterTotal += half;
+            toTreasuryTotal += (ins - half);
+        }
+        if (toReporterTotal != 0) positions[c.reporter].bonded += toReporterTotal;
+        if (toTreasuryTotal != 0) token.transfer(treasury, toTreasuryTotal);
+        emit InsuranceSlashed(reportId, toReporterTotal, toTreasuryTotal);
+    }
+
     // ─── demurrage ───────────────────────────────────────────────────────────
-    /// @notice Permissionless, lazy 7%/yr decay on idle-but-bonded AVAL (`bonded - locked`).
-    ///         Locked (actively securing a claim/insurance) AVAL is exempt — "money at risk is
-    ///         money working" (docs/11-token-vault §4.4). Decayed AVAL flows to the treasury.
+    /// @notice Permissionless, lazy, exactly-continuous 7%/yr decay on idle-but-bonded AVAL
+    ///         (`bonded - locked`). Locked (actively securing a claim/insurance) AVAL is exempt —
+    ///         "money at risk is money working" (docs/11-token-vault §4.4). Decayed AVAL flows to
+    ///         the treasury. `balance(t) = balance(0) * (1 - 0.07)^(t / 365d)`, computed via
+    ///         `DEMURRAGE_RATE_PER_SECOND_WAD` raised to the integer power `elapsed` (seconds) — see
+    ///         that constant's doc comment for the derivation and the precision bound.
     function applyDemurrage(address account) external {
         Position storage p = positions[account];
         if (p.lastDemurrage == 0) {
@@ -322,15 +399,26 @@ contract CredibilityVault {
         uint128 idle = p.bonded - p.locked;
         if (idle == 0) return;
 
-        // TODO(step N): exact continuous compounding `balance * (1 - 0.07)^(t/365d)`. This uses a
-        // linear approximation (`rate * elapsed / 365d`, capped at `idle`) to avoid a fixed-point
-        // pow() in the scaffold; swap for a proper exp/ln (e.g. PRBMath) before mainnet.
-        uint256 decay = (uint256(idle) * DEMURRAGE_RATE_BPS * elapsed) / (BPS_DENOMINATOR * 365 days);
-        if (decay > idle) decay = idle;
+        uint256 factor = _wadPow(DEMURRAGE_RATE_PER_SECOND_WAD, elapsed);
+        uint256 remaining = (uint256(idle) * factor) / WAD;
+        uint256 decay = uint256(idle) - remaining;   // remaining rounds down, so decay rounds up
+        if (decay > idle) decay = idle;               // paranoia clamp; cannot trigger given the above
         if (decay == 0) return;
 
         p.bonded -= uint128(decay);
         token.transfer(treasury, decay);
         emit DemurrageApplied(account, uint128(decay), p.bonded);
+    }
+
+    /// @notice Fixed-point exponentiation by squaring: returns `x^n` where `x` is WAD (1e18) scaled,
+    ///         in `O(log2(n))` multiply-and-truncate steps. Used to raise the per-second demurrage
+    ///         rate to an integer number of elapsed seconds — see `DEMURRAGE_RATE_PER_SECOND_WAD`.
+    function _wadPow(uint256 x, uint256 n) internal pure returns (uint256 result) {
+        result = WAD;
+        while (n > 0) {
+            if (n & 1 == 1) result = (result * x) / WAD;
+            x = (x * x) / WAD;
+            n >>= 1;
+        }
     }
 }

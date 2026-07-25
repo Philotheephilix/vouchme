@@ -146,4 +146,46 @@ contract PlatformRegistryTest is Test {
         (uint32 platformActive, , ) = platformRegistry.humanActivity(humanVoucher);
         assertEq(platformActive, 0);
     }
+
+    // ─── G-B5: an address must not be both a human and a platform (mirror of AvalRegistry's) ──
+
+    function test_RegisterPlatform_RevertsIfEnrolledHuman() public {
+        vm.startPrank(governor);
+        avalRegistry.setAttestor(attestor, true);
+        platformRegistry.setAvalRegistry(address(avalRegistry));
+        vm.stopPrank();
+
+        // A registered platform address (`platform`) first enrolls as a human in AvalRegistry.
+        uint64 deadline = uint64(block.timestamp + 5 minutes);
+        uint256 nonce = 1;
+        bytes32 structHash = keccak256(
+            abi.encode(avalRegistry.ENROLL_TYPEHASH(), platform, uint256(777), keccak256("orb"), deadline, nonce)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", avalRegistry.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
+
+        vm.prank(platform);
+        avalRegistry.enroll(777, keccak256("orb"), "platform-as-human", deadline, nonce, abi.encodePacked(r, s, v));
+
+        // Now the same address tries to register as a platform — must revert. `expectRevert` only
+        // covers the *very next* call, so the attestation is signed here (off-chain, no external
+        // call) rather than through `_registerPlatform()`, which makes an extra `REGISTER_TYPEHASH()`
+        // view call of its own before the real one and would consume the expectation early.
+        uint64 deadline2 = uint64(block.timestamp + 5 minutes);
+        uint256 nonce2 = 2;
+        bytes32 structHash2 = keccak256(
+            abi.encode(
+                platformRegistry.REGISTER_TYPEHASH(), platform, keccak256(bytes("myapp.aval.eth")), deadline2, nonce2
+            )
+        );
+        bytes32 digest2 = keccak256(abi.encodePacked("\x19\x01", platformRegistry.domainSeparator(), structHash2));
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(attestorPk, digest2);
+
+        vm.prank(platform);
+        vm.expectRevert(PlatformRegistry.AlreadyEnrolledHuman.selector);
+        platformRegistry.registerPlatform(
+            "myapp.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline2, nonce2,
+            abi.encodePacked(r2, s2, v2)
+        );
+    }
 }

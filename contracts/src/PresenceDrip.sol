@@ -32,9 +32,13 @@ import {AvalRegistry} from "./AvalRegistry.sol";
 ///        4. `zeroTenure` / `pauseAccrual` are exposed for `AvalRegistry.confirmFraud` /
 ///           `ReportRegistry`'s UPHELD path to call, but those two contracts only hold this
 ///           contract's address via a post-deploy governor setter (constructor-time circular
-///           dependency: this contract needs `AvalRegistry`'s address, so `AvalRegistry` cannot
-///           also require this one's address at construction). See the `// TODO(step N)` at each
-///           call site.
+///           dependency: this contract needs `AvalRegistry`'s and `CredibilityVault`'s addresses, so
+///           neither of *them* can also require this one's address at construction). Both setters
+///           (`AvalRegistry.setPresenceDrip`, `ReportRegistry.setPresenceDrip`) already exist and are
+///           exercised by the deploy flow in `script/Deploy.s.sol`, which performs the full post-
+///           deploy wiring dance (this contract, plus the `AvalRegistry` <-> `PlatformRegistry`
+///           dual-role cross-reference from docs/02-contracts.md §0) in the one place deployment
+///           order allows it.
 contract PresenceDrip {
     struct Presence {
         uint64 lastClaimAt;
@@ -245,7 +249,9 @@ contract PresenceDrip {
 
     /// @notice The one irreversible tenure penalty: confirmed fraud zeroes `epochsClaimed`.
     ///         Restricted to `avalRegistry` itself so only `AvalRegistry.confirmFraud` can trigger
-    ///         it — see the TODO there for wiring this contract's address in post-deploy.
+    ///         it. `AvalRegistry.presenceDrip` must be wired (governor `setPresenceDrip`, done in
+    ///         `script/Deploy.s.sol`'s post-deploy step) for `confirmFraud` to actually call this —
+    ///         it no-ops the hook while unset, same convention as every other post-deploy address.
     function zeroTenure(address account) external {
         if (msg.sender != address(avalRegistry)) revert NotGovernor();
         presence[account].epochsClaimed = 0;

@@ -9,6 +9,15 @@ interface IPresenceDripZero {
     function zeroTenure(address account) external;
 }
 
+/// @dev Minimal local interface mirroring `PlatformRegistry.isRegistered`, used only for the
+///      dual-role guard in `enroll` (docs/02-contracts.md §0, gap review G-B5). Avoids a circular
+///      concrete import: `PlatformRegistry` has no compile-time dependency on `AvalRegistry`, but
+///      wiring both directions through a concrete import would still force a deployment order.
+///      Settable post-deploy by governor, same pattern as `reportRegistry` / `presenceDrip`.
+interface IPlatformRegistryCheck {
+    function isRegistered(address account) external view returns (bool);
+}
+
 /// @title AvalRegistry
 /// @notice The trust graph. Records facts only — enroll, vouch, reaffirm, revoke — as events; the
 ///         Subgraph computes score/tier/depth. See docs/02-contracts.md §1.
@@ -76,6 +85,12 @@ contract AvalRegistry {
     ///      needs this contract's address, so this contract cannot also require `PresenceDrip`'s
     ///      address at construction. Settable by governor; `confirmFraud` no-ops the hook while unset.
     address public presenceDrip;
+    /// @dev Dual-role guard counterpart (docs/02-contracts.md §0, G-B5): `enroll` reverts if this
+    ///      address reports the caller as an active platform. Settable post-deploy by governor —
+    ///      `PlatformRegistry` is deployed independently and neither constructor can require the
+    ///      other's address without a circular dependency. No-ops (permits enrollment) while unset,
+    ///      same convention as `presenceDrip`.
+    address public platformRegistry;
 
     // ─── events (the entire Subgraph surface) ───────────────────────────────
     event Enrolled(address indexed account, uint256 indexed nullifierHash,
@@ -91,6 +106,11 @@ contract AvalRegistry {
     event AttestorSet(address indexed attestor, bool enabled);
     event GovernorTransferred(address indexed previousGovernor, address indexed newGovernor);
     event ReportRegistrySet(address indexed reportRegistry);
+    event PlatformRegistrySet(address indexed platformRegistry);
+    /// @notice One event per outbound edge voided by `confirmFraud` (FR-7, G-B13) — "the fraudulent
+    ///         account's own outbound vouches", distinct from the `SlotPenaltyApplied` events fired
+    ///         for its *vouchers*. The Subgraph follows this the same way it follows `Revoked`.
+    event OutboundVouchVoided(address indexed account, address indexed vouchee, uint64 at);
 
     // ─── errors ─────────────────────────────────────────────────────────────
     error NotEnrolled(); error AlreadyEnrolled(); error NullifierUsed();
@@ -99,6 +119,9 @@ contract AvalRegistry {
     error VouchExists(); error NoSuchVouch(); error CredentialExpired();
     error InsufficientTier(); error Suspended();
     error NotGovernor(); error ZeroAddress(); error NotReportRegistry();
+    /// @notice Dual-role guard (G-B5): raised by `enroll` when `msg.sender` is already an active
+    ///         platform in the wired `PlatformRegistry`.
+    error AlreadyPlatform();
 
     // ─── modifiers ──────────────────────────────────────────────────────────
     modifier onlyGovernor() {
@@ -152,6 +175,20 @@ contract AvalRegistry {
         presenceDrip = _presenceDrip;
     }
 
+    /// @notice Wires the `PlatformRegistry` address for the dual-role guard in `enroll`
+    ///         (docs/02-contracts.md §0, G-B5). Governor-only, post-deploy, same reasoning as
+    ///         `setReportRegistry` / `setPresenceDrip`.
+    function setPlatformRegistry(address _platformRegistry) external onlyGovernor {
+        platformRegistry = _platformRegistry;
+        emit PlatformRegistrySet(_platformRegistry);
+    }
+
+    /// @notice True if `a` holds an enrolled `Member` record. Read by `PlatformRegistry` for the
+    ///         other half of the dual-role guard (`registerPlatform` reverts if `a` is enrolled here).
+    function isEnrolled(address a) external view returns (bool) {
+        return members[a].enrolled;
+    }
+
     // ─── 3.1 enroll ─────────────────────────────────────────────────────────
     function enroll(
         uint256 nullifierHash,
@@ -163,6 +200,12 @@ contract AvalRegistry {
     ) external {
         if (members[msg.sender].enrolled) revert AlreadyEnrolled();
         if (usedNullifier[nullifierHash]) revert NullifierUsed();   // ← one account per World ID
+        // Dual-role guard (G-B5): an address must not stack a human report weight AND a platform
+        // report weight against the same target. No-ops (permits enrollment) until governor wires
+        // `platformRegistry` post-deploy.
+        if (platformRegistry != address(0) && IPlatformRegistryCheck(platformRegistry).isRegistered(msg.sender)) {
+            revert AlreadyPlatform();
+        }
 
         bytes32 structHash = keccak256(
             abi.encode(ENROLL_TYPEHASH, msg.sender, nullifierHash, credential, deadline, nonce)
@@ -286,9 +329,10 @@ contract AvalRegistry {
     }
 
     /// @notice Applies the -1-slot/30-day penalty from an UPHELD report (docs/12-reporting.md §6)
-    ///         to `vouchers`. Restricted to `reportRegistry`. See the `confirmFraud` TODO on why
-    ///         the *full* set of a target's vouchers (including the silent majority who did not
-    ///         rebut) is supplied by the caller rather than enumerated on-chain.
+    ///         to `vouchers`. Restricted to `reportRegistry`. Same reverse-index reasoning as
+    ///         `confirmFraud`'s `vouchees` parameter: the *full* set of a target's vouchers
+    ///         (including the silent majority who did not rebut) is supplied by the caller rather
+    ///         than enumerated on-chain.
     function applyReportPenalty(address[] calldata vouchers) external onlyReportRegistry {
         uint64 until_ = uint64(block.timestamp) + REPORT_SLOT_PENALTY;
         for (uint256 i; i < vouchers.length; ++i) {
@@ -300,7 +344,16 @@ contract AvalRegistry {
     }
 
     // ─── 3.6 fraud ───────────────────────────────────────────────────────────
-    function confirmFraud(address account, address[] calldata vouchers, bytes32 reason)
+    /// @notice Confirms `account` as fraudulent: penalises its inbound vouchers' slots for 30 days,
+    ///         zeroes its tenure (if `PresenceDrip` is wired), and **voids its own outbound vouches**
+    ///         (FR-7; gap review G-B13 found this last step missing).
+    /// @param vouchers Accounts that vouched *for* `account` — penalised per the existing rule.
+    /// @param vouchees Accounts `account` itself vouched *for* — voided here. The registry keeps no
+    ///        reverse index by design ("the contract stores facts", docs/02-contracts.md §1), so this
+    ///        is a governor-supplied list drawn from the Subgraph, which does index the full edge
+    ///        set. Each entry is checked against on-chain state before being touched, so a caller
+    ///        cannot fabricate a voided-edge event for a pair that was never actually a live vouch.
+    function confirmFraud(address account, address[] calldata vouchers, address[] calldata vouchees, bytes32 reason)
         external
         onlyGovernor
     {
@@ -316,13 +369,21 @@ contract AvalRegistry {
         if (presenceDrip != address(0)) {
             IPresenceDripZero(presenceDrip).zeroTenure(account);
         }
-        // TODO(step N): void `account`'s own outbound vouches on confirmed fraud
-        // (docs/12-reporting.md §7: "outbound voided"). The registry has no reverse index of a
-        // voucher's vouchees (by design — facts only, no derived indices), so voiding requires
-        // either an off-chain-enumerated call list (governor supplies `account`'s own vouchee set
-        // through a follow-up `sweep`-style admin call) or a PresenceDrip-side tenure zero plus a
-        // Subgraph-side exclusion of `fraudulent` accounts' outbound edges from scoring. The latter
-        // is the actual v1 answer — see docs/02-contracts.md §1 ("the contract stores facts").
+
+        // Void `account`'s own outbound vouches (docs/12-reporting.md §7 "outbound voided";
+        // docs/01-trust-math.md §17 case 2, distinct from case 3 "merely reported"). Guarded exactly
+        // like `sweep`: an entry that was never a live (issued, unrevoked) vouch is silently skipped
+        // rather than reverting the whole batch, so a caller passing a stale or wrong address cannot
+        // grief the rest of the list, and it cannot fabricate a voided-edge event out of nothing.
+        Member storage acct = members[account];
+        for (uint256 i; i < vouchees.length; ++i) {
+            Vouch storage v = vouches[account][vouchees[i]];
+            if (v.issuedAt != 0 && !v.revoked) {
+                v.revoked = true;
+                if (acct.activeOutbound > 0) acct.activeOutbound -= 1;
+                emit OutboundVouchVoided(account, vouchees[i], uint64(block.timestamp));
+            }
+        }
     }
 
     // ─── internal: slots ─────────────────────────────────────────────────────

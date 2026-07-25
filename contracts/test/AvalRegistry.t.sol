@@ -2,7 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {AvalRegistry} from "../src/AvalRegistry.sol";
+import {AvalToken} from "../src/AvalToken.sol";
+import {PlatformRegistry} from "../src/PlatformRegistry.sol";
 import {MockAddressBook} from "./mocks/MockAddressBook.sol";
 
 contract AvalRegistryTest is Test {
@@ -234,5 +237,115 @@ contract AvalRegistryTest is Test {
         vm.prank(alice);
         vm.expectRevert(AvalRegistry.BadAttestation.selector);
         registry.enroll(nullifier, CRED, "handle", deadline, nonce, sig);
+    }
+
+    // ─── FR-7 / G-B13: confirmFraud voids the fraudulent account's own outbound vouches ──────
+
+    function test_ConfirmFraud_VoidsOutboundVouches() public {
+        _enroll(alice, 1);
+        _enroll(bob, 2);
+        _enroll(carol, 3);
+
+        _vouch(alice, bob, 1);
+        skip(1 days + 1);
+        _vouch(alice, carol, 1);
+
+        (, , uint32 activeBefore, , , , ,) = registry.members(alice);
+        assertEq(activeBefore, 2, "alice should have 2 live outbound vouches before fraud");
+
+        address[] memory vouchers = new address[](0);
+        address[] memory vouchees = new address[](2);
+        vouchees[0] = bob;
+        vouchees[1] = carol;
+
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit AvalRegistry.OutboundVouchVoided(alice, bob, uint64(block.timestamp));
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit AvalRegistry.OutboundVouchVoided(alice, carol, uint64(block.timestamp));
+
+        vm.prank(governor);
+        registry.confirmFraud(alice, vouchers, vouchees, keccak256("sybil-ring"));
+
+        (, uint64 expiresAtBob, bool revokedBob) = registry.vouches(alice, bob);
+        (, uint64 expiresAtCarol, bool revokedCarol) = registry.vouches(alice, carol);
+        assertTrue(revokedBob, "alice's vouch for bob must be voided by confirmFraud");
+        assertTrue(revokedCarol, "alice's vouch for carol must be voided by confirmFraud");
+        // Voiding is a revoke, not a rewrite: the historical expiry timestamps are untouched.
+        assertTrue(expiresAtBob != 0);
+        assertTrue(expiresAtCarol != 0);
+
+        (, , uint32 activeAfter, , , , , bool fraudulent) = registry.members(alice);
+        assertEq(activeAfter, 0, "activeOutbound must be decremented for every voided edge");
+        assertTrue(fraudulent);
+    }
+
+    function test_ConfirmFraud_GuardsAgainstNonVoucheeAddresses() public {
+        _enroll(alice, 1);
+        _enroll(bob, 2);
+        // alice never vouches for bob or dave. dave (0x4444) is not even enrolled.
+
+        address[] memory vouchers = new address[](0);
+        address[] memory vouchees = new address[](2);
+        vouchees[0] = bob;
+        vouchees[1] = dave;
+
+        vm.recordLogs();
+        vm.prank(governor);
+        // Must not revert: a caller passing addresses that were never actually vouchees is a no-op
+        // for those entries, exactly like AvalRegistry.sweep skipping a dead/nonexistent edge.
+        registry.confirmFraud(alice, vouchers, vouchees, keccak256("no-op-guard"));
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 voidedTopic = keccak256("OutboundVouchVoided(address,address,uint64)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertTrue(logs[i].topics[0] != voidedTopic, "no vouch was ever issued, nothing to void");
+        }
+
+        (, , uint32 activeAfter, , , , ,) = registry.members(alice);
+        assertEq(activeAfter, 0, "activeOutbound must be unaffected by non-vouchee entries");
+    }
+
+    // ─── G-B5: an address must not be both a human and a platform ──────────────────────────
+
+    function test_Enroll_RevertsIfRegisteredPlatform() public {
+        AvalToken token = new AvalToken(governor);
+        PlatformRegistry platformRegistry = new PlatformRegistry(address(token), governor, address(0xBEEF));
+
+        vm.startPrank(governor);
+        token.setMinter(governor, true);
+        platformRegistry.setAttestor(attestor, true);
+        registry.setPlatformRegistry(address(platformRegistry));
+        vm.stopPrank();
+
+        // bob registers as a platform first.
+        vm.prank(governor);
+        token.mint(bob, 10_000e18);
+        vm.prank(bob);
+        token.approve(address(platformRegistry), type(uint256).max);
+
+        uint64 deadline = uint64(block.timestamp + 5 minutes);
+        uint256 nonce = 1;
+        bytes32 structHash = keccak256(
+            abi.encode(
+                platformRegistry.REGISTER_TYPEHASH(), bob, keccak256(bytes("bobapp.aval.eth")), deadline, nonce
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", platformRegistry.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, digest);
+
+        vm.prank(bob);
+        platformRegistry.registerPlatform(
+            "bobapp.aval.eth", bytes32("meta"), bytes32("policy"), 5_000e18, deadline, nonce,
+            abi.encodePacked(r, s, v)
+        );
+
+        // bob now tries to enroll as a human — must revert.
+        uint64 edeadline = uint64(block.timestamp + 5 minutes);
+        uint256 enonce = 42;
+        bytes memory esig = _signEnroll(bob, 999, CRED, edeadline, enonce);
+
+        vm.prank(bob);
+        vm.expectRevert(AvalRegistry.AlreadyPlatform.selector);
+        registry.enroll(999, CRED, "bob-handle", edeadline, enonce, esig);
     }
 }

@@ -33,7 +33,7 @@ interface IPresenceDripPause {
 ///        3. The "-1 slot / 30d" penalty on UPHELD applies to the on-chain-known rebutters
 ///           automatically; the *silent* majority of the target's vouchers (who did nothing) are
 ///           penalized via a governor-supplied list in `applySilentPenalty`, for the same
-///           no-reverse-index reason as `CredibilityVault`'s insurance-sweep TODO.
+///           no-reverse-index reason as `CredibilityVault.slashInsurance`'s `insuredVouchers` list.
 contract ReportRegistry {
     enum State { NONE, PENDING, ARBITRATION, UPHELD, UNPROVEN, MALICIOUS, WITHDRAWN }
 
@@ -84,6 +84,8 @@ contract ReportRegistry {
 
     mapping(bytes32 => Report)       public reports;
     mapping(bytes32 => Arbitration)  internal _arbitrations;
+    /// @notice reportId => juror => already voted. Enforces one vote per assigned juror.
+    mapping(bytes32 => mapping(address => bool)) public hasVoted;
     mapping(bytes32 => mapping(address => uint128)) public rebuttalOf; // reportId => rebutter => stake
     mapping(bytes32 => address[])    public rebuttersOf;               // reportId => rebutter list
     mapping(address => uint32)       public openReportCount;           // reporter => open reports
@@ -304,10 +306,9 @@ contract ReportRegistry {
             if (a.jurors[i] == msg.sender) { isJuror = true; break; }
         }
         if (!isJuror) revert NotJuror();
+        if (hasVoted[id][msg.sender]) revert AlreadyVoted();
+        hasVoted[id][msg.sender] = true;
 
-        // TODO(step N): per-juror single-vote enforcement needs a `mapping(bytes32=>mapping(address=>bool))`
-        // "hasVoted" set; omitted here to keep `Arbitration` a value-type-friendly struct for the
-        // scaffold. Add before mainnet — currently a juror could double-vote.
         a.votesTotal += 1;
         if (malicious) {
             a.votesMalicious += 1;
@@ -356,8 +357,10 @@ contract ReportRegistry {
 
     /// @notice Keeper/governor-supplied list of the target's vouchers who neither rebutted nor
     ///         revoked before an UPHELD resolution — "doing nothing costs the same as defending and
-    ///         losing" (docs/12-reporting.md §6). See the contract-level TODO: the registry has no
-    ///         on-chain reverse index of a target's vouchers to enumerate this itself.
+    ///         losing" (docs/12-reporting.md §6). The registry has no on-chain reverse index of a
+    ///         target's vouchers (deliberately — "the contract stores facts", docs/02-contracts.md
+    ///         §1), so this list is supplied the same way `AvalRegistry.confirmFraud`'s `vouchees`
+    ///         and `CredibilityVault.slashInsurance`'s `insuredVouchers` are.
     function applySilentPenalty(bytes32 id, address[] calldata silentVouchers) external onlyGovernor {
         Report storage r = reports[id];
         if (r.state != State.UPHELD) revert NotPending();
