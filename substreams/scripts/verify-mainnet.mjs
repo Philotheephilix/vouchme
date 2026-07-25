@@ -6,7 +6,7 @@
 // Streams NOTHING. This is plain JSON-RPC `eth_getLogs` against World Chain mainnet — a
 // completely different data plane from StreamingFast's Firehose, with a different provider,
 // different transport and different credentials (none). Its whole job is to answer, without
-// trusting the Substreams stack at all: *which AvalRegistry events actually exist on chain 480,
+// trusting the Substreams stack at all: *which VouchMeRegistry events actually exist on chain 480,
 // and what do their bytes decode to?*
 //
 // Run it next to `substreams run ./substreams.yaml map_trust_events -e worldchain -s 32833177
@@ -21,14 +21,14 @@
 const RPC = process.env.RPC || "https://worldchain-mainnet.g.alchemy.com/public";
 
 // The live World Chain mainnet deployment. NOT deployments/worldchain-mainnet.json's
-// `contracts.AvalRegistry` (0x7a294C7C…) — that file records an earlier, abandoned run of the
+// `contracts.VouchMeRegistry` (0x7a294C7C…) — that file records an earlier, abandoned run of the
 // same deploy script. This is the address app/.env.local reads, the address
-// aval-trust/substreams.yaml indexes, and the only one carrying the real Vouched log.
+// vouchme-trust/substreams.yaml indexes, and the only one carrying the real Vouched log.
 const REGISTRY = "0x6fEfEf2d44203300a6a33d631840C972181b8722";
 const DEPLOY_BLOCK = 32833177; // creation block, pinned by the deploy receipt + eth_getCode
 
-// The same topic0 hashes aval-trust/substreams.yaml's params carry, and the same ones
-// aval-trust/src/lib.rs's tests assert against. Recompute any of them with:
+// The same topic0 hashes vouchme-trust/substreams.yaml's params carry, and the same ones
+// vouchme-trust/src/lib.rs's tests assert against. Recompute any of them with:
 //   cast keccak "Vouched(address,address,uint64,uint64)"
 const TOPICS = {
   "0x21f09afe14df68eeb2c0fd22ba443b93b0e63d090521d32444903f1d1277793f": "Enrolled",

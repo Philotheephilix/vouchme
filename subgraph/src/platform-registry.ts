@@ -1,4 +1,4 @@
-// @aval/subgraph — src/platform-registry.ts
+// @vouchme/subgraph — src/platform-registry.ts
 //
 // Handlers for every event PlatformRegistry emits (docs/13-platforms.md §8).
 

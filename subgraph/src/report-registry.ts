@@ -1,8 +1,8 @@
-// @aval/subgraph — src/report-registry.ts
+// @vouchme/subgraph — src/report-registry.ts
 //
 // Handlers for every event ReportRegistry emits (docs/12-reporting.md §5).
 // Report weight decay (180d, linear after UPHELD) is computed at read time
-// by @aval/engine from `filedAt`/`resolvedAt`/`state` — the same
+// by @vouchme/engine from `filedAt`/`resolvedAt`/`state` — the same
 // query-time-predicate principle as vouch expiry (docs/05 §2.3), applied
 // here to report weight instead. ReportDecayed is indexed for the
 // timeline view only and deliberately does not mutate Report.
@@ -87,7 +87,7 @@ export function handleReportDecayed(event: ReportDecayed): void {
   // Intentionally a no-op on entity state: decay is a query-time
   // predicate the engine applies from `filedAt`/`resolvedAt`/`now`
   // (docs/12-reporting.md §5 — "changes no protocol state"). This handler
-  // exists so the event is indexed (available to a raw aval_query / a
+  // exists so the event is indexed (available to a raw vouchme_query / a
   // timeline UI) without introducing a second, mutable source of truth
   // for "current" report weight alongside the derived one.
   log.info("ReportDecayed: report={} remainingPoints={}", [

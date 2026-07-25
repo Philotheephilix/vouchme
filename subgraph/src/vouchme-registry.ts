@@ -1,6 +1,6 @@
-// @aval/subgraph — src/aval-registry.ts
+// @vouchme/subgraph — src/vouchme-registry.ts
 //
-// Handlers for every event AvalRegistry emits (docs/02-contracts.md §3).
+// Handlers for every event VouchMeRegistry emits (docs/02-contracts.md §3).
 // This is "the entire Subgraph surface" for the core trust graph, per the
 // contract's own comment above its event list.
 
@@ -14,21 +14,21 @@ import {
   FraudConfirmed,
   SlotPenaltyApplied,
   AttestorSet,
-} from "../generated/AvalRegistry/AvalRegistry";
+} from "../generated/VouchMeRegistry/VouchMeRegistry";
 import { Account, FraudEvent, Vouch } from "../generated/schema";
 import { credentialLabel, getOrCreateAccount, getOrCreateDailySnapshot, getOrCreateProtocol, vouchId } from "./helpers";
 
 export function handleEnrolled(event: Enrolled): void {
   const account = new Account(event.params.account);
   account.handle = event.params.handle;
-  account.enrolledAt = event.params.credentialExpiresAt.minus(BigInt.fromI32(90 * 86400)); // enrolledAt = credentialExpiresAt - 90d, per AvalRegistry.enroll()
+  account.enrolledAt = event.params.credentialExpiresAt.minus(BigInt.fromI32(90 * 86400)); // enrolledAt = credentialExpiresAt - 90d, per VouchMeRegistry.enroll()
   account.credential = credentialLabel(event.params.credential);
   account.credentialExpiresAt = event.params.credentialExpiresAt;
   account.nullifierHash = event.params.nullifierHash;
   account.status = "ACTIVE";
   // isAnchor / anchorCheckedAt: mirrored by a keeper's AnchorChecked event
   // (docs/05-graph-data-layer.md §2.4), which is emitted by a contract
-  // outside this scaffold's 4 required data sources (AvalRegistry,
+  // outside this scaffold's 4 required data sources (VouchMeRegistry,
   // ReportRegistry, PlatformRegistry, PresenceDrip) — see
   // subgraph/README.md's scope note. Defaults to false/0 here; a real
   // deployment adds an AnchorKeeper data source to keep this current.

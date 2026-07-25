@@ -1,5 +1,5 @@
 ##
-## Aval — `aval-worldchain` Subgraph schema
+## VouchMe — `vouchme-worldchain` Subgraph schema
 ##
 ## Section 1 (Account, Vouch, FraudEvent, Protocol, ProtocolDailySnapshot,
 ## AccountStatus) is reproduced from docs/05-graph-data-layer.md §2.1, with
@@ -14,7 +14,7 @@
 ##
 ## Design rule (docs/02-contracts.md §1): "The contract stores facts, the
 ## Subgraph computes meaning." No score, tier, or depth is ever a field on
-## any entity here — those are computed live by @aval/engine from the
+## any entity here — those are computed live by @vouchme/engine from the
 ## edges this schema stores. See docs/05 §2.3: expiry is a QUERY-TIME
 ## predicate (`expiresAt_gt: $now` in a `where` clause), never a stored
 ## `expired` boolean — that rule is applied consistently to every expiring
@@ -71,7 +71,7 @@ type FraudEvent @entity(immutable: true) {
 }
 
 type Protocol @entity(immutable: false) {
-  id: ID!                         # "aval"
+  id: ID!                         # "vouchme"
   accountCount: Int!
   activeVouchCount: Int!
   anchorCount: Int!

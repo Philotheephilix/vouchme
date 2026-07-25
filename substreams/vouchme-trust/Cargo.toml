@@ -1,10 +1,10 @@
 [workspace]
 
 [package]
-name = "aval_trust_graph"
+name = "vouchme_trust_graph"
 version = "0.2.0"
 edition = "2021"
-description = "Composable trust-graph extractor for the Aval Substreams pipeline (docs/14-substreams.md)"
+description = "Composable trust-graph extractor for the VouchMe Substreams pipeline (docs/14-substreams.md)"
 
 [lib]
 crate-type = ["cdylib"]

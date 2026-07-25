@@ -1,14 +1,14 @@
 specVersion: v0.1.0
 
 package:
-  name: aval_trust_graph
+  name: vouchme_trust_graph
   version: v0.2.0
-  url: https://github.com/aval-protocol/aval
+  url: https://github.com/vouchme-protocol/vouchme
   description: |
     Composable trust-graph extractor. Emits standardized TrustEvent (VOUCH /
     REVOKE / REAFFIRM / REPORT / REPORT_RESOLVED) for ANY contract that
     follows the trust-graph v0.1.0 event shape (docs/14-substreams.md §2).
-    This deployment's params target AvalRegistry on World Chain MAINNET
+    This deployment's params target VouchMeRegistry on World Chain MAINNET
     (chainId 480, 0x6fEfEf2d44203300a6a33d631840C972181b8722); the same .spkg
     indexes Circles on Gnosis or any platform's registry on any EVM chain with
     different params only.
@@ -48,14 +48,14 @@ protobuf:
 binaries:
   default:
     type: wasm/rust-v1
-    file: ./target/wasm32-unknown-unknown/release/aval_trust_graph.wasm
+    file: ./target/wasm32-unknown-unknown/release/vouchme_trust_graph.wasm
 
 # NETWORK NOTE (read before running):
 # `worldchain` is World Chain MAINNET (chainId 480) and it IS in
 # StreamingFast's network registry:
 #   $ substreams tools default-endpoint worldchain
 #   mainnet.worldchain.streamingfast.io:443
-# Aval's contracts moved from World Chain Sepolia (4801) to mainnet on
+# VouchMe's contracts moved from World Chain Sepolia (4801) to mainnet on
 # 2026-07-25, so this manifest now points at the real chain, the real
 # contract, and the block the real contract was created in — no substitution,
 # no fallback chain. World Chain SEPOLIA still has no Firehose/Substreams
@@ -67,15 +67,15 @@ binaries:
 network: worldchain
 
 params:
-  # DEFAULT PROFILE — Aval on World Chain mainnet. Mirrored by `networks.worldchain.params`
+  # DEFAULT PROFILE — VouchMe on World Chain mainnet. Mirrored by `networks.worldchain.params`
   # below; this top-level block is what a bare `substreams run`/`pack` with no `--network`
   # uses.
   #
-  # AvalRegistry on World Chain mainnet — deployments/worldchain-mainnet.json's
-  # `contracts.AvalRegistry` is STALE (it names 0x7a294C7C…, an abandoned first
+  # VouchMeRegistry on World Chain mainnet — deployments/worldchain-mainnet.json's
+  # `contracts.VouchMeRegistry` is STALE (it names 0x7a294C7C…, an abandoned first
   # attempt); the live registry the app writes to, and the one that carries the
   # real Enrolled/Vouched logs, is 0x6fEfEf2d…  (see ../PROOF.md §9.1).
-  map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+  map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=vouchme&network=worldchain"
 
 # ─── ADAPTER PROFILES — one .spkg, five chains, two protocols ────────────────────────────────
 #
@@ -87,8 +87,8 @@ params:
 # declaration of how one contract's event vocabulary maps onto the standard's TrustEdge. Adding a
 # sixth protocol means adding an entry here — see §7 of that doc for the checklist.
 #
-# READ THE initialBlock VALUES HONESTLY. For `worldchain` it is AvalRegistry's real creation
-# block, so that profile indexes the protocol's ENTIRE history (~3.5k blocks — Aval is days old).
+# READ THE initialBlock VALUES HONESTLY. For `worldchain` it is VouchMeRegistry's real creation
+# block, so that profile indexes the protocol's ENTIRE history (~3.5k blocks — VouchMe is days old).
 # For the four EAS profiles it is a DEMO WINDOW START, not EAS's deployment block: `store_edges`
 # is a Substreams store and must process every block from `initialBlock` forward, and EAS has
 # been live on Ethereum since 2023 — a full backfill is a scale exercise, not a correctness one,
@@ -97,15 +97,15 @@ params:
 # because it is the beginning of anything. `trust_edges` therefore holds EAS edges from these
 # blocks onward, not all of EAS history. Stated here rather than left for a reader to infer.
 networks:
-  # ── Aval — World Chain mainnet (chainId 480). The reference implementation of the standard.
+  # ── VouchMe — World Chain mainnet (chainId 480). The reference implementation of the standard.
   worldchain:
     initialBlock:
-      map_trust_events: 32833177 # AvalRegistry creation block — full protocol history
+      map_trust_events: 32833177 # VouchMeRegistry creation block — full protocol history
       store_edges: 32833177
       map_edge_deltas: 32833177
       db_out: 32833177
     params:
-      map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+      map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=vouchme&network=worldchain"
 
   # ── EAS — Ethereum Attestation Service. Same .spkg, four chains, one profile shape.
   #
@@ -114,7 +114,7 @@ networks:
   #
   # Three things every EAS profile must say, and why:
   #   from_topic=2 / to_topic=1  EAS declares the SUBJECT first and the ASSERTER second — the
-  #                              opposite of Aval. Without this the edge points backwards.
+  #                              opposite of VouchMe. Without this the edge points backwards.
   #   scope_topic=3              schemaUID. One attester holds many live attestations about the
   #                              same recipient under different schemas; revoking one must not
   #                              revoke the rest.
@@ -165,7 +165,7 @@ networks:
 modules:
   - name: map_trust_events # raw block -> TrustEvents
     kind: map
-    # AvalRegistry's creation block on World Chain mainnet, pinned by eth_getCode
+    # VouchMeRegistry's creation block on World Chain mainnet, pinned by eth_getCode
     # (0 bytes at 32833176, 7645 bytes at 32833177) and by the creation receipt for
     # 0x8636e08a48a01c5b6a4c200fb7a7039fc11764870ef5830925e762337d712384, which reports
     # blockNumber 32833177. NOT 32833180 (that block is 3 later and already has code).
@@ -174,12 +174,12 @@ modules:
       - params: string
       - source: sf.ethereum.type.v2.Block
     output:
-      type: proto:aval.trust.v1.TrustEvents
+      type: proto:vouchme.trust.v1.TrustEvents
 
   - name: store_edges # accumulate live edge state
     kind: store
     updatePolicy: set
-    valueType: proto:aval.trust.v1.Edge
+    valueType: proto:vouchme.trust.v1.Edge
     inputs:
       - map: map_trust_events
 

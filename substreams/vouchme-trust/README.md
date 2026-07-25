@@ -1,4 +1,4 @@
-# aval_trust_graph
+# vouchme_trust_graph
 
 **A composable Substreams package implementing the Trust Graph Standard v0.2.0** — one shared
 schema for a protocol category that had none.
@@ -27,13 +27,13 @@ entry:
 
 | Protocol | Network | Contract | Roles | Scope | Tails |
 |---|---|---|---|---|---|
-| `aval` | `worldchain` | `0x6fEfEf2d44203300a6a33d631840C972181b8722` | `from=1, to=2` | — | `vouch=issued_expires`, `revoke=at`, `reaffirm=expires` |
+| `vouchme` | `worldchain` | `0x6fEfEf2d44203300a6a33d631840C972181b8722` | `from=1, to=2` | — | `vouch=issued_expires`, `revoke=at`, `reaffirm=expires` |
 | `eas` | `base` | `0x4200000000000000000000000000000000000021` | `from=2, to=1` | `3` | `vouch=none`, `revoke=none` |
 | `eas` | `optimism` | `0x4200000000000000000000000000000000000021` | `from=2, to=1` | `3` | `vouch=none`, `revoke=none` |
 | `eas` | `arbitrum` | `0xbD75f629A22Dc1ceD33dDA0b68c546A1c035c458` | `from=2, to=1` | `3` | `vouch=none`, `revoke=none` |
 | `eas` | `mainnet` | `0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587` | `from=2, to=1` | `3` | `vouch=none`, `revoke=none` |
 
-The `from`/`to` column is the point of the whole exercise: Aval declares its indexed params
+The `from`/`to` column is the point of the whole exercise: VouchMe declares its indexed params
 asserter-first, EAS declares them subject-first. Both are two indexed addresses, and both decode
 without error under either reading — only the declared profile tells them apart. Getting it wrong
 reverses every edge while producing entirely plausible output. `../PROOF.md` §10.1 has the real
@@ -43,8 +43,8 @@ rows that were wrong before this was made explicit.
 
 | Module | Kind | Output | Description |
 |---|---|---|---|
-| `map_trust_events` | map | `proto:aval.trust.v1.TrustEvents` | Raw block → standardized trust events, decoded per the adapter profile in `params` |
-| `store_edges` | store (`set`) | `proto:aval.trust.v1.Edge` | Accumulated live state, keyed `(protocol, network, scope, from, to)` |
+| `map_trust_events` | map | `proto:vouchme.trust.v1.TrustEvents` | Raw block → standardized trust events, decoded per the adapter profile in `params` |
+| `store_edges` | store (`set`) | `proto:vouchme.trust.v1.Edge` | Accumulated live state, keyed `(protocol, network, scope, from, to)` |
 | `map_edge_deltas` | map | `proto:sf.substreams.sink.database.v1.DatabaseChanges` | Store deltas → CDC rows for `trust_edges` |
 | `db_out` | map | `proto:sf.substreams.sink.database.v1.DatabaseChanges` | Stable-name sink target (passthrough of `map_edge_deltas`) |
 
@@ -61,7 +61,7 @@ rows that were wrong before this was made explicit.
 node ../scripts/fetch-fixtures.mjs                   # optional: re-pull real logs (reproduces src/lib.rs fixtures)
 cargo test                                           # 21 tests, all against real captured logs, no network
 cargo build --target wasm32-unknown-unknown --release
-substreams pack ./substreams.yaml                    # -> aval-trust-graph-v0.2.0.spkg
+substreams pack ./substreams.yaml                    # -> vouchme-trust-graph-v0.2.0.spkg
 
 # Stream any registered profile. The ONLY thing that changes is --network / -e.
 substreams run ./substreams.yaml map_trust_events --network worldchain -e worldchain -s 32835370 -t +20 -o jsonl
@@ -95,17 +95,17 @@ if they drift.
 
 No code. Add a `networks:` entry to both manifests. The checklist — including how to determine role
 order, scope and tail layout without guessing — is `docs/17-trust-graph-standard.md` §7, with
-Circles v2 worked through as an example. `skills/aval-substreams-deploy` automates the mechanical
+Circles v2 worked through as an example. `skills/vouchme-substreams-deploy` automates the mechanical
 part.
 
 ## Reuse
 
-This is a normal, importable `.spkg`; nothing about it is Aval-specific at runtime — Aval is simply
+This is a normal, importable `.spkg`; nothing about it is VouchMe-specific at runtime — VouchMe is simply
 its first registered profile.
 
 ```yaml
 imports:
-  trust: https://github.com/aval-protocol/aval/releases/download/v0.2.0/aval-trust-graph-v0.2.0.spkg
+  trust: https://github.com/vouchme-protocol/vouchme/releases/download/v0.2.0/vouchme-trust-graph-v0.2.0.spkg
 
 modules:
   - name: my_module

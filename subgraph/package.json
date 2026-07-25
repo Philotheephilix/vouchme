@@ -1,16 +1,16 @@
 {
-  "name": "aval-worldchain-subgraph",
+  "name": "vouchme-worldchain-subgraph",
   "version": "0.1.0",
   "private": true,
-  "description": "Aval — aval-worldchain Subgraph. AvalRegistry, ReportRegistry, PlatformRegistry, PresenceDrip on World Chain (docs/05-graph-data-layer.md).",
+  "description": "VouchMe — vouchme-worldchain Subgraph. VouchMeRegistry, ReportRegistry, PlatformRegistry, PresenceDrip on World Chain (docs/05-graph-data-layer.md).",
   "license": "MIT",
   "scripts": {
     "codegen": "graph codegen",
     "build": "graph build",
-    "deploy:studio": "graph deploy --studio aval-worldchain",
-    "deploy:local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 aval-worldchain",
-    "create:local": "graph create --node http://localhost:8020/ aval-worldchain",
-    "remove:local": "graph remove --node http://localhost:8020/ aval-worldchain",
+    "deploy:studio": "graph deploy --studio vouchme-worldchain",
+    "deploy:local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 vouchme-worldchain",
+    "create:local": "graph create --node http://localhost:8020/ vouchme-worldchain",
+    "remove:local": "graph remove --node http://localhost:8020/ vouchme-worldchain",
     "test": "graph test"
   },
   "devDependencies": {

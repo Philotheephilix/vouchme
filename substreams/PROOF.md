@@ -1,20 +1,20 @@
 # Proof — what actually ran, against what, and why
 
-This file is the evidence trail for `substreams/aval-trust/`. Every command below was actually run
+This file is the evidence trail for `substreams/vouchme-trust/`. Every command below was actually run
 on this box on 2026-07-25 against live endpoints; nothing here is a projection, and every negative
 result is recorded with its real error rather than omitted.
 
 **It is written in chronological order, and the early sections are deliberately not rewritten.**
-§1–§8 were produced while Aval still lived on World Chain **Sepolia**, which has no
+§1–§8 were produced while VouchMe still lived on World Chain **Sepolia**, which has no
 Firehose/Substreams endpoint (§2) — which is why the first live proofs had to run on Base against
-EAS instead. Aval then moved to World Chain **mainnet**, and §9 onward is the state that matters
+EAS instead. VouchMe then moved to World Chain **mainnet**, and §9 onward is the state that matters
 today. If you are reading this to check the submission's claims, start at §9.
 
 | Section | What it establishes |
 |---|---|
 | §1–§6 | Toolchain, the Sepolia/Gnosis endpoint findings, decode proof against real captured logs |
 | §7–§8 | First live Firehose runs + SQL sink (on Base/EAS), and two real defects found by running them |
-| **§9** | **Aval's own contract streamed live from World Chain mainnet, cross-checked against `eth_getLogs`** |
+| **§9** | **VouchMe's own contract streamed live from World Chain mainnet, cross-checked against `eth_getLogs`** |
 | **§10** | **trust-graph v0.2.0: the reversed-EAS-edge bug, its fix, five chains from one `.spkg`, and an independent audit of every sink row** |
 | **§11** | **Honest negatives — Subgraph MCP, Token API, the undeployed subgraph, Gnosis — with exact errors** |
 | **§12** | **The MCP layer over the standardized store** |
@@ -79,7 +79,7 @@ not found. Please provide a valid JWT token via 'authorization' header or an API
 This second error is a **different failure mode** (auth, not "unknown network") — proof the
 endpoint resolved and the connection was attempted; it just needs credentials this environment
 doesn't have (§3). Between (a) and (b): **World Chain Sepolia genuinely has no StreamingFast
-Firehose/Substreams endpoint today.** World Chain *mainnet* does, but AvalRegistry
+Firehose/Substreams endpoint today.** World Chain *mainnet* does, but VouchMeRegistry
 (`0x1d9955CB9f2A531fa6D4f43E712c9B1Fa9A44514`) is a Sepolia-only testnet deployment
 (`deployments/worldchain-sepolia.json`) — it does not exist on mainnet, so pointing at `worldchain`
 would silently stream real mainnet blocks that contain none of our events. That substitution was
@@ -116,10 +116,10 @@ The task's instruction, if Sepolia has no endpoint: *"run the same module agains
 **What running against Base/Gnosis would have proven:** that `substreams run` can stream real blocks
 from a live Firehose endpoint and that the WASM binary executes correctly under the real engine.
 
-**What it would NOT have proven:** anything about decoding *AvalRegistry's actual events* — Base/Gnosis
+**What it would NOT have proven:** anything about decoding *VouchMeRegistry's actual events* — Base/Gnosis
 don't have this contract, so proving the module against them would need fabricated params pointed at
 some *other* real contract's Vouch-shaped event there, which (a) is a materially different claim than
-"this pipeline decodes Aval's real events" and (b) is blocked anyway by §3 — there is no credential
+"this pipeline decodes VouchMe's real events" and (b) is blocked anyway by §3 — there is no credential
 to reach Base or Gnosis Firehose either. So the honest substitution is not "run against a different
 chain with different data" (impossible here, and would answer a different question even if possible)
 — it is: **prove the exact decode logic the WASM module runs, compiled and executed for real,
@@ -137,7 +137,7 @@ pyramid in the `substreams-testing` skill (`substreams::testing::map!`, "Unit �
 `eth_getLogs` against `https://worldchain-sepolia.g.alchemy.com/public` (the RPC in
 `deployments/worldchain-sepolia.json`, unrelated to and unaffected by the Firehose/Substreams
 auth gap in §3 — this is plain JSON-RPC, no StreamingFast credential involved), paginated in
-100-block chunks from block `32216305` (`AvalRegistry` deployment block) to the chain head
+100-block chunks from block `32216305` (`VouchMeRegistry` deployment block) to the chain head
 (`32220307` at capture time):
 
 ```
@@ -149,7 +149,7 @@ Reaffirmed 0
 
 This matches the task brief exactly ("14 Enrolled, 12+ Vouched"). Three real `Vouched` logs and one
 real `Enrolled` log were pulled verbatim (address, topics, data, tx hash, block number — nothing
-edited) into `substreams/aval-trust/src/lib.rs`'s `#[cfg(test)]` module.
+edited) into `substreams/vouchme-trust/src/lib.rs`'s `#[cfg(test)]` module.
 
 Reproducible via `substreams/scripts/fetch-fixtures.mjs` (raw JSON-RPC `eth_getLogs` — the script's
 own header notes that `viem`'s typed `client.getLogs({ topics })` silently ignored the topic filter
@@ -191,7 +191,7 @@ assert_eq!(hex::encode(&ev.from), "defbe7d71f0eae651399c0fb97cf93fa09ee0780"); /
 assert_eq!(hex::encode(&ev.to),   "ee0f520a7cd3f6998dee6463dfe3fc49e040520b");
 assert_eq!(ev.issued_at,  1784980220);   // 2026-07-25T11:50:20Z
 assert_eq!(ev.expires_at, 1792756220);   // 2026-10-23T11:50:20Z
-assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400); // Aval's 90-day vouch expiry, decoded, not assumed
+assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400); // VouchMe's 90-day vouch expiry, decoded, not assumed
 ```
 
 `0xdefbe7d71f0eae651399c0fb97cf93fa09ee0780` is `initialAnchors[0]` in
@@ -206,7 +206,7 @@ decodes the ABI dynamic-`string` tail of a real log
 (tx `0xe988ee338cba2dac86d2e4156958ae6d53f4c42cca7ee43abd8f83c2a39ea4be`) all the way to:
 
 ```rust
-assert_eq!(handle, "anchor1.aval.eth");
+assert_eq!(handle, "anchor1.vouchme.eth");
 ```
 
 — a real ENS-style handle, decoded from raw ABI bytes (offset-pointer + length-prefixed UTF-8), not
@@ -234,31 +234,31 @@ substreams run ./substreams.yaml map_trust_events -e <that endpoint> -s 32216305
 ```
 
 No other change is needed — manifest, params, and module are already correct and packed
-(`aval-trust-graph-v0.2.0.spkg`, §5).
+(`vouchme-trust-graph-v0.2.0.spkg`, §5).
 
 ## 5. Build artifacts (this session)
 
 ```
 $ cargo build --target wasm32-unknown-unknown --release
     Finished `release` profile [optimized] target(s) in 17.68s
-$ ls -la target/wasm32-unknown-unknown/release/aval_trust_graph.wasm
--rwxr-xr-x 1 ubuntu ubuntu 315189 ... aval_trust_graph.wasm
+$ ls -la target/wasm32-unknown-unknown/release/vouchme_trust_graph.wasm
+-rwxr-xr-x 1 ubuntu ubuntu 315189 ... vouchme_trust_graph.wasm
 
 $ substreams pack ./substreams.yaml
-✅ Package created successfully at ./aval-trust-graph-v0.2.0.spkg
-$ sha256sum aval-trust-graph-v0.2.0.spkg
-36897d779a2fc280336ed4cafd68c0104f019589a8131d8d26d416f7433009da  aval-trust-graph-v0.2.0.spkg
+✅ Package created successfully at ./vouchme-trust-graph-v0.2.0.spkg
+$ sha256sum vouchme-trust-graph-v0.2.0.spkg
+36897d779a2fc280336ed4cafd68c0104f019589a8131d8d26d416f7433009da  vouchme-trust-graph-v0.2.0.spkg
 # (repacking after any README.md edit changes this hash — substreams pack embeds README.md
 # verbatim as the package doc, confirmed via `substreams info`'s "Doc:" field; the wasm itself
 # is unchanged from §6's `cargo build` unless src/lib.rs or substreams.yaml also changed)
 
-$ substreams info ./aval-trust-graph-v0.2.0.spkg
-Package name: aval_trust_graph
+$ substreams info ./vouchme-trust-graph-v0.2.0.spkg
+Package name: vouchme_trust_graph
 Version: v0.2.0
 Network: worldchain
 Modules:
-  map_trust_events  (map)    -> proto:aval.trust.v1.TrustEvents
-  store_edges       (store, updatePolicy: set) -> proto:aval.trust.v1.Edge
+  map_trust_events  (map)    -> proto:vouchme.trust.v1.TrustEvents
+  store_edges       (store, updatePolicy: set) -> proto:vouchme.trust.v1.Edge
   map_edge_deltas   (map)    -> proto:sf.substreams.sink.database.v1.DatabaseChanges
   db_out            (map)    -> proto:sf.substreams.sink.database.v1.DatabaseChanges
 Sink config: type sf.substreams.sink.sql.v1.Service, schema.sql loaded (1570 bytes, MD5 bd115e132b0317c6d1e4f0d7120b9f69), engine=2 (clickhouse)
@@ -285,7 +285,7 @@ verified independent of the §2/§3 endpoint gap.
 ## 6. A design question resolved empirically, not by guessing
 
 `store_edges` (per docs/14-substreams.md §2) is a single `updatePolicy: set` store, but `REAFFIRM`
-and `REVOKE` events on AvalRegistry don't carry the full edge record (only `Vouched` does) — so a
+and `REVOKE` events on VouchMeRegistry don't carry the full edge record (only `Vouched` does) — so a
 correct implementation would want to read the edge's prior state before applying a partial update.
 Substreams stores are write-only from within their own handler: `StoreSetProto<T>` has no `get_*`
 method (confirmed by the compiler, not the docs), and declaring a store as its own `mode: get` input
@@ -354,7 +354,7 @@ $ substreams run ./substreams.yaml map_trust_events -e base \
     -p 'map_trust_events=contract=0x4200000000000000000000000000000000000021&vouch_topic=&revoke_topic=&reaffirm_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&report_topic=&report_resolved_topic=&model=ISSUANCE&protocol=eas&network=base' \
     -s 49100200 -t +60 -o jsonl
 
-{"@module":"map_trust_events","@block":49100201,"@type":"aval.trust.v1.TrustEvents","@data":{"events":[
+{"@module":"map_trust_events","@block":49100201,"@type":"vouchme.trust.v1.TrustEvents","@data":{"events":[
   {"protocol":"eas","network":"base","kind":"REAFFIRM",
    "from":"0x2103a27f51066c7a6cecf1fc1048a06740a22571",
    "to":"0x357458739f90461b99789350868cd7cf330dd7ee",
@@ -378,7 +378,7 @@ Honest limitation surfaced by this choice, not hidden by it: EAS's `Attested` ev
 `Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)`
 — its two indexed addresses satisfy `map_trust_events`'s `from`/`to` extraction exactly (hence the
 correct real addresses above), but its one non-indexed word is a content-addressed `uid` hash, not a
-timing value the way `AvalRegistry.Vouched`'s or `CirclesHub.Trust`'s non-indexed tail is. Run through
+timing value the way `VouchMeRegistry.Vouched`'s or `CirclesHub.Trust`'s non-indexed tail is. Run through
 `word_u64`, a `uid` decodes to an arbitrary large number, not wrong exactly (there is no ABI-level
 way to know a contract's non-indexed word is "supposed to be" a timestamp), but not meaningful
 either. §7.3 covers what this did to the sink and how it was made not to crash on it.
@@ -458,7 +458,7 @@ such restriction and ran instantly at any `-s`. This is a real, specific boundar
 params only" for the store+sink half of the pipeline, not the map half — worth a follow-up (e.g.
 network-scoped `initialBlock` overrides, or having the deploy SKILL's `render` step set it) rather
 than something this task's scope covers. The shipped manifest is back to `initialBlock: 32216305`
-(World Chain Sepolia / Aval, the actual target) — confirmed by re-running `cargo test` (8/8) and
+(World Chain Sepolia / VouchMe, the actual target) — confirmed by re-running `cargo test` (8/8) and
 `substreams pack` clean after reverting.
 
 ### 7.4 What is proven now that credentials exist
@@ -499,14 +499,14 @@ Both fixes are real code changes (`src/lib.rs`), not documentation — `cargo te
 regression test (`reaffirm_issued_at_falls_back_to_block_timestamp_not_zero`, 9/9 passing) that
 asserts `issued_at != 0` and equals the real block timestamp for a REAFFIRM-shaped event.
 
-**Direct answer to "does the WCS/Aval Vouched path share this bug":** VOUCH itself, no — its
+**Direct answer to "does the WCS/VouchMe Vouched path share this bug":** VOUCH itself, no — its
 `issued_at` is and was always the event's own explicitly decoded ABI word (verified:
-`assert_eq!(ev.issued_at, 1784980220)`, unchanged). But REAFFIRM and REVOKE on the *real* Aval
+`assert_eq!(ev.issued_at, 1784980220)`, unchanged). But REAFFIRM and REVOKE on the *real* VouchMe
 deployment share the exact same `decode_timing` / `store_edges` code path this bug lived in — it
 was invisible there only because World Chain Sepolia has had zero real `Reaffirmed`/`Revoked`
 events so far (§4.1, confirmed again via `fetch-fixtures.mjs` at time of this fix: 15
 Vouched / 0 Revoked / 0 Reaffirmed). The moment either happens on the live contract, this exact bug
-would have reached a real Aval score input. It cannot now — both layers are fixed, and the fix is
+would have reached a real VouchMe score input. It cannot now — both layers are fixed, and the fix is
 shared code, not a Base-only patch.
 
 ### 8.2 `expires_at`'s clamp ceiling, made explicit rather than left for a reader to guess
@@ -545,19 +545,19 @@ events in block 49100248 — the two block 49100248 rows share a timestamp becau
 block, which is correct: same block, same real on-chain moment). No row reads 1970. `expires_at`'s
 clamp ceiling is unchanged and is exactly what §8.2 says it is, not a guess a reader has to make.
 
-## 9. World Chain MAINNET — Aval's own contract, streamed live
+## 9. World Chain MAINNET — VouchMe's own contract, streamed live
 
-Everything in §1–§8 was written while Aval lived on World Chain **Sepolia**, which has no
+Everything in §1–§8 was written while VouchMe lived on World Chain **Sepolia**, which has no
 Firehose/Substreams endpoint (§2) — which is why §7's live proof had to be done on Base against
-EAS, a different protocol on a different chain. Aval moved to World Chain **mainnet** (chainId
+EAS, a different protocol on a different chain. VouchMe moved to World Chain **mainnet** (chainId
 480) on 2026-07-25. That is what closed the gap: mainnet *is* in the registry, so the module now
-streams **Aval's own contract, on its own chain, decoding its own events.** No substitution.
+streams **VouchMe's own contract, on its own chain, decoding its own events.** No substitution.
 
 ### 9.1 The live deployment
 
-`AvalRegistry` `0x6fEfEf2d44203300a6a33d631840C972181b8722`, created in block `32833177`.
+`VouchMeRegistry` `0x6fEfEf2d44203300a6a33d631840C972181b8722`, created in block `32833177`.
 
-Note `deployments/worldchain-mainnet.json`'s `contracts.AvalRegistry` names `0x7a294C7C…` — an
+Note `deployments/worldchain-mainnet.json`'s `contracts.VouchMeRegistry` names `0x7a294C7C…` — an
 earlier, abandoned deploy of the same script, superseded after errata E-18. The address above is
 the one the app writes to and the one carrying the real logs.
 
@@ -576,8 +576,8 @@ counts (topic0-filtered, whole deployed lifetime):
   Reaffirmed  0
   Revoked     0
 
-{"event":"Enrolled","blockNum":32833568,"txHash":"0xde6f732eeb3c812d81df6098f74eab48b7c76f40f9443832299e13255fd52749","account":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47","handle":"philoo.aval.eth","credentialExpiresAt":1792778775}
-{"event":"Enrolled","blockNum":32833881,"txHash":"0xcbafd84a98bc5e8f2eb7e5a660cfaf57220a344fb5fdc8164a289bed239869f4","account":"0x4774b9621102eac2254365f9311c4e7700d9e7de","handle":"romariokavin.aval.eth","credentialExpiresAt":1792779401}
+{"event":"Enrolled","blockNum":32833568,"txHash":"0xde6f732eeb3c812d81df6098f74eab48b7c76f40f9443832299e13255fd52749","account":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47","handle":"philoo.vouchme.eth","credentialExpiresAt":1792778775}
+{"event":"Enrolled","blockNum":32833881,"txHash":"0xcbafd84a98bc5e8f2eb7e5a660cfaf57220a344fb5fdc8164a289bed239869f4","account":"0x4774b9621102eac2254365f9311c4e7700d9e7de","handle":"romariokavin.vouchme.eth","credentialExpiresAt":1792779401}
 {"event":"Vouched","blockNum":32835377,"txHash":"0x563172cb968bb63b2ba362fa95d6ff257bf94554076ebbbb39e3969cab3d5c45","from":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47","to":"0x4774b9621102eac2254365f9311c4e7700d9e7de","issuedAt":1785006393,"expiresAt":1792782393,"expiryDays":90}
 ```
 
@@ -588,8 +588,8 @@ population of the contract — small, and stated as such rather than padded.
 
 ```
 $ substreams run ./substreams.yaml map_trust_events -e worldchain -s 32835370 -t +20 -o jsonl
-{"@module":"map_trust_events","@block":32835377,"@type":"aval.trust.v1.TrustEvents","@data":{"events":[
-  {"protocol":"aval","network":"worldchain",
+{"@module":"map_trust_events","@block":32835377,"@type":"vouchme.trust.v1.TrustEvents","@data":{"events":[
+  {"protocol":"vouchme","network":"worldchain",
    "from":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47",
    "to":"0x4774b9621102eac2254365f9311c4e7700d9e7de",
    "weightRaw":"1","issuedAt":"1785006393","expiresAt":"1792782393",
@@ -632,7 +632,7 @@ event Attested(address indexed recipient, address indexed attester, bytes32 uid,
 event Revoked (address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID);
 ```
 
-**Subject first, asserter second** — the opposite of `AvalRegistry.Vouched(voucher, vouchee, …)`.
+**Subject first, asserter second** — the opposite of `VouchMeRegistry.Vouched(voucher, vouchee, …)`.
 v0.1.0 hardcoded `from = topics[1]`, `to = topics[2]`, so every EAS edge recorded the person being
 attested *about* as the one doing the attesting. Here are the actual rows that were in ClickHouse,
 captured immediately before dropping the table:
@@ -700,11 +700,11 @@ params and initialBlocks:
 ```
 
 Five adapter profiles now ship in the manifest. Live streams, one per chain, same
-`aval-trust-graph-v0.2.0.spkg` (sha256
+`vouchme-trust-graph-v0.2.0.spkg` (sha256
 `81309a936912b2920b994e4dbbcc644117a8ab4ca0578b34e836560e9fe1db78` — note `substreams pack`
 embeds `README.md` verbatim as the package doc, so editing the README changes this hash while the
 WASM stays identical; re-derive with `substreams pack ./substreams.yaml && sha256sum
-aval-trust-graph-v0.2.0.spkg`), **zero Rust recompiled between them**:
+vouchme-trust-graph-v0.2.0.spkg`), **zero Rust recompiled between them**:
 
 ```
 $ substreams run ./substreams.yaml map_trust_events --network base -e base -s 49110120 -t +90 -o jsonl
@@ -746,7 +746,7 @@ and reports `edge is REVERSED` by name.
 $ node substreams/scripts/crosscheck-trust-edges.mjs
 crosschecking 10 standardized trust edges against independent RPC reads
 
-OK    aval/worldchain 0x563172cb96… blk 32835377
+OK    vouchme/worldchain 0x563172cb96… blk 32835377
         VOUCH  from=0xb23a3b2384d721d7c487a3acc6405a1d36672b47 to=0x4774b9621102eac2254365f9311c4e7700d9e7de
         issued_at=2026-07-25 19:06:33 expires_at=2026-10-23 19:06:33
 OK    eas/base 0xacb7dc06ef… blk 49110131
@@ -763,7 +763,7 @@ every standardized edge matches an independently-fetched on-chain log, field for
 ```
 $ ./substreams/scripts/one-query-demo.sh
    ┌─protocol─┬─network────┬─edges─┬─vouches─┬─revokes─┬─from_block─┬──to_block─┐
-1. │ aval     │ worldchain │     1 │       1 │       0 │   32835377 │  32835377 │
+1. │ vouchme  │ worldchain │     1 │       1 │       0 │   32835377 │  32835377 │
 2. │ eas      │ arbitrum   │     1 │       1 │       0 │  487448518 │ 487448518 │
 3. │ eas      │ base       │     5 │       2 │       3 │   49110131 │  49110204 │
 4. │ eas      │ mainnet    │     1 │       1 │       0 │   25601316 │  25601316 │
@@ -838,11 +838,11 @@ Recorded here as verified-and-available rather than claimed as used.
 
 ### 11.3 The `subgraph/` directory is not deployed
 
-`subgraph/` contains a complete, compiled Aval subgraph (schema, manifest, four data sources,
+`subgraph/` contains a complete, compiled VouchMe subgraph (schema, manifest, four data sources,
 handlers, `build/` artifacts) pointed at the correct live mainnet addresses. It is **not deployed**
 and nothing queries it: deploying to Subgraph Studio requires the same Studio credential §11.1
 establishes this environment does not have, and the app reads `direct-chain-read:480` instead. It
-is also Aval-specific, not standardized — the standardized, multi-protocol surface in this
+is also VouchMe-specific, not standardized — the standardized, multi-protocol surface in this
 submission is the Substreams package and `trust_edges`, not this subgraph.
 
 ### 11.4 Gnosis / Circles v2 — still unreachable, still a provider gap
@@ -855,7 +855,7 @@ documented in `docs/17-trust-graph-standard.md` §7 as a worked example; it cann
 
 ## 12. The MCP layer over the standardized store
 
-`@aval/mcp`'s `aval_cross_protocol_trust` used to build only the Aval leg for real and report
+`@vouchme/mcp`'s `vouchme_cross_protocol_trust` used to build only the VouchMe leg for real and report
 Circles/ENS as zero inbound with a code comment. It now runs **one** query against the
 standardized `trust_edges` store and returns whatever protocols are registered — with **no
 per-protocol branching in the tool at all.** That absence is the deliverable: registering a new
@@ -869,16 +869,16 @@ $ node -e '…tool.handler({ address: "0x4774b9621102eac2254365f9311c4e7700d9e7d
   "address": "0x4774b9621102eac2254365f9311c4e7700d9e7de",
   "schema": "trust-graph v0.2.0",
   "count": 1,
-  "byProtocol": [ { "protocol": "aval", "network": "worldchain", "inbound": 1 } ],
-  "edges": [ { "protocol": "aval", "network": "worldchain", "scope": "",
+  "byProtocol": [ { "protocol": "vouchme", "network": "worldchain", "inbound": 1 } ],
+  "edges": [ { "protocol": "vouchme", "network": "worldchain", "scope": "",
       "from": "0xb23a3b2384d721d7c487a3acc6405a1d36672b47",
       "to":   "0x4774b9621102eac2254365f9311c4e7700d9e7de",
       "kind": "VOUCH", "issuedAt": "2026-07-25 19:06:33",
       "expiresAt": "2026-10-23 19:06:33", "perpetual": false, "revoked": false,
       "blockNum": 32835377,
       "txHash": "0x563172cb968bb63b2ba362fa95d6ff257bf94554076ebbbb39e3969cab3d5c45" } ],
-  "unavailable": [ "Aval engine enrichment skipped (timed out after 8000ms) — Aval edges below
-                    come from the standardized store and carry no avalWeight" ]
+  "unavailable": [ "VouchMe engine enrichment skipped (timed out after 8000ms) — VouchMe edges below
+                    come from the standardized store and carry no vouchMeWeight" ]
 }
 
 $ … { address: "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8" } …
@@ -895,13 +895,13 @@ $ … { address: "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8" } …
 ```
 
 **The `unavailable` line is deliberate and worth reading, not an embarrassment.** `mcp/src/chain.ts`
-still replays `AvalRegistry` logs from `deployments/worldchain-sepolia.json` over a chunked
-`eth_getLogs` scan — a bespoke, single-protocol, single-chain reader, pointed at a chain Aval has
+still replays `VouchMeRegistry` logs from `deployments/worldchain-sepolia.json` over a chunked
+`eth_getLogs` scan — a bespoke, single-protocol, single-chain reader, pointed at a chain VouchMe has
 since left. That scan does not finish inside the tool's budget. Before this change it was the
-tool's *only* source of Aval edges, so the tool simply hung.
+tool's *only* source of VouchMe edges, so the tool simply hung.
 
-Now it is an enrichment with a deadline: the Aval edge above is still returned, correct and
-complete, **from the standardized store**, and the only thing lost is the normalized `avalWeight`.
+Now it is an enrichment with a deadline: the VouchMe edge above is still returned, correct and
+complete, **from the standardized store**, and the only thing lost is the normalized `vouchMeWeight`.
 The tool says exactly that, by name, instead of returning an empty result. That is the standard
 earning its keep — a bespoke per-protocol integration degraded, and the shared schema covered for
 it — and it is also a fair illustration of what the standard replaces.

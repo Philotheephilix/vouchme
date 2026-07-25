@@ -76,7 +76,7 @@ function toStandardEdge(r) {
   return {
     protocol: r.protocol,
     network: r.network,
-    // "" for protocols with no scope dimension (Aval); EAS puts its schemaUID here.
+    // "" for protocols with no scope dimension (VouchMe); EAS puts its schemaUID here.
     scope: r.scope ?? "",
     from: r.from_addr, // the ASSERTER
     to: r.to_addr, // the SUBJECT
@@ -154,14 +154,14 @@ async function handleCrossProtocol(res, query) {
   }
 }
 
-// ─── GET /edges?protocol=aval ───────────────────────────────────────────────────────────────
+// ─── GET /edges?protocol=vouchme ───────────────────────────────────────────────────────────────
 // The trust edges in the standardized shape. `protocol` is required — this table is
 // cross-protocol by design (docs/14-substreams.md §2), and returning every protocol's edges
 // unfiltered is never the right default for a caller building one protocol's graph.
 async function handleEdges(res, query) {
   const protocol = query.get("protocol");
   if (!protocol) {
-    return sendJson(res, 400, { error: "protocol query param is required, e.g. /edges?protocol=aval" });
+    return sendJson(res, 400, { error: "protocol query param is required, e.g. /edges?protocol=vouchme" });
   }
   const limit = Math.min(Number(query.get("limit") ?? 500) || 500, 5000);
   try {
@@ -258,9 +258,9 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`aval-substreams read service listening on http://localhost:${PORT}`);
+  console.log(`vouchme-substreams read service listening on http://localhost:${PORT}`);
   console.log(`  GET /health`);
-  console.log(`  GET /edges?protocol=aval`);
+  console.log(`  GET /edges?protocol=vouchme`);
   console.log(`  GET /stats`);
   console.log(`ClickHouse HTTP interface: ${CLICKHOUSE_HTTP_URL} (database=${CLICKHOUSE_DATABASE})`);
 });

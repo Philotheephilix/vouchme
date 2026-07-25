@@ -35,7 +35,7 @@ const RPC = {
 // out by hand rather than parsed from substreams.yaml: if the manifest were wrong, parsing it
 // would make this script agree with the bug instead of catching it.
 const PROFILE = {
-  aval: {
+  vouchme: {
     contract: "0x6fefef2d44203300a6a33d631840c972181b8722",
     fromTopic: 1,
     toTopic: 2,
@@ -68,7 +68,7 @@ const PROFILE = {
 async function rpc(url, method, params) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "aval-crosscheck/1.0" },
+    headers: { "content-type": "application/json", "user-agent": "vouchme-crosscheck/1.0" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
   if (!res.ok) throw new Error(`${method} HTTP ${res.status}`);

@@ -1,4 +1,4 @@
-// @aval/subgraph — src/presence-drip.ts
+// @vouchme/subgraph — src/presence-drip.ts
 //
 // Handlers for every event PresenceDrip emits (docs/16-presence-drip.md §6).
 // Every Claimed/TenureZeroed event both appends a `PresenceClaim` (the log)

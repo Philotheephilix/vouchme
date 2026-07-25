@@ -1,16 +1,16 @@
 # substreams/ — the Trust Graph Standard, and the pipeline that implements it
 
-One composable Substreams package (`aval-trust/`), a real local sink, and a small read-only HTTP
+One composable Substreams package (`vouchme-trust/`), a real local sink, and a small read-only HTTP
 service — the one documented surface `app/` should call.
 
 **The standard is specified in [`docs/17-trust-graph-standard.md`](../docs/17-trust-graph-standard.md).**
 `PROOF.md` is the evidence trail: every command below, actually run, with real output, plus the
-things that do **not** work and their exact errors. `aval-trust/README.md` is the package's own
+things that do **not** work and their exact errors. `vouchme-trust/README.md` is the package's own
 operator guide.
 
 ## What this is
 
-Trust and attestation is a protocol category with no standardized schema. Aval, EAS and Circles
+Trust and attestation is a protocol category with no standardized schema. VouchMe, EAS and Circles
 all express *account A asserts something about account B, at a time, revocably* — and all three
 model it differently. This directory authors that missing standard and ships a single, reusable
 `.spkg` that implements it.
@@ -20,7 +20,7 @@ them** — only a `networks:` entry per profile.
 
 | Protocol | Networks | Streams live |
 |---|---|---|
-| `aval` | `worldchain` (World Chain mainnet, chainId 480) | yes — `PROOF.md` §9 |
+| `vouchme` | `worldchain` (World Chain mainnet, chainId 480) | yes — `PROOF.md` §9 |
 | `eas` | `base`, `optimism`, `arbitrum`, `mainnet` | yes — `PROOF.md` §10.3 |
 | `circles` | `gnosis` | **no — Gnosis has no Firehose endpoint** (§11.4) |
 
@@ -34,8 +34,8 @@ node scripts/crosscheck-trust-edges.mjs      # verify every row against independ
 ## Endpoint availability — verified, not assumed
 
 - **World Chain mainnet works.** `substreams tools default-endpoint worldchain` →
-  `mainnet.worldchain.streamingfast.io:443`. Aval's contracts moved from Sepolia to mainnet on
-  2026-07-25, and that move is exactly what unblocked streaming Aval's own data.
+  `mainnet.worldchain.streamingfast.io:443`. VouchMe's contracts moved from Sepolia to mainnet on
+  2026-07-25, and that move is exactly what unblocked streaming VouchMe's own data.
 - **World Chain Sepolia (4801) has no endpoint, from any provider** — not in The Graph's network
   registry, and `-e worldchain-sepolia` fails client-side as an unresolvable hostname, a
   *different* failure mode from mainnet's `Unauthenticated`-without-a-token. That contrast is what
@@ -51,36 +51,36 @@ node scripts/crosscheck-trust-edges.mjs      # verify every row against independ
 
 ```
 substreams/
-├── aval-trust/          the composable Substreams package (Rust, manifest, proto, schema, tests)
-├── service/              read-only HTTP API over the sink database
+├── vouchme-trust/       the composable Substreams package (Rust, manifest, proto, schema, tests)
+├── service/             read-only HTTP API over the sink database
 ├── scripts/
 │   ├── one-query-demo.sh             the payoff: ONE query across every indexed protocol/chain
 │   ├── crosscheck-trust-edges.mjs    independent audit of every sink row vs. public RPCs
-│   ├── verify-mainnet.mjs            plain eth_getLogs ground truth for Aval on chain 480
+│   ├── verify-mainnet.mjs            plain eth_getLogs ground truth for VouchMe on chain 480
 │   └── fetch-fixtures.mjs            reproduces the real on-chain fixtures used in tests
-├── PROOF.md               full evidence trail — every command in this README, run for real
-└── README.md              this file
+├── PROOF.md             full evidence trail — every command in this README, run for real
+└── README.md            this file
 ```
 
 ## Build & verify the package
 
 ```bash
-cd substreams/aval-trust
+cd substreams/vouchme-trust
 cargo test                                          # 21/21 — decodes real captured chain data, no auth needed
 cargo build --target wasm32-unknown-unknown --release
-substreams pack ./substreams.yaml                   # -> aval-trust-graph-v0.2.0.spkg
+substreams pack ./substreams.yaml                   # -> vouchme-trust-graph-v0.2.0.spkg
 substreams graph ./substreams.yaml                  # module graph (mermaid)
 ```
 
 Module graph: `map_trust_events` (params + raw block → `TrustEvents`) → `store_edges` (live edge
 state) → `map_edge_deltas` (store deltas → `DatabaseChanges`) → `db_out` (stable sink target name).
-Full reference in `aval-trust/README.md`.
+Full reference in `vouchme-trust/README.md`.
 
 ## Run it live
 
 ```bash
 set -a; . ../../.env; set +a        # never echo these values anywhere
-cd substreams/aval-trust
+cd substreams/vouchme-trust
 
 # The SAME .spkg on every chain. Only --network and -e change; no params to hand-write, because
 # each adapter profile ships in the manifest's `networks:` block.
@@ -94,7 +94,7 @@ substreams run ./substreams.yaml map_trust_events --network mainnet    -e mainne
 ## Run the sink locally (ClickHouse, real rows — PROOF.md §7.3)
 
 ```bash
-docker run -d --name aval-substreams-clickhouse -p 127.0.0.1:9000:9000 -p 127.0.0.1:8123:8123 \
+docker run -d --name vouchme-substreams-clickhouse -p 127.0.0.1:9000:9000 -p 127.0.0.1:8123:8123 \
   -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD= -e CLICKHOUSE_DB=default \
   clickhouse/clickhouse-server:24-alpine
 
@@ -144,7 +144,7 @@ Sink status, last indexed block, row count.
 }
 ```
 
-### `GET /edges?protocol=<slug>` (protocol required, e.g. `aval`, `eas`; optional `limit`, default 500, max 5000)
+### `GET /edges?protocol=<slug>` (protocol required, e.g. `vouchme`, `eas`; optional `limit`, default 500, max 5000)
 
 The trust edges in the standardized shape, deduplicated to current state (`FINAL`), ordered by
 `(to, from)` — the engine's hot access pattern (docs/14-substreams.md §4).
@@ -181,7 +181,7 @@ it as one anyway, and the sink clamps the resulting huge number so it doesn't cr
 Circles v2's `Trust.expiryTime`, verified against real Gnosis logs as a genuine timestamp in the
 same field position (`PROOF.md` §7.1) — that mapping's `expiresAt` would be meaningful.
 
-Missing `protocol` → `400 { "error": "protocol query param is required, e.g. /edges?protocol=aval" }`.
+Missing `protocol` → `400 { "error": "protocol query param is required, e.g. /edges?protocol=vouchme" }`.
 
 ### `GET /cross-protocol?address=0x…[&direction=inbound|outbound|both][&liveOnly=true]`
 
@@ -215,7 +215,7 @@ cannot misread `1970-01-01` as "long expired".
 }
 ```
 
-This is the endpoint `@aval/mcp`'s `aval_cross_protocol_trust` tool consumes — the MCP layer over
+This is the endpoint `@vouchme/mcp`'s `vouchme_cross_protocol_trust` tool consumes — the MCP layer over
 the standardized store.
 
 ### `GET /stats`
@@ -225,7 +225,7 @@ Per-protocol edge/account counts, for a dashboard panel.
 ```json
 {
   "protocols": [
-    { "protocol": "aval", "edgeCount": 1, "activeEdgeCount": 1, "distinctAddresses": 2, "lastBlock": 32835377 },
+    { "protocol": "vouchme", "edgeCount": 1, "activeEdgeCount": 1, "distinctAddresses": 2, "lastBlock": 32835377 },
     { "protocol": "eas", "edgeCount": 9, "activeEdgeCount": 5, "distinctAddresses": 12, "lastBlock": 487448518 }
   ],
   "generatedAt": "2026-07-25T20:17:40.369Z"
@@ -241,6 +241,6 @@ service is started (see `PROOF.md` for the full session log).
 ## Reusing the same package for another protocol/chain
 
 Change `params.map_trust_events` only — never the Rust, never the manifest's `modules:` — per
-`docs/14-substreams.md` §2's "one `.spkg`, every chain" design. `skills/aval-substreams-deploy`
+`docs/14-substreams.md` §2's "one `.spkg`, every chain" design. `skills/vouchme-substreams-deploy`
 automates exactly this substitution, gated on a real decode preview (`eventsFound > 0`) before it
 will deploy anything.

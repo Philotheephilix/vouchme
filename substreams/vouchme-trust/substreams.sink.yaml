@@ -1,11 +1,11 @@
 specVersion: v0.1.0
 
 package:
-  name: aval_trust_graph_sink
+  name: vouchme_trust_graph_sink
   version: v0.2.0
-  url: https://github.com/aval-protocol/aval
+  url: https://github.com/vouchme-protocol/vouchme
   description: |
-    Sink-only wrapper around aval_trust_graph. Exists for exactly one reason,
+    Sink-only wrapper around vouchme_trust_graph. Exists for exactly one reason,
     documented below: `substreams run` and `substreams-sink-sql run` cannot
     read the SAME manifest at the versions pinned here.
 
@@ -35,13 +35,13 @@ package:
 #     --undo-buffer-size=1 --development-mode --batch-block-flush-interval=1
 
 imports:
-  main: ./aval-trust-graph-v0.2.0.spkg
+  main: ./vouchme-trust-graph-v0.2.0.spkg
   sql: https://github.com/streamingfast/substreams-sink-sql/releases/download/protodefs-v1.0.7/substreams-sink-sql-protodefs-v1.0.7.spkg
 
 network: worldchain
 
 params:
-  main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+  main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=vouchme&network=worldchain"
 
 # The same five adapter profiles as ./substreams.yaml, re-declared here under the `main:` import
 # prefix. They have to be restated rather than inherited: `networks:` entries key on the module
@@ -63,7 +63,7 @@ networks:
       main:map_edge_deltas: 32833177
       main:db_out: 32833177
     params:
-      main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=aval&network=worldchain"
+      main:map_trust_events: "contract=0x6fefef2d44203300a6a33d631840c972181b8722&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&from_topic=1&to_topic=2&scope_topic=&vouch_tail=issued_expires&revoke_tail=at&reaffirm_tail=expires&model=WEIGHTED&protocol=vouchme&network=worldchain"
 
   base:
     initialBlock:

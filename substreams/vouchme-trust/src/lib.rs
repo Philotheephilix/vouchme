@@ -1,4 +1,4 @@
-//! aval_trust_graph — the composable trust-graph extractor, docs/14-substreams.md §2.
+//! vouchme_trust_graph — the composable trust-graph extractor, docs/14-substreams.md §2.
 //!
 //! `map_trust_events` is generic over ANY contract that emits the trust-graph
 //! v0.1.0 event shape: an event with two indexed `address` params (`from`,
@@ -8,10 +8,10 @@
 //! in. That is the entire mechanism behind "one `.spkg`, every chain."
 
 mod pb {
-    pub mod aval {
+    pub mod vouchme {
         pub mod trust {
             pub mod v1 {
-                include!(concat!(env!("OUT_DIR"), "/aval.trust.v1.rs"));
+                include!(concat!(env!("OUT_DIR"), "/vouchme.trust.v1.rs"));
             }
         }
     }
@@ -24,7 +24,7 @@ use substreams_database_change::pb::sf::substreams::sink::database::v1::Database
 use substreams_database_change::tables::Tables;
 use substreams_ethereum::pb::eth::v2 as eth;
 
-use pb::aval::trust::v1::{trust_event::Kind as EventKind, Edge, TrustEvent, TrustEvents};
+use pb::vouchme::trust::v1::{trust_event::Kind as EventKind, Edge, TrustEvent, TrustEvents};
 
 // ─── params ────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ struct Params {
     /// Which indexed topic carries the ASSERTER (`from`) and which the SUBJECT (`to`), as 1-based
     /// topic indices.
     ///
-    /// Two indexed address params do not mean the same two things in every protocol. Aval declares
+    /// Two indexed address params do not mean the same two things in every protocol. VouchMe declares
     /// them asserter-first (`Vouched(address indexed voucher, address indexed vouchee, ...)`);
     /// **EAS does not** — `Attested(address indexed recipient, address indexed attester, bytes32,
     /// bytes32 indexed)` puts the SUBJECT first, so inferring the roles from position alone points
@@ -68,17 +68,17 @@ struct Params {
 /// How to read a kind's non-indexed ABI tail for timing information.
 ///
 /// The layout cannot be inferred from `Kind` alone: "VOUCH means two uint64 words, issuedAt then
-/// expiresAt" holds only for contracts shaped like AvalRegistry. EAS's single non-indexed word is
+/// expiresAt" holds only for contracts shaped like VouchMeRegistry. EAS's single non-indexed word is
 /// a content-addressed `uid`, and reading a hash as a clock yields absurd expiries. A deployment
 /// therefore DECLARES its tail layout, and `None` is a first-class answer meaning "this log
 /// carries no timing data; use the block clock and leave expiry unset".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TailLayout {
-    /// word[0] = issuedAt, word[1] = expiresAt  (AvalRegistry `Vouched`)
+    /// word[0] = issuedAt, word[1] = expiresAt  (VouchMeRegistry `Vouched`)
     IssuedExpires,
-    /// word[0] = expiresAt; issuedAt falls back to the block clock (AvalRegistry `Reaffirmed`)
+    /// word[0] = expiresAt; issuedAt falls back to the block clock (VouchMeRegistry `Reaffirmed`)
     Expires,
-    /// word[0] = the moment the action happened, read as issuedAt (AvalRegistry `Revoked`)
+    /// word[0] = the moment the action happened, read as issuedAt (VouchMeRegistry `Revoked`)
     At,
     /// No timing data in the log at all. issuedAt = block clock, expiresAt = 0 (= perpetual as
     /// far as THIS log can prove). EAS `Attested` / `Revoked`, whose tail is a `uid`.
@@ -127,7 +127,7 @@ fn parse_params(raw: &str) -> Result<Params, Error> {
     let mut report_topic = None;
     let mut report_resolved_topic = None;
     let mut model = "WEIGHTED".to_string();
-    let mut protocol = "aval".to_string();
+    let mut protocol = "vouchme".to_string();
     let mut network = String::new();
     // Defaults reproduce trust-graph v0.1.0's implicit behaviour, so a deployment written against
     // v0.1.0 keeps its meaning without editing its params.
@@ -266,8 +266,8 @@ fn word_u64(word: &[u8]) -> u64 {
 /// Decodes `(issued_at, expires_at)` from a log's non-indexed tail, per the declared `TailLayout`.
 ///
 /// The trust-graph event shape fixes indexed params to `(from, to)` but leaves the non-indexed
-/// tail free per `Kind`, matching the concrete shapes AvalRegistry actually emits
-/// (contracts/src/AvalRegistry.sol):
+/// tail free per `Kind`, matching the concrete shapes VouchMeRegistry actually emits
+/// (contracts/src/VouchMeRegistry.sol):
 ///   VOUCH    Vouched(address indexed,address indexed,uint64 issuedAt,uint64 expiresAt)   -> 2 words
 ///   REAFFIRM Reaffirmed(address indexed,address indexed,uint64 expiresAt)                -> 1 word
 ///   REVOKE / REPORT / REPORT_RESOLVED (..., uint64 at)                                    -> 1 word,
@@ -312,8 +312,8 @@ fn decode_timing(layout: TailLayout, data: &[u8], block_timestamp: u64) -> (u64,
 }
 
 /// `weight_raw` is "protocol-native, unnormalized" (trust_graph.proto doc
-/// comment). AvalRegistry's `Vouched` event does not carry a numeric weight —
-/// under Aval's WEIGHTED model, a vouch's effective weight depends on the
+/// comment). VouchMeRegistry's `Vouched` event does not carry a numeric weight —
+/// under VouchMe's WEIGHTED model, a vouch's effective weight depends on the
 /// *voucher's own live score* (docs/05-graph-data-layer.md §3.3:
 /// `weight = min(score(from)×0.25, 20)/20`), which is graph-wide state, not a
 /// per-event fact. The raw extractor therefore emits the protocol-native unit
@@ -544,7 +544,7 @@ fn hex0x(bytes: &[u8]) -> String {
 /// (`[0, 4294967295]` — 1970-01-01 through 2106-02-07, since the column is 32-bit).
 ///
 /// Why this exists: a contract with two indexed addresses does not necessarily carry timing data
-/// in its non-indexed tail (docs/14 §2's `issued_at`/`expires_at`). AvalRegistry and Circles v2's
+/// in its non-indexed tail (docs/14 §2's `issued_at`/`expires_at`). VouchMeRegistry and Circles v2's
 /// `Trust.expiryTime` do; EAS's `Attested(address indexed,address indexed,bytes32,bytes32 indexed)`
 /// on Base structurally matches but its one non-indexed word is a content-addressed `uid` hash.
 /// `tail=none` is the declared way to say so, but a misconfigured profile can still read a hash
@@ -624,7 +624,7 @@ mod tests {
     };
 
     // Real params for the live deployment, deployments/worldchain-sepolia.json.
-    const REAL_PARAMS: &str = "contract=0x1d9955cb9f2a531fa6d4f43e712c9b1fa9a44514&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=aval&network=worldchain-sepolia";
+    const REAL_PARAMS: &str = "contract=0x1d9955cb9f2a531fa6d4f43e712c9b1fa9a44514&vouch_topic=0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9&revoke_topic=0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7&reaffirm_topic=0x9089bae040c16337c6e96ac1661dba8c85c8b076f44d68407b4fa00243c05db7&report_topic=&report_resolved_topic=&model=WEIGHTED&protocol=vouchme&network=worldchain-sepolia";
 
     fn hex_bytes(s: &str) -> Vec<u8> {
         hex::decode(s.strip_prefix("0x").unwrap_or(s)).unwrap()
@@ -632,7 +632,7 @@ mod tests {
 
     /// Builds a `Block` carrying exactly one real log, captured live from
     /// World Chain Sepolia via `eth_getLogs` against the deployed
-    /// AvalRegistry (0x1d9955...4514) — see ../PROOF.md for the raw RPC
+    /// VouchMeRegistry (0x1d9955...4514) — see ../PROOF.md for the raw RPC
     /// response and how it was captured. This is the same shape
     /// `substreams-testing`'s "Constructing Ethereum blocks" pattern uses.
     fn block_with_real_log(
@@ -708,13 +708,13 @@ mod tests {
         assert_eq!(out.events.len(), 1, "expected exactly one decoded TrustEvent");
         let ev = &out.events[0];
         assert_eq!(ev.kind, EventKind::Vouch as i32);
-        assert_eq!(ev.protocol, "aval");
+        assert_eq!(ev.protocol, "vouchme");
         assert_eq!(ev.network, "worldchain-sepolia");
         assert_eq!(hex::encode(&ev.from), "defbe7d71f0eae651399c0fb97cf93fa09ee0780");
         assert_eq!(hex::encode(&ev.to), "ee0f520a7cd3f6998dee6463dfe3fc49e040520b");
         assert_eq!(ev.issued_at, 1784980220);
         assert_eq!(ev.expires_at, 1792756220);
-        assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400, "Aval vouches expire after 90 days");
+        assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400, "VouchMe vouches expire after 90 days");
         assert_eq!(ev.weight_raw, "1");
         assert_eq!(ev.block_num, 32216398);
         assert_eq!(
@@ -791,7 +791,7 @@ mod tests {
     /// the separate `store_edges` KNOWN LIMITATION documented above `store_edges`).
     #[test]
     fn reaffirm_issued_at_falls_back_to_block_timestamp_not_zero() {
-        // Synthetic (not a captured real log) — REAFFIRM has no occurrences on the live Aval
+        // Synthetic (not a captured real log) — REAFFIRM has no occurrences on the live VouchMe
         // deployment to capture from (PROOF.md) — but the topic0, address shape, and single-word
         // `expiresAt` payload are the real, verified `Reaffirmed(address,address,uint64)` layout.
         let block = block_with_real_log(
@@ -833,7 +833,7 @@ mod tests {
             32216398,
             1_784_980_220,
             "0x4e3f68550eb01521d73ab56ac5663d12f7f43a7eb26e990ccc329e4127c6465b",
-            "0x0000000000000000000000000000000000dead", // not AvalRegistry
+            "0x0000000000000000000000000000000000dead", // not VouchMeRegistry
             &[
                 "0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9",
                 "0x000000000000000000000000defbe7d71f0eae651399c0fb97cf93fa09ee0780",
@@ -896,6 +896,9 @@ mod tests {
         let str_len = word_u64(&data[str_offset..str_offset + 32]) as usize;
         let handle_bytes = &data[str_offset + 32..str_offset + 32 + str_len];
         let handle = std::str::from_utf8(handle_bytes).unwrap();
+        // Pre-rename on-chain bytes: this log was emitted while the protocol was still called
+        // Aval, so the handle it carries really is `anchor1.aval.eth`. The expectation tracks
+        // what the chain says, not what the product is called today.
         assert_eq!(handle, "anchor1.aval.eth");
     }
 
@@ -929,10 +932,10 @@ mod tests {
         assert_eq!(
             hex::encode(p.contract),
             "6fefef2d44203300a6a33d631840c972181b8722",
-            "shipped manifest must point at AvalRegistry on World Chain mainnet"
+            "shipped manifest must point at VouchMeRegistry on World Chain mainnet"
         );
         assert_eq!(p.network, "worldchain");
-        assert_eq!(p.protocol, "aval");
+        assert_eq!(p.protocol, "vouchme");
         assert_eq!(p.model, "WEIGHTED");
         assert!(p.vouch_topic.is_some() && p.revoke_topic.is_some() && p.reaffirm_topic.is_some());
     }
@@ -966,13 +969,13 @@ mod tests {
         assert_eq!(out.events.len(), 1, "expected exactly one decoded TrustEvent");
         let ev = &out.events[0];
         assert_eq!(ev.kind, EventKind::Vouch as i32);
-        assert_eq!(ev.protocol, "aval");
+        assert_eq!(ev.protocol, "vouchme");
         assert_eq!(ev.network, "worldchain");
         assert_eq!(hex::encode(&ev.from), "b23a3b2384d721d7c487a3acc6405a1d36672b47");
         assert_eq!(hex::encode(&ev.to), "4774b9621102eac2254365f9311c4e7700d9e7de");
         assert_eq!(ev.issued_at, 1_785_006_393);
         assert_eq!(ev.expires_at, 1_792_782_393);
-        assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400, "Aval vouches expire after 90 days");
+        assert_eq!(ev.expires_at - ev.issued_at, 90 * 86400, "VouchMe vouches expire after 90 days");
         assert_eq!(ev.block_num, 32835377);
         assert_eq!(
             hex::encode(&ev.tx_hash),
@@ -985,7 +988,7 @@ mod tests {
     /// topics[2] is a nullifier hash, not an address — if the module ever matched it,
     /// `to` would silently become 20 bytes sliced out of a hash. Real bytes from
     /// block 32833881, tx 0xcbafd84a98bc5e8f2eb7e5a660cfaf57220a344fb5fdc8164a289bed239869f4
-    /// (`romariokavin.aval.eth`).
+    /// (`romariokavin.aval.eth` — pre-rename bytes, see the assertion at the end).
     #[test]
     fn real_mainnet_enrolled_log_is_not_decoded_as_an_edge() {
         let block = block_with_real_log(
@@ -1023,6 +1026,7 @@ mod tests {
         let str_offset = word_u64(&data[64..96]) as usize;
         let str_len = word_u64(&data[str_offset..str_offset + 32]) as usize;
         let handle = std::str::from_utf8(&data[str_offset + 32..str_offset + 32 + str_len]).unwrap();
+        // Pre-rename on-chain bytes, as above: the enrolled handle really is `…aval.eth`.
         assert_eq!(handle, "romariokavin.aval.eth");
     }
 
@@ -1183,9 +1187,9 @@ mod tests {
         let key_op = edge_key("eas", "optimism", schema_a, &attester, &recipient);
         assert_ne!(key_a, key_op, "same protocol on another chain must be a different edge");
 
-        // Aval's empty scope is still a well-formed, distinct key — not a degenerate case.
-        let aval = edge_key("aval", "worldchain", "", &attester, &recipient);
-        assert!(aval.starts_with("edge:aval:worldchain::"));
+        // VouchMe's empty scope is still a well-formed, distinct key — not a degenerate case.
+        let vouchme = edge_key("vouchme", "worldchain", "", &attester, &recipient);
+        assert!(vouchme.starts_with("edge:vouchme:worldchain::"));
     }
 
     /// A params typo must fail loudly. `vouch_tail=nil` is not a layout; accepting it and
@@ -1250,7 +1254,7 @@ mod tests {
             })
             .collect();
         for expected in [
-            ("aval", "worldchain"),
+            ("vouchme", "worldchain"),
             ("eas", "base"),
             ("eas", "optimism"),
             ("eas", "arbitrum"),

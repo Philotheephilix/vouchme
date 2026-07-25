@@ -1,15 +1,15 @@
-// @aval/subgraph — src/helpers.ts
+// @vouchme/subgraph — src/helpers.ts
 //
 // Shared entity loaders used by every mapping file. Kept separate so each
 // event handler file stays focused on "what does this one event mean,"
 // per docs/02-contracts.md §1's design rule: the contract stores facts,
 // mappings just record them — no scoring logic belongs here (that's
-// @aval/engine's job, run off-chain by the gateway and aval-mcp).
+// @vouchme/engine's job, run off-chain by the gateway and vouchme-mcp).
 
 import { BigInt, Bytes, ByteArray, crypto } from "@graphprotocol/graph-ts";
 import { Account, Protocol, ProtocolDailySnapshot } from "../generated/schema";
 
-export const PROTOCOL_ID = "aval";
+export const PROTOCOL_ID = "vouchme";
 const SECONDS_PER_DAY = BigInt.fromI32(86400);
 
 // docs/05-graph-data-layer.md §2.1: credential is one of "selfie-check" |
@@ -18,7 +18,7 @@ const SECONDS_PER_DAY = BigInt.fromI32(86400);
 // keccak("selfie-check") | keccak("orb")`), so the mapping recovers the
 // label by comparing against the keccak256 of each known literal rather
 // than storing the raw hash — the whole point of the Subgraph is that
-// `aval.credential` reads as a string, not a hash.
+// `vouchme.credential` reads as a string, not a hash.
 const CREDENTIAL_LABELS = ["selfie-check", "orb", "document"];
 
 export function credentialLabel(hash: Bytes): string {
@@ -49,7 +49,7 @@ export function getOrCreateAccount(address: Bytes, timestamp: BigInt): Account {
   let account = Account.load(address);
   if (account == null) {
     // Defensive fallback: every real path to an Account is `Enrolled`
-    // firing first (AvalRegistry.enroll() requires no prior state), but a
+    // firing first (VouchMeRegistry.enroll() requires no prior state), but a
     // handler that references an account it hasn't seen yet (e.g. a
     // PlatformVouch naming a human before indexing catches up in a
     // reorg-adjacent edge case) should not crash — it creates a minimal
@@ -85,7 +85,7 @@ export function getOrCreateProtocol(): Protocol {
     // (docs/01-trust-math.md §4.2), which an event handler — triggered by
     // one edge at a time, with no view of the rest of the graph — cannot
     // compute correctly. They are initialized to 0 and left alone here;
-    // an off-chain keeper (or @aval/engine itself, run periodically) is
+    // an off-chain keeper (or @vouchme/engine itself, run periodically) is
     // the correct place to publish these two counts, matching how
     // `isAnchor` mirroring already works (docs/05 §2.4).
     protocol.tier1Count = 0;

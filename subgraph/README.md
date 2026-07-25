@@ -1,6 +1,6 @@
-# aval-worldchain Subgraph
+# vouchme-worldchain Subgraph
 
-Indexes `AvalRegistry`, `ReportRegistry`, `PlatformRegistry`, and `PresenceDrip` on World Chain
+Indexes `VouchMeRegistry`, `ReportRegistry`, `PlatformRegistry`, and `PresenceDrip` on World Chain
 (`eip155:480`, Graph network slug `worldchain`). See
 [`docs/05-graph-data-layer.md`](../docs/05-graph-data-layer.md) for the schema rationale and
 [`docs/02-contracts.md`](../docs/02-contracts.md) for the event source of truth.
@@ -41,7 +41,7 @@ graph auth --studio <DEPLOY_KEY>
 npm run deploy:studio
 ```
 
-Note the deployment id (`Qm…`) this prints — that id is `aval.subgraph`'s value
+Note the deployment id (`Qm…`) this prints — that id is `vouchme.subgraph`'s value
 (docs/04-ens.md §2.1, "the verifiability pointer") and what `subgraphDeployment` reports in every
 gateway/MCP response.
 
@@ -66,7 +66,7 @@ weight at filing — see the field's own comment in schema.graphql), `Rebuttal`
 **Expiry is a query-time predicate, everywhere in this schema** — `Vouch.expiresAt` and
 `PlatformVouch.expiresAt` are stored; `expired` is never a stored boolean anywhere. A reader filters
 with `expiresAt_gt: $now` (docs/05 §2.3). The same principle extends to report weight decay: nothing
-here stores a "current" report weight — `@aval/engine` derives it from `Report.filedAt` /
+here stores a "current" report weight — `@vouchme/engine` derives it from `Report.filedAt` /
 `resolvedAt` / `state` at read time (docs/12 §5).
 
 ## What this scaffold intentionally does not index
@@ -82,8 +82,8 @@ here stores a "current" report weight — `@aval/engine` derives it from `Report
 - **`ProtocolDailySnapshot.vouchesExpired` / `promotions` / `demotions`-from-expiry**: expiry fires
   no event (docs/05 §2.3), so there is nothing for a mapping to count; these stay at their initial
   value here rather than being approximated.
-- **CredibilityVault bond balances**: not one of this task's 4 data sources; `aval.bonded` (the ENS
-  text record) and `aval_report`'s `InsufficientBond` check (in `mcp/`) are both stubbed pending it.
+- **CredibilityVault bond balances**: not one of this task's 4 data sources; `vouchme.bonded` (the ENS
+  text record) and `vouchme_report`'s `InsufficientBond` check (in `mcp/`) are both stubbed pending it.
 
 None of the above are silent gaps — each is called out at its point of use (`src/helpers.ts`,
 `gateway/src/context.ts`, `mcp/README.md`) rather than only here.

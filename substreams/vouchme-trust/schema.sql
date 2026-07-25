@@ -32,7 +32,7 @@ CREATE TABLE trust_edges (
     -- `scope` — trust-graph v0.2.0's protocol-native edge discriminator (trust_graph.proto's
     -- `scope` field). EAS puts its `schemaUID` here, so one attester holding several live
     -- attestations about the same recipient under different schemas is several rows, and
-    -- revoking one does not mark the others revoked. Aval writes the empty string: AvalRegistry
+    -- revoking one does not mark the others revoked. VouchMe writes the empty string: VouchMeRegistry
     -- permits exactly one live vouch per (voucher, vouchee) pair, so the pair is already unique
     -- and '' is the correct lossless value, not a placeholder. Part of the ORDER BY key below.
     scope        String,
@@ -80,7 +80,7 @@ CREATE TABLE trust_edges (
     --     declares `vouch_tail=none` / `revoke_tail=none` and this column is honestly 0. EAS's
     --     real `expirationTime` lives in contract storage, reachable only via
     --     `getAttestation(uid)`, which this event-log-only extractor does not call.
-    --   * Aval (`Vouched`) — carries two genuine `uint64` words, so this column holds a real
+    --   * VouchMe (`Vouched`) — carries two genuine `uint64` words, so this column holds a real
     --     decoded expiry (90 days after issuance) and is never 0.
     -- HISTORY, because the old rows were wrong in a way worth naming: under v0.1.0 the EAS
     -- mapping had no way to say "no timing here", so the `uid` hash was decoded as a timestamp

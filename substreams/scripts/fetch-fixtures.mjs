@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // substreams/scripts/fetch-fixtures.mjs
 //
-// Fetches REAL Vouched/Revoked/Reaffirmed/Enrolled logs from the deployed AvalRegistry on World
-// Chain Sepolia via raw JSON-RPC eth_getLogs (the SAME topic0 hashes aval-trust/src/lib.rs's
+// Fetches REAL Vouched/Revoked/Reaffirmed/Enrolled logs from the deployed VouchMeRegistry on World
+// Chain Sepolia via raw JSON-RPC eth_getLogs (the SAME topic0 hashes vouchme-trust/src/lib.rs's
 // tests use), and writes them to a fixture file.
 //
 // Why raw JSON-RPC instead of viem's `client.getLogs({ topics })`: an earlier attempt using
@@ -25,12 +25,12 @@ const REPO_ROOT = join(__dirname, "..", "..") + "/";
 process.loadEnvFile(`${REPO_ROOT}contracts/.env`);
 const RPC_URL = process.env.WORLDCHAIN_SEPOLIA_RPC;
 const deployments = JSON.parse(readFileSync(`${REPO_ROOT}deployments/worldchain-sepolia.json`, "utf8"));
-const REGISTRY_ADDRESS = deployments.contracts.AvalRegistry.address;
+const REGISTRY_ADDRESS = deployments.contracts.VouchMeRegistry.address;
 const DEPLOY_BLOCK = deployments.deploymentBlock;
 
 // topic0 = keccak256(canonical event signature), computed via viem and independently
 // cross-checked against real on-chain logs (see ../PROOF.md) — must match
-// aval-trust/src/lib.rs's REAL_PARAMS test constant exactly.
+// vouchme-trust/src/lib.rs's REAL_PARAMS test constant exactly.
 export const TOPICS = {
   Vouched:    "0x1023f6bd7654e275f0ff5868480691e3f5feb9960e997af34f0cf9e4b33e22b9",
   Revoked:    "0xb1c57350b08a198ff1a7862eeb3246e35fa3fc8e954bc691997ce37da018cbc7",
@@ -90,7 +90,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const [name, logs] of Object.entries(out)) {
     console.log(`${name}: ${logs.length} logs (topic0 ${TOPICS[name]})`);
   }
-  const outPath = join(__dirname, "..", "aval-trust", "testdata", "worldchain-sepolia-fixtures.json");
+  const outPath = join(__dirname, "..", "vouchme-trust", "testdata", "worldchain-sepolia-fixtures.json");
   writeFileSync(outPath, JSON.stringify(out, null, 2));
   console.log(`\nwrote ${outPath}`);
 }

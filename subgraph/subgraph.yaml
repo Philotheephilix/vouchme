@@ -1,8 +1,8 @@
 specVersion: 1.0.0
 description: >-
-  Aval — aval-worldchain Subgraph. Indexes AvalRegistry, ReportRegistry,
+  VouchMe — vouchme-worldchain Subgraph. Indexes VouchMeRegistry, ReportRegistry,
   PlatformRegistry, and PresenceDrip on World Chain. The contract stores
-  facts; this Subgraph stores the edges; @aval/engine computes score, tier,
+  facts; this Subgraph stores the edges; @vouchme/engine computes score, tier,
   and depth live, off-chain, from what's indexed here (docs/02-contracts.md
   §1). Addresses below are the LIVE World Chain mainnet (chainId 480)
   deployment — each verified with eth_getCode against
@@ -10,7 +10,7 @@ description: >-
   to the contract's creation receipt in
   contracts/broadcast/Deploy.s.sol/480/run-latest.json. NOTE: they do NOT match
   deployments/worldchain-mainnet.json, which still records an earlier, abandoned
-  deploy of the same script (AvalRegistry 0x7a294C7C…, 1 Enrolled log, then
+  deploy of the same script (VouchMeRegistry 0x7a294C7C…, 1 Enrolled log, then
   superseded); the live set below is the one app/.env.local reads and the one
   carrying the real Enrolled/Vouched logs.
 schema:
@@ -18,11 +18,11 @@ schema:
 
 dataSources:
   - kind: ethereum
-    name: AvalRegistry
+    name: VouchMeRegistry
     network: worldchain
     source:
-      address: "0x6fEfEf2d44203300a6a33d631840C972181b8722" # AvalRegistry on World Chain mainnet; eth_getCode -> 7645 bytes
-      abi: AvalRegistry
+      address: "0x6fEfEf2d44203300a6a33d631840C972181b8722" # VouchMeRegistry on World Chain mainnet; eth_getCode -> 7645 bytes
+      abi: VouchMeRegistry
       startBlock: 32833177 # creation block, from the deploy receipt (not a guess, not 0)
     mapping:
       kind: ethereum/events
@@ -35,8 +35,8 @@ dataSources:
         - Protocol
         - ProtocolDailySnapshot
       abis:
-        - name: AvalRegistry
-          file: ./abis/AvalRegistry.json
+        - name: VouchMeRegistry
+          file: ./abis/VouchMeRegistry.json
       eventHandlers:
         - event: Enrolled(indexed address,indexed uint256,bytes32,uint64,string)
           handler: handleEnrolled
@@ -54,7 +54,7 @@ dataSources:
           handler: handleSlotPenaltyApplied
         - event: AttestorSet(indexed address,bool)
           handler: handleAttestorSet
-      file: ./src/aval-registry.ts
+      file: ./src/vouchme-registry.ts
 
   - kind: ethereum
     name: ReportRegistry

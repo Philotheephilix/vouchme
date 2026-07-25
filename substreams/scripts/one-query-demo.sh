@@ -8,13 +8,13 @@
 #   ./substreams/scripts/one-query-demo.sh            # query what is already indexed
 #   ./substreams/scripts/one-query-demo.sh --reindex  # re-run all five live streams first
 #
-# Requires: ClickHouse at :8123 (docker container `aval-substreams-clickhouse`).
+# Requires: ClickHouse at :8123 (docker container `vouchme-substreams-clickhouse`).
 # --reindex additionally requires the `substreams-sink-sql` binary and SUBSTREAMS_API_TOKEN.
 set -euo pipefail
 
 CH="${CLICKHOUSE_HTTP_URL:-http://127.0.0.1:8123}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG="$HERE/../aval-trust"
+PKG="$HERE/../vouchme-trust"
 ch() { curl -sS "$CH/" --data "$1"; }
 
 if [[ "${1:-}" == "--reindex" ]]; then
