@@ -26,11 +26,9 @@ const HANDLE_RE = /^[a-z0-9-]{3,20}$/;
 /**
  * What enrollment actually leaves you needing, computed from the engine's own constants.
  *
- * Both copies of this sentence used to say "three people who are already trusted need to vouch for
- * you" — a hardcoded count that is false at the current constants (docs/95-lifecycle.md L-4): two
- * *anchors* clear Tier 1 (20 + 20 + 20 = 60 >= 55), three ordinary Tier 1 members clear it, and
- * two ordinary members do not. The number depends on who the vouchers are, which is the whole
- * thesis of the product, so it must not be stated as a constant.
+ * The count must never be hardcoded in copy: it depends on who the vouchers are. Two *anchors*
+ * clear Tier 1 (20 + 20 + 20 = 60 >= 55), three ordinary Tier 1 members clear it, two ordinary
+ * members do not.
  */
 const ANCHORS_TO_TIER_1 = Math.ceil((TIER_1_THRESHOLD_SCORE - ENROLLMENT_BASE_SCORE) / ANCHOR_VOUCH_CONTRIBUTION);
 const AFTER_ENROLL_COPY =
@@ -116,7 +114,7 @@ export default function EnrollPage() {
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   // World App returns a UserOperation hash, which is NOT a transaction hash: `worldscan.org/tx/…`
-  // does not resolve it. Linking it as a tx produced a dead link presented as on-chain evidence.
+  // does not resolve it, so it must not be rendered as an explorer link.
   const [txIsUserOp, setTxIsUserOp] = useState(false);
   const [mint, setMint] = useState<MintResponse | null>(null);
   const [mintError, setMintError] = useState<string | null>(null);
@@ -218,12 +216,9 @@ export default function EnrollPage() {
         //
         // Wait for the enrollment to be VISIBLE ON CHAIN first. MiniKit returns a `userOpHash`,
         // not a mined transaction hash — World App bundles the call as a UserOperation and returns
-        // as soon as it is accepted, well before it lands in a block. Calling the mint immediately
-        // asked the server "is this wallet enrolled?" seconds before it was, and the answer was a
-        // truthful no: "This wallet is not enrolled in Aval yet — enroll first, then a name is
-        // minted." The enrollment was fine; only the question was premature.
-        //
-        // The injected path never showed this because `sendFromInjected` awaits a receipt.
+        // as soon as it is accepted, well before it lands in a block, so the mint's server-side
+        // "is this wallet enrolled?" check would otherwise run too early. The injected path is
+        // already safe because `sendFromInjected` awaits a receipt.
         await waitForEnrollmentOnChain(resp.address);
         await mintName(resp.address);
       } catch (err) {
@@ -339,10 +334,9 @@ export default function EnrollPage() {
                     setAddr: {mint.setAddrTxHash}
                   </a>
                 ) : null}
-                {/* docs/95-lifecycle.md L-7: `register()` and `deployMemberRegistry()` both pass
-                    DEPLOYER_ADDRESS as owner, so the name and the registry belong to Aval's
-                    operator key, not to the person who just enrolled. Calling it "your registry"
-                    claimed an ownership they do not have. */}
+                {/* `register()` and `deployMemberRegistry()` both pass DEPLOYER_ADDRESS as owner,
+                    so the name and the registry belong to Aval's operator key, not to the person
+                    who just enrolled — hence the custody note below. */}
                 {mint.subregistry ? (
                   <>
                     <p className="mt-2 truncate-mono font-mono text-2xs text-graphite">
@@ -405,9 +399,8 @@ export default function EnrollPage() {
           <br />
           This is the ladder.
         </p>
-        {/* Always visible, not gated behind a connected wallet — the flow starts with a wallet
-            connect step, but "verify with World ID" is what this whole page is for, and a first
-            (signed-out) view should say so without requiring a click first. */}
+        {/* Always visible, not gated behind a connected wallet: the signed-out first view should
+            still say what this page is for. */}
         <p className="mt-2 font-mono text-2xs uppercase tracking-widest text-graphite">
           Verify with World ID · Selfie Check · ~20 seconds
         </p>

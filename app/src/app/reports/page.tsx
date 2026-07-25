@@ -49,7 +49,7 @@ export const dynamic = "force-dynamic";
 export default async function ReportsPage() {
   // "Against you" / "filed by you" only mean something for the signed-in wallet — AppGate already
   // guarantees a session by the time this route is reachable. Verified, not the raw `aval_addr`
-  // cookie (docs/96-ux-audit.md U-24) — see src/app/page.tsx's comment on readVerifiedAddress.
+  // cookie — see src/app/page.tsx's comment on readVerifiedAddress.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;

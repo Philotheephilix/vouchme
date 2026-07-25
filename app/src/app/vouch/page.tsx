@@ -1,7 +1,6 @@
 import { VouchWizard } from "./VouchWizard";
 
-// The wizard is fully client-driven now (task correction: real target resolution, real presence
-// proof, real transaction) — it fetches its own candidate list and simulation for whichever
+// The wizard is fully client-driven: it fetches its own candidate list and simulation for whichever
 // wallet is actually signed in, so there is nothing left for a server component to precompute.
 export default function VouchPage() {
   return <VouchWizard />;

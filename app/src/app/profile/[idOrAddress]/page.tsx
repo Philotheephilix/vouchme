@@ -17,8 +17,7 @@ function credentialLine(subject: { kind: string; credentialStatus: string; crede
   if (subject.kind === "anchor") return "credential: orb · anchor";
   const daysLeft = Math.round((new Date(subject.credentialExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   if (subject.credentialStatus === "suspended") return "credential: selfie check · expired, suspended";
-  // Window lengths from the engine's constants, not retyped — the "90" and "14" here used to be
-  // literals that would silently disagree with the contract the day either window moved.
+  // Window lengths come from the engine's constants so they cannot drift from the contract.
   if (subject.credentialStatus === "grace") {
     return `credential: selfie check · grace period, ${Math.max(0, daysLeft + CREDENTIAL_GRACE_DAYS)}d left`;
   }
@@ -36,17 +35,16 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const { idOrAddress } = await params;
   const decoded = decodeURIComponent(idOrAddress);
 
-  // Verified, not the raw `aval_addr` cookie (docs/96-ux-audit.md U-24) — see src/app/page.tsx's
-  // comment on readVerifiedAddress. `viewingAddress` here decides both whose data renders as "you"
+  // Verified, not the raw `aval_addr` cookie — see src/app/page.tsx's comment on
+  // readVerifiedAddress. `viewingAddress` here decides both whose data renders as "you"
   // (isSelf/vouch eligibility below) and, via loadAvalData, what a signed-out visitor gets — it
   // must never be forgeable.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
-  // Return BEFORE reading any chain data. Every other gated route already does this
-  // (explore, reports, platform, agents, home); this one read `viewingAddress` but never gated on
-  // it, so a signed-out `curl` got the subject's handle, address, score, tier, depth, credential
-  // and full voucher list in the RSC payload — the login screen was only painted over the top,
-  // client-side. Rendering nothing is the gate; hiding it is not.
+  // Return BEFORE reading any chain data, as every other gated route does (explore, reports,
+  // platform, agents, home): whatever renders here ships in the RSC payload, so a signed-out
+  // `curl` would read the subject's handle, address, score, tier, depth, credential and full
+  // voucher list. Rendering nothing is the gate; painting a login screen over it is not.
   if (!viewingAddress) return null;
 
   const data = await loadAvalData(viewingAddress);
@@ -80,8 +78,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           </span>
           <TierBadge tier={subject.tier} />
         </div>
-        {/* `depth ∞` is a mathematical symbol standing in for "not connected to any anchor" —
-            precisely the fact that most needs words (docs/95-lifecycle.md L-12). */}
+        {/* Spelled out rather than shown as `depth ∞`: "not connected to any anchor" is the fact
+            that most needs words. */}
         <p className="mt-2 font-mono text-2xs text-graphite">
           @{subject.ensName.replace(/\.aval\.eth$/, "")} ·{" "}
           {subject.depth === null ? "no path to an anchor" : `depth ${subject.depth}`}
@@ -157,7 +155,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           <a href="/reports" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
             Reports — against you / filed by you
           </a>
-          {/* Minting an agent subname is not built — the link used to advertise it as an action. */}
+          {/* Minting an agent subname is not built, so this link must not advertise it as one. */}
           <a href="/agents" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
             Agents — ENSIP-26 records, preview only
           </a>

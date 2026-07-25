@@ -6,13 +6,10 @@
  * Why this exists: `chain.ts` accumulates `Enrolled`/`Vouched`/`Reaffirmed`/`Revoked` logs
  * incrementally and keeps them in module state, so warm reads of `/api/identity/*` land in ~0.5s.
  * The *first* read after a cold start is different — it scans from `DEPLOYMENT_BLOCK` to head in
- * 100-block chunks across four event types, measured at ~40s on 2026-07-25.
- *
- * `AppGate` gives the identity check a 15s budget and, correctly, refuses to interpret a timeout
- * as "not enrolled" — so a cold process showed every signed-in member
- * "Can't reach World Chain right now" instead of their dashboard. A cold process is not rare: it
- * happens on every container restart, and under `next dev` on every file edit, because the module
- * cache is discarded.
+ * 100-block chunks across four event types, which takes tens of seconds. That is longer than the
+ * 15s budget `AppGate` gives the identity check, and a timeout there is correctly not treated as
+ * "not enrolled". A cold process is not rare: it happens on every container restart, and under
+ * `next dev` on every file edit, because the module cache is discarded.
  *
  * Priming here moves that one-time cost off the user's first request and into boot, where nobody
  * is waiting on it. Deliberately fire-and-forget: a warm-up that cannot reach the RPC must never

@@ -2,27 +2,23 @@
 
 import { WORLDCHAIN } from "@/lib/worldchain";
 
-/** Named from the configured chain, never typed in. The panel used to say "World Chain Sepolia"
- *  on a World Chain mainnet deployment. */
+/** Named from the configured chain, never typed in, so the panel cannot name the wrong network. */
 const CHAIN_LABEL = WORLDCHAIN.name;
 
 /**
  * Route-segment error boundary (Next.js App Router convention: `app/error.tsx`).
  *
- * LIVE mode reads World Chain directly on every request — no subgraph buffering the
- * app from an RPC hiccup. Public RPCs rate-limit and lag (task brief, and observed firsthand
- * under concurrent load in this environment): without this boundary, a transient
+ * LIVE mode reads World Chain directly on every request — no subgraph buffering the app from an
+ * RPC hiccup, and public RPCs rate-limit and lag. Without this boundary a transient
  * `loadAvalData()` rejection is an unhandled Server Component error, and Next's default handling
  * discards the whole page tree for this route segment — which reads as "the app crashed" rather
- * than "the chain read failed, retry." This still surfaces the failure honestly (task
- * requirement: never silently fall back to fixtures) — it just does so inside the app's own
- * layout instead of a blank/generic error page.
+ * than "the chain read failed, retry." The failure is still surfaced honestly, never silently
+ * replaced with stale or fixture data — it just happens inside the app's own layout instead of a
+ * blank/generic error page.
  */
 export default function RouteError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  // docs/96-ux-audit.md U-22: this panel printed viem's own text at the user — "An unknown RPC
-  // error occurred. Details: Cannot read properties of undefined (reading 'error') Version:
-  // viem@2.55.8". That tells them nothing except that something crashed. The library text belongs
-  // in the console; the panel gets one sentence a person can act on.
+  // Library text (viem's raw RPC errors) belongs in the console; the panel gets one sentence a
+  // person can act on.
   if (typeof console !== "undefined") console.error("[aval] route error", error);
 
   return (

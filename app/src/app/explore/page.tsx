@@ -11,10 +11,6 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
   const sortedNodes = [...scenario.nodes].sort((a, b) => (a.depth ?? 99) - (b.depth ?? 99));
 
   // An exhibit with nothing in it must show nothing — not a score, not a tier, not the narrative.
-  // Both columns used to be selected by matching FIXTURE names against live handles, so on this
-  // deployment both came back empty and the page still printed "Six-account collusion ring / Six
-  // phones on a table" over a fallback score of 20.0, and described mainnet's genuinely
-  // Orb-verified anchors as "genesis (testnet)".
   if (!scenario.available) {
     return (
       <div className="flex-1">
@@ -61,9 +57,8 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
         {/* every name below shares the .aval.eth suffix (or, in the ring, .eth) — dropped here so
             the column reads "anchor1 → alice" instead of repeating it on every row. Each end gets
             its own flex-basis and its own middle-out ellipsis, so a long target can never eat into
-            the source's space (or vice versa) the way one shared CSS ellipsis on a single string
-            would — that was the original bug: the *target*, the actual information, is what got
-            cut. */}
+            the source's space, or vice versa, the way one shared CSS ellipsis on a single string
+            would. */}
         <div className="mb-1 font-mono text-2xs uppercase tracking-widest text-graphite">Edges</div>
         {scenario.edges.length === 0 ? (
           <p className="py-1 text-2xs text-graphite">No vouches between these accounts yet.</p>
@@ -80,8 +75,8 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
                   {truncateMiddle(dropAvalSuffix(edge.to), 11)}
                 </span>
               </span>
-              {/* "blocked" reads as an error and was never explained (docs/96-ux-audit.md U-16).
-                  The value is +0.0 and the engine already hands us the reason. */}
+              {/* Show the contribution (+0.0 when uncounted) and the engine's own reason below,
+                  rather than the word "blocked", which reads as an error and explains nothing. */}
               <span
                 className="shrink-0 font-mono text-2xs"
                 style={{ color: edge.counted ? "var(--color-seal)" : "var(--color-graphite)" }}
@@ -103,10 +98,9 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
 export const dynamic = "force-dynamic";
 
 export default async function ExplorePage() {
-  // docs/96-ux-audit.md U-7 / docs/95-lifecycle.md L-11: this page ran the full chain read and
-  // shipped every member's handle, score, tier and depth in the RSC payload to clients with no
-  // cookie at all — the login screen rendered on top, but `view source` had the graph. The stated
-  // rule is "signed out -> nothing else renders, on any route." Same check the other routes use.
+  // Signed out ⇒ nothing else renders, on any route. Without this gate the chain read below would
+  // ship every member's handle, score, tier and depth in the RSC payload to a client with no
+  // cookie at all. Same check the other routes use.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
@@ -114,8 +108,7 @@ export default async function ExplorePage() {
   const { EXPLORE_HONEST, EXPLORE_RING } = await loadAvalData(viewingAddress);
   return (
     <div className="pb-8">
-      {/* Was "honest path vs. collusion ring" unconditionally — including on a deployment with no
-          ring at all. The columns name themselves now. */}
+      {/* Neutral title: a deployment may have no ring at all, so the columns name themselves. */}
       <Header eyebrow="EXPLORE" title="who reaches an anchor" />
 
       <section className="grid grid-cols-1 gap-8 px-4 pt-6 md:grid-cols-[1fr_auto_1fr] md:gap-6">

@@ -22,9 +22,8 @@ import {
 } from "@/lib/worldchain";
 import { decodeRevertReason, ensureWorldChainSepolia, submitFromInjected } from "@/lib/wallet";
 
-// "Presence" was renamed after errata E-19: `selfieCheckLegacy()` returns World ID 3.0 proofs,
-// which carry no presence field, so no liveness is established at this step and naming it after
-// one described something that does not happen.
+// Step 3 is "Verify", not "Presence": `selfieCheckLegacy()` returns World ID 3.0 proofs, which
+// carry no presence field, so no liveness is established at this step.
 const STEPS = ["Who?", "Preview", "Confirm", "Verify", "Transaction", "Result"] as const;
 
 interface VouchAttestResponse {
@@ -75,8 +74,7 @@ function useClientConfig(): { appId: string; action: string; avalRegistry: `0x${
  * `Vouched` event is on chain and the engine has counted it.
  *
  * World App's `sendTransaction` resolves with a bundler UserOperation hash, which proves only that
- * the call was accepted for inclusion. Reading it as confirmation showed "Vouched" for a vouch that
- * had not landed, and started the ENS mint against an edge that did not exist.
+ * the call was accepted for inclusion — never that it landed.
  *
  * Returns false on timeout rather than throwing: the vouch may still land later, so the honest
  * report is "submitted, not yet confirmed", never "failed".
@@ -96,16 +94,12 @@ async function readVouchIssuedAt(vouchee: string, voucher: string): Promise<stri
  * Wait until a vouch from `voucher` to `vouchee` that is STRICTLY NEWER than `priorIssuedAt` is
  * readable from chain.
  *
- * The `priorIssuedAt` argument is the whole point. The first version of this function asked only
- * "does a vouch from this voucher appear in the vouchee's breakdown?" — a predicate with no notion
- * of *new*. Where an edge already existed, it was already true, so the very first poll returned
- * success for a transaction that had not landed and in fact could not: `vouch()` reverts with
- * `VouchExists()` when the edge is present and `RateLimited()` inside 24h of the voucher's last
- * vouch. The app then showed a green "Vouched", asserted "confirmed by reading the chain", and
- * minted a duplicate ENS subname — a success screen next to a reverted transaction on the explorer.
- *
- * Comparing against the edge's `issuedAt` as observed BEFORE sending makes the check answer the
- * question actually being asked. `null` means no edge existed, so any row is new.
+ * The `priorIssuedAt` argument is what makes this a test for *new*. "Does a vouch from this voucher
+ * appear in the vouchee's breakdown?" is already true wherever an edge exists, and `vouch()` reverts
+ * with `VouchExists()` when the edge is present and `RateLimited()` inside 24h of the voucher's last
+ * vouch — so that predicate would report success for a transaction that cannot land. Comparing
+ * against the edge's `issuedAt` as observed BEFORE sending answers the question actually being
+ * asked. `null` means no edge existed, so any row is new.
  *
  * Returns false on timeout rather than throwing: the transaction may still land, so the honest
  * report is "submitted, not yet confirmed" — never "failed", and never "confirmed".
@@ -158,7 +152,7 @@ export function VouchWizard() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "confirmed" | "reverted">("idle");
   // World App returns a UserOperation hash; `worldscan.org/tx/<userOpHash>` does not resolve, so
-  // linking it presented a dead link as on-chain evidence.
+  // it must not be rendered as an explorer link.
   const [txIsUserOp, setTxIsUserOp] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
 
@@ -190,9 +184,8 @@ export function VouchWizard() {
       setResolving(true);
       setTarget(null);
       try {
-        // The field says "a wallet address or an aval.eth handle", so a bare handle has to work.
-        // Only the full form was tried, so typing `romariokavin` 404'd while the app rendered that
-        // exact account three lines below. Same fallback SearchBox already had.
+        // The field accepts a wallet address or an aval.eth handle, so a bare handle must resolve
+        // too: try it as typed, then with the `.aval.eth` suffix. Same fallback as SearchBox.
         const q = idOrAddress.trim();
         const attempts = isAddress(q) || q.includes(".") ? [q] : [q, `${q}.aval.eth`];
         let identity: IdentityResult | null = null;
@@ -329,15 +322,12 @@ export function VouchWizard() {
 
       let landed = false;
       // Gate on the host, not on `MiniKit.isInstalled()` — that reads a per-module-copy flag that
-      // can be false in a working World App session (src/lib/session.tsx `activeMiniKit`), which
-      // routed World App users into the browser-extension path and "no wallet extension found".
+      // can be false in a working World App session (src/lib/session.tsx `activeMiniKit`).
       if (inWorldAppNow()) {
         const result = await activeMiniKit().sendTransaction({ transactions: [{ to: config.avalRegistry, data }], chainId: WORLDCHAIN_ID });
         // A UserOperation hash, NOT a transaction hash. World App returns it the moment its bundler
-        // accepts the call — before it is mined, and before it is known to have succeeded. Treating
-        // that as "confirmed" claimed the vouch had landed while it might still fail, and kicked off
-        // the ENS mint against an edge that did not exist yet. The injected branch below has always
-        // been correct because it awaits a receipt.
+        // accepts the call — before it is mined, and before it is known to have succeeded — hence
+        // the on-chain poll below. The injected branch awaits a receipt instead.
         setTxHash(result.data.userOpHash);
         setTxIsUserOp(true);
         setTxStatus("pending");
@@ -442,11 +432,8 @@ export function VouchWizard() {
             {candidates.length > 0 ? (
               <div className="mt-6">
                 {/* This list is `/api/candidates/{me}`, which returns people who could vouch FOR
-                    you — `candidatesFor` filters to tier >= 1 and "not already vouching you". The
-                    heading said "prospective voucher target" and tapping a row set that person as
-                    the person you vouch for, i.e. the app suggested spending your 24h slot on
-                    exactly the wrong people: on this deployment the top suggestion is an anchor,
-                    whose score is fixed and cannot be raised by a vouch at all (errata E-6). */}
+                    you — `candidatesFor` filters to tier >= 1 and "not already vouching you".
+                    They are not vouch targets, so a row opens their profile. */}
                 <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">People who could vouch for you</h3>
                 <p className="mb-2 text-2xs leading-relaxed text-graphite">
                   Not people to vouch for — these are Tier 1+ accounts whose vouch would raise your score. Open one to
@@ -471,8 +458,6 @@ export function VouchWizard() {
             ) : candidatesLoading ? (
               <p className="mt-6 text-2xs text-graphite">Looking for accounts that could vouch for you…</p>
             ) : (
-              /* Stating "none" while the fetch was still in flight reported a conclusion the app
-                 had not reached yet. */
               <p className="mt-6 text-2xs text-graphite">
                 Nobody on this deployment can vouch for you yet — vouching needs Tier 1, and no other account has
                 reached it.
@@ -518,9 +503,8 @@ export function VouchWizard() {
                   : "you can vouch now"
               }
             />
-            {/* `AvalRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()`. Neither was
-                checked, so the wizard walked users through a ~20s Selfie Check into a transaction
-                that could not land. Refuse here instead of failing there. */}
+            {/* `AvalRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()` — refuse here
+                rather than after walking the user through a ~20s Selfie Check. */}
             {sim.blockers.length > 0 ? (
               <div className="mt-4 border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
                 <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
@@ -590,8 +574,8 @@ export function VouchWizard() {
                 action={config.action}
                 rp_context={rpContext}
                 allow_legacy_proofs={true}
-                // MUST stay false while the preset is `selfieCheckLegacy` (errata E-19). idkit-core
-                // gates on a World ID 4.0-only field:
+                // MUST stay false while the preset is `selfieCheckLegacy`. idkit-core gates on a
+                // World ID 4.0-only field:
                 //
                 //     const userPresenceCompleted = getUserPresenceCompleted(responsePayload);
                 //     if (config.require_user_presence === true && !userPresenceCompleted)
@@ -604,10 +588,10 @@ export function VouchWizard() {
                 // `true` the user completes a real face scan and IDKit then rejects it as
                 // `user_presence_failed`. Unsatisfiable by construction, not a flaky check.
                 //
-                // What actually secures the vouch is unchanged and enforced on the SERVER
-                // (api/vouch/attest): the returned nullifier must equal the account's enrolled
-                // nullifier (same action ⇒ same nullifier), and `signal` binds the proof to this
-                // exact voucher→vouchee edge. Liveness is the only property lost.
+                // What actually secures the vouch is enforced on the SERVER (api/vouch/attest): the
+                // returned nullifier must equal the account's enrolled nullifier (same action ⇒
+                // same nullifier), and `signal` binds the proof to this exact voucher→vouchee edge.
+                // Liveness is the only property lost.
                 require_user_presence={false}
                 preset={selfieCheckLegacy({ signal: encodeVouchSignal(auth.address, target.address) })}
                 onSuccess={handlePresenceSuccess}
@@ -647,8 +631,7 @@ export function VouchWizard() {
               </p>
             ) : null}
             {/* A UserOperation hash is not a transaction hash — `worldscan.org/tx/<userOpHash>`
-                does not resolve, so linking it presented a dead link as on-chain evidence. Render
-                it as what it is, and only link when it really is a tx hash. */}
+                does not resolve, so only link when it really is a tx hash. */}
             {txHash ? (
               txIsUserOp ? (
                 <div className="mt-2">

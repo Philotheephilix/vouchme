@@ -35,6 +35,7 @@
     ".next-local/types/**/*.ts",
     ".next-local2/types/**/*.ts",
     ".next-local3/types/**/*.ts",
+    ".next-local4/types/**/*.ts",
     ".next-prod/types/**/*.ts",
     ".next-prod10/types/**/*.ts",
     ".next-prod11/types/**/*.ts",
@@ -51,7 +52,7 @@
     ".next-verify/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-local4/types/**/*.ts"
+    ".next-local5/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

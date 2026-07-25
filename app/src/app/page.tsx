@@ -19,18 +19,16 @@ export const dynamic = "force-dynamic";
 
 /**
  * The signed-in, enrolled dashboard. `AppGate` (src/components/AppGate.tsx) guarantees nobody
- * reaches this without both a session and a live `Enrolled` record — product direction: "don't
- * show random data like others... after verification and subname minting go inside and show
- * their score." There is no demo/fallback identity here any more: absent the session cookie this
- * renders nothing and reads no chain data, full stop — `AppGate` is already showing the login
- * screen in that case, so this would just be wasted work computing data nobody sees.
+ * reaches this without both a session and a live `Enrolled` record. There is no demo or fallback
+ * identity: absent the session cookie this renders nothing and reads no chain data, full stop —
+ * `AppGate` is already showing the login screen in that case.
  */
 export default async function HomePage() {
   const cookieStore = await cookies();
-  // docs/96-ux-audit.md U-24: this used to trust the raw, client-writable `aval_addr` cookie
-  // directly, which meant setting that cookie to any address rendered that address's real
-  // dashboard — no signature required. `readVerifiedAddress` only returns an address whose session
-  // was minted after a real wallet signature verified server-side (src/lib/authSession.ts).
+  // `readVerifiedAddress` only returns an address whose session was minted after a real wallet
+  // signature verified server-side (src/lib/authSession.ts). The raw `aval_addr` cookie is
+  // client-writable, so trusting it directly would render any address's real dashboard to anyone
+  // who set it.
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
 
@@ -41,12 +39,8 @@ export default async function HomePage() {
   const isAnchor = ME.kind === "anchor";
   const { terms, total, matchesScore } = scoreTerms(ME);
 
-  // What it would actually take to reach Tier 1 from here, computed rather than asserted.
-  // This line used to read "Three people who are already trusted need to vouch for you" —
-  // hardcoded, and false twice over: it was shown to a Tier 2 anchor with a score of 100 on this
-  // deployment, and even for a real Tier 0 account the count depends entirely on who the vouchers
-  // are (docs/95-lifecycle.md L-4; errata E-16: two anchors clear T1, three ordinary Tier 1
-  // members clear it, two ordinary members do not).
+  // What it would actually take to reach Tier 1 from here, computed rather than asserted: the
+  // count is never a constant, because it depends entirely on who the vouchers are.
   const pointsToTier1 = Math.max(0, TIER_1_THRESHOLD_SCORE - ME.score);
   const anchorsToTier1 = Math.ceil(pointsToTier1 / ANCHOR_VOUCH_CONTRIBUTION);
   const sumLine = terms.map((t) => `${t.label} ${fmtScore(t.value)}`).join(" + ");
@@ -61,8 +55,6 @@ export default async function HomePage() {
 
       <section className="px-4 pt-6">
         <ScoreDial score={ME.score} tier={ME.tier} countedVouchCount={countedVouchCount} />
-        {/* `depth {null}` rendered the word "depth" followed by nothing at all for anyone with no
-            path to an anchor — a labelled field with no value (docs/95-lifecycle.md L-12). */}
         <p className="mt-1 text-center font-mono text-2xs uppercase tracking-widest text-graphite">
           {ME.depth === null ? "no path to an anchor yet" : `depth ${ME.depth}`}
         </p>
@@ -93,11 +85,9 @@ export default async function HomePage() {
           )}
         </div>
 
-        {/* The arithmetic under the dial has to equal the dial. It printed `base 10.0 + 45.0 =
-            55.0` under 65.0 once (docs/96-ux-audit.md U-3), and `base 20.0 + 0.0 = 20.0` under
-            100.0 for this deployment's Orb-verified account. Anchors have no sum to show at all
-            (errata E-6), and any other mismatch means the terms are incomplete — in which case
-            print no equation rather than a wrong one. */}
+        {/* The arithmetic under the dial has to equal the dial. An anchor has no sum to show at
+            all, and any other mismatch means the terms are incomplete — in which case print no
+            equation rather than a wrong one. */}
         <div className="mt-4 border-t border-rule pt-3 font-mono text-sm text-cream" data-testid="score-equation">
           {isAnchor
             ? `anchor — score fixed at ${fmtScore(ME.score)}`
@@ -116,8 +106,8 @@ export default async function HomePage() {
       ) : null}
 
       <section className="mt-6 px-4">
-        {/* "YOUR SLOTS 0 of 0 free" with three grey marks reads as "you used up your allowance",
-            which is the opposite of the truth (docs/95-lifecycle.md L-13). */}
+        {/* Zero slots means vouching is not unlocked yet, not "you used up your allowance" —
+            which is how empty slot dots read. */}
         {ME.slots.total === 0 ? (
           <div>
             <div className="mb-1 text-2xs uppercase tracking-widest text-graphite">Your slots</div>

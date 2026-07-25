@@ -15,8 +15,8 @@ function unknownOr(value: number | null, format: (n: number) => string): string 
 }
 
 export default async function PlatformPage() {
-  // Same signed-out leak as /explore (docs/96-ux-audit.md U-7): this page ran the chain read and
-  // shipped its payload to clients with no session.
+  // Signed out ⇒ render nothing before the chain read, so its payload never reaches a client with
+  // no session. Same gate as /explore.
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   if (!viewingAddress) return null;
@@ -24,9 +24,8 @@ export default async function PlatformPage() {
   const { PLATFORM, platformsAvailable } = await loadAvalData(viewingAddress);
 
   // No platform on this graph. In live mode that is because PlatformRegistry is never read at
-  // all, so the previous screen — score 0.0, P0, "Vouchers 0", "Bond posted 0.00 AVAL",
-  // "Requests, last 30d 0", "Upheld rate 0%", three FAILing gates — was six measurements that
-  // were never taken, printed as results.
+  // all, so rendering the console's zeros and FAILing gates here would print measurements that
+  // were never taken as results.
   if (!PLATFORM.registered) {
     return (
       <div className="pb-8">
