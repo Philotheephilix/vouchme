@@ -1,46 +1,63 @@
-# substreams/ — Aval trust-graph pipeline
+# substreams/ — the Trust Graph Standard, and the pipeline that implements it
 
 One composable Substreams package (`aval-trust/`), a real local sink, and a small read-only HTTP
-service — the one documented surface `app/` should call. See `PROOF.md` for the full evidence
-trail (every command below, actually run, with real output) and `aval-trust/README.md` for the
-package's own module reference.
+service — the one documented surface `app/` should call.
 
-## The 4801 finding (read this first)
+**The standard is specified in [`docs/17-trust-graph-standard.md`](../docs/17-trust-graph-standard.md).**
+`PROOF.md` is the evidence trail: every command below, actually run, with real output, plus the
+things that do **not** work and their exact errors. `aval-trust/README.md` is the package's own
+operator guide.
 
-**World Chain Sepolia (chainId 4801) has no Substreams/Firehose endpoint, from any provider, as of
-2026-07-25.** Verified independently multiple ways (`PROOF.md` §2, §7.1):
+## What this is
 
-- The Graph's own network registry lists only `worldchain` (World Chain **mainnet**) — no
-  `worldchain-sepolia` entry.
-- `substreams tools default-endpoint worldchain-sepolia` — no endpoint found.
-- `substreams run -e worldchain-sepolia` fails client-side (`invalid endpoint`, can't even resolve
-  a hostname) — a *different* failure mode than `-e worldchain` (mainnet), which resolves and then
-  correctly reports `Unauthenticated` once no token is present. That contrast is what proves
-  Sepolia's problem is "doesn't exist," not "needs a key."
-- **Gnosis has the identical problem.** The task's fallback plan named Gnosis (Circles v2 Hub) as
-  the second-best target; with real credentials loaded, `-e gnosis` fails the same
-  client-side "unknown alias" way, confirmed three more independent ways
-  (`substreams tools default-endpoint gnosis`, three DNS hostname guesses, all negative) —
-  see `PROOF.md` §7.1. Gnosis is a real, registered *chain id*, just not a reachable Firehose
-  endpoint from any provider checked here.
-- **Base does have a real endpoint** (`base-mainnet.streamingfast.io:443`) and was used instead —
-  the one substitution actually made, and the only one that could be (`PROOF.md` §7.1–§7.3).
+Trust and attestation is a protocol category with no standardized schema. Aval, EAS and Circles
+all express *account A asserts something about account B, at a time, revocably* — and all three
+model it differently. This directory authors that missing standard and ships a single, reusable
+`.spkg` that implements it.
 
-This means: the module and manifest are parameterized to index `AvalRegistry` on World Chain
-Sepolia — the params ship as the default in `aval-trust/substreams.yaml` — but nothing can stream
-that data live today. The decode logic is proven correct against real captured chain data instead
-(`cargo test`, no Substreams auth needed — see below). The full live pipeline (Firehose → sink →
-this service) is proven end-to-end on Base, using a different real contract, so that "does this
-architecture actually work" and "can we reach 4801" stay two separate, separately-answered
-questions rather than one blocked claim.
+**Live today: two protocols across five chains, from one binary, with zero Rust differing between
+them** — only a `networks:` entry per profile.
+
+| Protocol | Networks | Streams live |
+|---|---|---|
+| `aval` | `worldchain` (World Chain mainnet, chainId 480) | yes — `PROOF.md` §9 |
+| `eas` | `base`, `optimism`, `arbitrum`, `mainnet` | yes — `PROOF.md` §10.3 |
+| `circles` | `gnosis` | **no — Gnosis has no Firehose endpoint** (§11.4) |
+
+The payoff, in one command:
+
+```bash
+./scripts/one-query-demo.sh                  # ONE query, 2 protocols, 5 chains
+node scripts/crosscheck-trust-edges.mjs      # verify every row against independent public RPCs
+```
+
+## Endpoint availability — verified, not assumed
+
+- **World Chain mainnet works.** `substreams tools default-endpoint worldchain` →
+  `mainnet.worldchain.streamingfast.io:443`. Aval's contracts moved from Sepolia to mainnet on
+  2026-07-25, and that move is exactly what unblocked streaming Aval's own data.
+- **World Chain Sepolia (4801) has no endpoint, from any provider** — not in The Graph's network
+  registry, and `-e worldchain-sepolia` fails client-side as an unresolvable hostname, a
+  *different* failure mode from mainnet's `Unauthenticated`-without-a-token. That contrast is what
+  proved the problem was "doesn't exist," not "needs a key" (`PROOF.md` §2). Historical now, but it
+  is why the earlier proofs had to run on Base.
+- **Gnosis has the identical problem**, re-confirmed with credentials loaded:
+  `substreams tools default-endpoint gnosis` → `no endpoint found`, plus three NXDOMAIN hostname
+  probes (`PROOF.md` §7.1, §11.4). Gnosis is a real registered chain id, just not a reachable
+  Firehose endpoint. Circles v2's adapter profile is specified and trivial; it cannot be run.
+- **Base, Optimism, Arbitrum and Ethereum mainnet all resolve and stream** (`PROOF.md` §10.3).
 
 ## Layout
 
 ```
 substreams/
 ├── aval-trust/          the composable Substreams package (Rust, manifest, proto, schema, tests)
-├── service/              this read-only HTTP API, over the sink database
-├── scripts/               fetch-fixtures.mjs — reproduces the real on-chain fixtures used in tests
+├── service/              read-only HTTP API over the sink database
+├── scripts/
+│   ├── one-query-demo.sh             the payoff: ONE query across every indexed protocol/chain
+│   ├── crosscheck-trust-edges.mjs    independent audit of every sink row vs. public RPCs
+│   ├── verify-mainnet.mjs            plain eth_getLogs ground truth for Aval on chain 480
+│   └── fetch-fixtures.mjs            reproduces the real on-chain fixtures used in tests
 ├── PROOF.md               full evidence trail — every command in this README, run for real
 └── README.md              this file
 ```
@@ -49,9 +66,9 @@ substreams/
 
 ```bash
 cd substreams/aval-trust
-cargo test --release                              # 8/8 — decodes real captured chain data, no auth needed
+cargo test                                          # 21/21 — decodes real captured chain data, no auth needed
 cargo build --target wasm32-unknown-unknown --release
-substreams pack ./substreams.yaml                  # -> aval-trust-graph-v0.2.0.spkg
+substreams pack ./substreams.yaml                   # -> aval-trust-graph-v0.2.0.spkg
 substreams graph ./substreams.yaml                  # module graph (mermaid)
 ```
 
@@ -59,17 +76,19 @@ Module graph: `map_trust_events` (params + raw block → `TrustEvents`) → `sto
 state) → `map_edge_deltas` (store deltas → `DatabaseChanges`) → `db_out` (stable sink target name).
 Full reference in `aval-trust/README.md`.
 
-## Run it live (once you hold `SUBSTREAMS_API_KEY` / `SUBSTREAMS_API_TOKEN`)
+## Run it live
 
 ```bash
 set -a; . ../../.env; set +a        # never echo these values anywhere
 cd substreams/aval-trust
 
-# Base + EAS (real, reachable, proven — PROOF.md §7.2). The default params in substreams.yaml
-# target Aval/World-Chain-Sepolia instead; override with -p for a reachable chain, same .spkg:
-substreams run ./substreams.yaml map_trust_events -e base \
-  -p 'map_trust_events=contract=0x4200000000000000000000000000000000000021&vouch_topic=&revoke_topic=&reaffirm_topic=0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35&report_topic=&report_resolved_topic=&model=ISSUANCE&protocol=eas&network=base' \
-  -s <recent_block> -t +100 -o jsonl
+# The SAME .spkg on every chain. Only --network and -e change; no params to hand-write, because
+# each adapter profile ships in the manifest's `networks:` block.
+substreams run ./substreams.yaml map_trust_events --network worldchain -e worldchain -s 32835370  -t +20 -o jsonl
+substreams run ./substreams.yaml map_trust_events --network base       -e base       -s 49110120  -t +90 -o jsonl
+substreams run ./substreams.yaml map_trust_events --network optimism   -e optimism   -s 154673910 -t +20 -o jsonl
+substreams run ./substreams.yaml map_trust_events --network arbitrum   -e arbitrum   -s 487448500 -t +40 -o jsonl
+substreams run ./substreams.yaml map_trust_events --network mainnet    -e mainnet    -s 25601310  -t +12 -o jsonl
 ```
 
 ## Run the sink locally (ClickHouse, real rows — PROOF.md §7.3)
@@ -164,6 +183,41 @@ same field position (`PROOF.md` §7.1) — that mapping's `expiresAt` would be m
 
 Missing `protocol` → `400 { "error": "protocol query param is required, e.g. /edges?protocol=aval" }`.
 
+### `GET /cross-protocol?address=0x…[&direction=inbound|outbound|both][&liveOnly=true]`
+
+**The standard's payoff as an HTTP call.** Every trust edge touching one address, across every
+indexed protocol and chain, in one identical shape. The SQL behind it names no protocol and no
+chain — this is the query that would otherwise be N bespoke integrations.
+
+`liveOnly=true` applies the standard's liveness predicate verbatim
+(`docs/17-trust-graph-standard.md` §5.2), including the perpetual-sentinel arm without which every
+EAS edge looks expired. Each edge also carries an explicit `perpetual` boolean so an HTTP consumer
+cannot misread `1970-01-01` as "long expired".
+
+```json
+{
+  "address": "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8",
+  "schema": "trust-graph v0.2.0",
+  "count": 1,
+  "byProtocol": [{ "protocol": "eas", "network": "base", "inbound": 1, "outbound": 0 }],
+  "edges": [
+    {
+      "protocol": "eas", "network": "base",
+      "scope": "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4",
+      "from": "0x357458739f90461b99789350868cd7cf330dd7ee",
+      "to": "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8",
+      "kind": "VOUCH", "weightRaw": "1",
+      "issuedAt": "2026-07-25 20:00:09", "expiresAt": "1970-01-01 00:00:00", "perpetual": true,
+      "revoked": false, "blockNum": 49110131,
+      "txHash": "0xacb7dc06ef040ad1c4463f2a974a7d60894f3f36928c13b76dd5df9f773a447e"
+    }
+  ]
+}
+```
+
+This is the endpoint `@aval/mcp`'s `aval_cross_protocol_trust` tool consumes — the MCP layer over
+the standardized store.
+
 ### `GET /stats`
 
 Per-protocol edge/account counts, for a dashboard panel.
@@ -171,15 +225,16 @@ Per-protocol edge/account counts, for a dashboard panel.
 ```json
 {
   "protocols": [
-    { "protocol": "eas", "edgeCount": 3, "activeEdgeCount": 3, "distinctAddresses": 4, "lastBlock": 49100248 }
+    { "protocol": "aval", "edgeCount": 1, "activeEdgeCount": 1, "distinctAddresses": 2, "lastBlock": 32835377 },
+    { "protocol": "eas", "edgeCount": 9, "activeEdgeCount": 5, "distinctAddresses": 12, "lastBlock": 487448518 }
   ],
-  "generatedAt": "2026-07-25T14:56:40.500Z"
+  "generatedAt": "2026-07-25T20:17:40.369Z"
 }
 ```
 
-### Real curl output (this session, against the ClickHouse instance populated in `PROOF.md` §7.3)
+### Real curl output
 
-All three endpoints above are pasted verbatim from an actual `curl http://localhost:8790/...` run
+Every endpoint above is pasted verbatim from an actual `curl http://localhost:8790/...` run
 against the real sink DB — not constructed by hand. Re-run any of them the same way once the
 service is started (see `PROOF.md` for the full session log).
 

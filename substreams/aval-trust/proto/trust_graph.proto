@@ -26,6 +26,28 @@ message TrustEvent {
   bytes  tx_hash    = 9;
   uint64 block_num  = 10;
 
+  // scope — the protocol-native discriminator that separates PARALLEL edges
+  // between the same ordered pair. Added in trust-graph v0.2.0 (see
+  // docs/17-trust-graph-standard.md §4.3) because collapsing every assertion
+  // from A to B into one edge is wrong for any protocol that lets A assert
+  // more than one *kind of thing* about B:
+  //
+  //   EAS   scope = the attestation's `schemaUID` (topics[3]). One attester
+  //         routinely holds several live attestations about the same
+  //         recipient under different schemas; revoking one must not mark
+  //         the others revoked. Without `scope` it does — verified against
+  //         real Base logs where 0x357458…d7ee both attests and revokes for
+  //         many recipients under schema 0x254bd1…f9f4.
+  //   Aval  scope = "" (empty). AvalRegistry permits exactly one live vouch
+  //         per (voucher, vouchee) pair by construction, so the pair alone
+  //         is already a unique key and an empty scope is the correct,
+  //         lossless encoding — not a placeholder.
+  //
+  // Encoding: lowercase `0x`-prefixed hex when it comes from a topic, or the
+  // empty string when the protocol has no such dimension. Always part of the
+  // edge identity (see Edge below and schema.sql's ORDER BY).
+  string scope       = 11;
+
   enum Kind {
     VOUCH           = 0;
     REVOKE          = 1;
@@ -59,4 +81,8 @@ message Edge {
   TrustEvent.Kind kind        = 10;  // kind of the most recent event applied
   bytes           tx_hash     = 11;  // tx of the most recent event applied
   uint64          block_num   = 12;  // block of the most recent event applied
+  // Part of the edge's IDENTITY, not a payload field — `store_edges` keys on
+  // (protocol, network, scope, from, to) and schema.sql's ReplacingMergeTree
+  // ORDER BY matches it exactly. See TrustEvent.scope above for why.
+  string          scope       = 13;
 }

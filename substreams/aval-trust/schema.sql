@@ -1,19 +1,24 @@
 -- trust_edges — docs/14-substreams.md §4, verbatim.
 --
--- ORDER BY (protocol, to_addr, from_addr) because the engine's hot query is
+-- ORDER BY (protocol, network, scope, to_addr, from_addr) because the engine's hot query is
 -- "all inbound edges for every account" — the BFS inner loop
--- (docs/05-graph-data-layer.md §2.2 / §3.2). ReplacingMergeTree(block_num)
--- plus `FINAL` at query time is the standard ClickHouse idiom for a table fed
--- by insert-only Database Changes CDC (substreams-sink-sql on ClickHouse is
+-- (docs/05-graph-data-layer.md §2.2 / §3.2) — and because that tuple is the trust-graph v0.2.0
+-- EDGE IDENTITY (docs/17-trust-graph-standard.md §4.3). It must stay identical to `edge_key()`
+-- in src/lib.rs and to the CDC key in `map_edge_deltas`. The v0.1.0 key
+-- (protocol, to_addr, from_addr) silently merged EAS-on-Base with EAS-on-Optimism, and merged
+-- an attester's several different-schema attestations about one recipient into a single edge.
+--
+-- ReplacingMergeTree(block_num) plus `FINAL` at query time is the standard ClickHouse idiom for
+-- a table fed by insert-only Database Changes CDC (substreams-sink-sql on ClickHouse is
 -- insert-only — see substreams-sql skill, "Capability matrix"): every state
 -- change (VOUCH / REAFFIRM / REVOKE) is inserted as a new row for the same
--- (protocol, to_addr, from_addr) key with a higher block_num, and a merge (or
+-- (protocol, network, scope, to_addr, from_addr) key with a higher block_num, and a merge (or
 -- `FINAL`) keeps only the highest block_num per key.
 --
--- The engine's one hot query, for reference (not executed here — see PROOF.md for a live
--- example): select to_addr, from_addr, weight_raw, expires_at from trust_edges final where
--- protocol equals the target protocol, revoked is false, expires_at is in the future, and kind
--- is VOUCH.
+-- The standard's LIVENESS PREDICATE, which every consumer should use verbatim
+-- (docs/17-trust-graph-standard.md §5.2) — note the perpetual-sentinel arm, without which every
+-- EAS edge looks expired:
+--     revoked = 0 AND (expires_at = toDateTime(0) OR expires_at > now())
 --
 -- IMPORTANT for anyone editing this file: substreams-sink-sql's statement splitter is NOT
 -- comment-aware — it splits on every literal semicolon in the raw text, including ones inside
@@ -24,6 +29,13 @@
 CREATE TABLE trust_edges (
     protocol     LowCardinality(String),
     network      LowCardinality(String),
+    -- `scope` — trust-graph v0.2.0's protocol-native edge discriminator (trust_graph.proto's
+    -- `scope` field). EAS puts its `schemaUID` here, so one attester holding several live
+    -- attestations about the same recipient under different schemas is several rows, and
+    -- revoking one does not mark the others revoked. Aval writes the empty string: AvalRegistry
+    -- permits exactly one live vouch per (voucher, vouchee) pair, so the pair is already unique
+    -- and '' is the correct lossless value, not a placeholder. Part of the ORDER BY key below.
+    scope        String,
     -- docs/14-substreams.md §4 specifies `FixedString(20)` for the two address columns and
     -- `FixedString(32)` for tx_hash (below) — a compact 20/32 RAW BYTES encoding. Deviated to
     -- `String`: `map_edge_deltas` (src/lib.rs) sends addresses and hashes through this table as
@@ -58,19 +70,27 @@ CREATE TABLE trust_edges (
     -- same moment as an edge's *original* VOUCH once a REAFFIRM has touched it — see the
     -- `store_edges` KNOWN LIMITATION doc comment in `src/lib.rs`.
     issued_at    DateTime,
-    -- `expires_at`: `4294967295` (2106-02-07 06:28:15, `DateTime`'s own maximum — see
-    -- `clamp_unix_timestamp` in `src/lib.rs`) is a CLAMP-SAFETY CEILING, not a "never expires"
-    -- sentinel encoding any real protocol convention. It appears whenever the decoded word does
-    -- not represent a real timestamp at all for the protocol in question — concretely, on the
-    -- Base/EAS demo in PROOF.md §7, where the one non-indexed word in `Attested(...)` is the
-    -- attestation's `uid` (a content hash), not a timing field. EAS's real `expirationTime` lives
-    -- in contract storage, not the event log, and is not decoded here. Do not read this value as
-    -- "this edge never expires" — for that protocol/mapping, this column has no real data behind
-    -- it, full stop. Contrast Circles v2's `Trust.expiryTime`, which genuinely IS a timestamp
-    -- word (verified against real logs, PROOF.md) and decodes to a meaningful `expires_at`.
+    -- `expires_at`: `1970-01-01 00:00:00` (unix 0) is trust-graph v0.2.0's PERPETUAL sentinel —
+    -- "this log proves no expiry" — NOT "expired long ago". Read it with the standard's
+    -- liveness predicate, never with a bare `expires_at > now()`:
+    --     revoked = 0 AND (expires_at = toDateTime(0) OR expires_at > now())
+    -- Which deployments produce it, and why:
+    --   * EAS (`Attested` / `Revoked`) — the log's only non-indexed word is the attestation
+    --     `uid`, a content hash. There is no timing data in the event at all, so the adapter
+    --     declares `vouch_tail=none` / `revoke_tail=none` and this column is honestly 0. EAS's
+    --     real `expirationTime` lives in contract storage, reachable only via
+    --     `getAttestation(uid)`, which this event-log-only extractor does not call.
+    --   * Aval (`Vouched`) — carries two genuine `uint64` words, so this column holds a real
+    --     decoded expiry (90 days after issuance) and is never 0.
+    -- HISTORY, because the old rows were wrong in a way worth naming: under v0.1.0 the EAS
+    -- mapping had no way to say "no timing here", so the `uid` hash was decoded as a timestamp
+    -- and clamped to `4294967295` (2106-02-07 06:28:15) purely to stop it wedging this column.
+    -- Those rows read as "never expires" and were fabricated by the decoder. v0.2.0's
+    -- `TailLayout::None` removes the guess. `clamp_unix_timestamp` in src/lib.rs remains only as
+    -- a backstop against a genuinely out-of-range real timestamp.
     expires_at   DateTime,
     revoked      UInt8,
     block_num    UInt64,
     tx_hash      String -- same FixedString-vs-hex0x mismatch as from_addr/to_addr above
 ) ENGINE = ReplacingMergeTree(block_num)
-ORDER BY (protocol, to_addr, from_addr);
+ORDER BY (protocol, network, scope, to_addr, from_addr);

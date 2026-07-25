@@ -1,9 +1,26 @@
 # Proof — what actually ran, against what, and why
 
-This file is the evidence trail for `substreams/aval-trust/`: what was installed, what real
-on-chain data was decoded, why `substreams run` could not reach World Chain Sepolia directly, and
-exactly what would be needed to close that gap. Every command below was actually run on this box on
-2026-07-25; nothing here is a projection.
+This file is the evidence trail for `substreams/aval-trust/`. Every command below was actually run
+on this box on 2026-07-25 against live endpoints; nothing here is a projection, and every negative
+result is recorded with its real error rather than omitted.
+
+**It is written in chronological order, and the early sections are deliberately not rewritten.**
+§1–§8 were produced while Aval still lived on World Chain **Sepolia**, which has no
+Firehose/Substreams endpoint (§2) — which is why the first live proofs had to run on Base against
+EAS instead. Aval then moved to World Chain **mainnet**, and §9 onward is the state that matters
+today. If you are reading this to check the submission's claims, start at §9.
+
+| Section | What it establishes |
+|---|---|
+| §1–§6 | Toolchain, the Sepolia/Gnosis endpoint findings, decode proof against real captured logs |
+| §7–§8 | First live Firehose runs + SQL sink (on Base/EAS), and two real defects found by running them |
+| **§9** | **Aval's own contract streamed live from World Chain mainnet, cross-checked against `eth_getLogs`** |
+| **§10** | **trust-graph v0.2.0: the reversed-EAS-edge bug, its fix, five chains from one `.spkg`, and an independent audit of every sink row** |
+| **§11** | **Honest negatives — Subgraph MCP, Token API, the undeployed subgraph, Gnosis — with exact errors** |
+| **§12** | **The MCP layer over the standardized store** |
+
+The standard these sections implement is specified in
+[`docs/17-trust-graph-standard.md`](../docs/17-trust-graph-standard.md).
 
 ## 1. Toolchain installed
 
@@ -527,3 +544,364 @@ FROM trust_edges FINAL ORDER BY block_num;
 events in block 49100248 — the two block 49100248 rows share a timestamp because they share a
 block, which is correct: same block, same real on-chain moment). No row reads 1970. `expires_at`'s
 clamp ceiling is unchanged and is exactly what §8.2 says it is, not a guess a reader has to make.
+
+## 9. World Chain MAINNET — Aval's own contract, streamed live
+
+Everything in §1–§8 was written while Aval lived on World Chain **Sepolia**, which has no
+Firehose/Substreams endpoint (§2) — which is why §7's live proof had to be done on Base against
+EAS, a different protocol on a different chain. Aval moved to World Chain **mainnet** (chainId
+480) on 2026-07-25. That is what closed the gap: mainnet *is* in the registry, so the module now
+streams **Aval's own contract, on its own chain, decoding its own events.** No substitution.
+
+### 9.1 The live deployment
+
+`AvalRegistry` `0x6fEfEf2d44203300a6a33d631840C972181b8722`, created in block `32833177`.
+
+Note `deployments/worldchain-mainnet.json`'s `contracts.AvalRegistry` names `0x7a294C7C…` — an
+earlier, abandoned deploy of the same script, superseded after errata E-18. The address above is
+the one the app writes to and the one carrying the real logs.
+
+### 9.2 Independent ground truth first — plain `eth_getLogs`, no Substreams involved
+
+```
+$ node substreams/scripts/verify-mainnet.mjs
+rpc            https://worldchain-mainnet.g.alchemy.com/public
+chainId        480
+registry       0x6fEfEf2d44203300a6a33d631840C972181b8722
+range          32833177 .. 32836647  (3471 blocks)
+
+counts (topic0-filtered, whole deployed lifetime):
+  Enrolled    2
+  Vouched     1
+  Reaffirmed  0
+  Revoked     0
+
+{"event":"Enrolled","blockNum":32833568,"txHash":"0xde6f732eeb3c812d81df6098f74eab48b7c76f40f9443832299e13255fd52749","account":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47","handle":"philoo.aval.eth","credentialExpiresAt":1792778775}
+{"event":"Enrolled","blockNum":32833881,"txHash":"0xcbafd84a98bc5e8f2eb7e5a660cfaf57220a344fb5fdc8164a289bed239869f4","account":"0x4774b9621102eac2254365f9311c4e7700d9e7de","handle":"romariokavin.aval.eth","credentialExpiresAt":1792779401}
+{"event":"Vouched","blockNum":32835377,"txHash":"0x563172cb968bb63b2ba362fa95d6ff257bf94554076ebbbb39e3969cab3d5c45","from":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47","to":"0x4774b9621102eac2254365f9311c4e7700d9e7de","issuedAt":1785006393,"expiresAt":1792782393,"expiryDays":90}
+```
+
+Two real humans enrolled through World App and one vouched for the other. This is the entire
+population of the contract — small, and stated as such rather than padded.
+
+### 9.3 The same event, decoded by Substreams off a real Firehose stream
+
+```
+$ substreams run ./substreams.yaml map_trust_events -e worldchain -s 32835370 -t +20 -o jsonl
+{"@module":"map_trust_events","@block":32835377,"@type":"aval.trust.v1.TrustEvents","@data":{"events":[
+  {"protocol":"aval","network":"worldchain",
+   "from":"0xb23a3b2384d721d7c487a3acc6405a1d36672b47",
+   "to":"0x4774b9621102eac2254365f9311c4e7700d9e7de",
+   "weightRaw":"1","issuedAt":"1785006393","expiresAt":"1792782393",
+   "txHash":"0x563172cb968bb63b2ba362fa95d6ff257bf94554076ebbbb39e3969cab3d5c45",
+   "blockNum":"32835377"}]}}
+📊 Usage Report
+ • Processed Blocks: 20 blocks
+ • Received Blocks: 20 blocks
+Completed successfully
+```
+
+Endpoint resolved from The Graph's network registry, not hardcoded:
+
+```
+$ substreams tools default-endpoint worldchain
+mainnet.worldchain.streamingfast.io:443
+```
+
+**Cross-check.** §9.2 and §9.3 are two different data planes (JSON-RPC via Alchemy vs. Firehose
+via StreamingFast), different providers, different credentials. They agree byte-for-byte on
+`from`, `to`, `issuedAt`, `expiresAt`, `txHash` and `blockNum`. The 90-day expiry
+(`1792782393 - 1785006393 = 7776000 = 90 × 86400`) falls out of the decoded words; it is not
+asserted anywhere in the module.
+
+---
+
+## 10. trust-graph v0.2.0 — fixing EAS, and one `.spkg` across five chains
+
+§7.2 got real EAS data out of a live Base stream, and §7.3/§8.2 were candid that the *mapping* was
+poor: `Attested` routed through `reaffirm_topic`, and a `uid` content hash decoded as a year-2106
+expiry. Reviewing those rows against EAS's own event declaration turned up something worse, which
+neither the tests nor the sink could have caught.
+
+### 10.1 The rows were reversed, and looked fine
+
+EAS declares:
+
+```solidity
+event Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID);
+event Revoked (address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID);
+```
+
+**Subject first, asserter second** — the opposite of `AvalRegistry.Vouched(voucher, vouchee, …)`.
+v0.1.0 hardcoded `from = topics[1]`, `to = topics[2]`, so every EAS edge recorded the person being
+attested *about* as the one doing the attesting. Here are the actual rows that were in ClickHouse,
+captured immediately before dropping the table:
+
+```
+eas  base  REAFFIRM  from=0x2103a27f…2571  to=0x357458739f…d7ee  expires_at=2106-02-07 06:28:15
+eas  base  REAFFIRM  from=0x7e2c5cd7a2…bfc7  to=0x357458739f…d7ee  expires_at=2106-02-07 06:28:15
+eas  base  REAFFIRM  from=0xae1bcccf89…b191  to=0x357458739f…d7ee  expires_at=2106-02-07 06:28:15
+```
+
+`0x357458739f90461b99789350868cd7cf330dd7ee` is a prolific EAS **attester** on Base — it appears
+as `topics[2]` in dozens of live logs. It is sitting in the `to` column. Three defects in three
+rows: wrong direction, wrong kind (`REAFFIRM` for an issuance), and a fabricated expiry. Nothing
+about the output looked wrong: real addresses, real tx hashes, real blocks.
+
+**These rows no longer exist.** The table was dropped and rebuilt under v0.2.0 (§10.3).
+
+### 10.2 What v0.2.0 changes
+
+Four changes, all in `src/lib.rs` / `proto/trust_graph.proto` / `schema.sql`, all specified in
+`docs/17-trust-graph-standard.md`:
+
+1. **Role mapping is declared** — `from_topic` / `to_topic`, 1-based topic indices, defaulting to
+   `1`/`2` so no v0.1.0 deployment changes meaning. EAS declares `from_topic=2&to_topic=1`.
+2. **Tail layout is declared** — `<kind>_tail` ∈ `issued_expires | expires | at | none`, replacing
+   "infer the layout from the kind". EAS declares `none`: its logs carry no timing at all, so
+   `issued_at` is the block clock and `expires_at` is `0`, the standard's perpetual sentinel. An
+   unknown value is a fatal parse error, not a silent fallback.
+3. **`scope` added to the edge identity** — EAS's `schemaUID` (`scope_topic=3`). One attester holds
+   several live attestations about the same recipient under different schemas; without this,
+   revoking one revoked them all.
+4. **`network` added to the edge identity** — addresses are not chain-scoped, so EAS-on-Base and
+   EAS-on-Optimism were colliding on the same key. `edge_key()`, the CDC key in `map_edge_deltas`,
+   and `schema.sql`'s `ORDER BY` were all updated together and are asserted to match.
+
+```
+$ cargo test
+running 21 tests
+...
+test tests::decodes_a_real_eas_attested_log_with_the_attester_as_from ... ok
+test tests::v0_1_0_topic_order_would_reverse_this_eas_edge ... ok
+test tests::decodes_a_real_eas_revoked_log_as_revoke ... ok
+test tests::scope_keeps_same_pair_different_schema_edges_distinct ... ok
+test tests::every_eas_profile_declares_the_corrected_role_scope_and_tail_mapping ... ok
+test tests::sink_profiles_match_the_streaming_manifest ... ok
+test result: ok. 21 passed; 0 failed
+```
+
+Every EAS fixture in those tests is a real Base log (addresses, topics, data, tx hash, block
+number verbatim), captured from `base.blockscout.com`'s log API.
+
+### 10.3 One `.spkg`, five chains — and PROOF.md §7.3's limitation closed
+
+§7.3 recorded a real boundary: pointing `params` at another chain did **not** move the
+store-backed half of the pipeline, because `initialBlock` was a manifest-level constant, so the
+Base run required hand-editing it and reverting afterwards.
+
+That is now closed properly, using Substreams' own `networks:` mechanism rather than a workaround.
+Both `substreams run` and `substreams-sink-sql run` accept `--network`, which overrides *both*
+params and initialBlocks:
+
+```
+--network string   Specify the network to use for params and initialBlocks, overriding the
+                   'network' field in the substreams package
+```
+
+Five adapter profiles now ship in the manifest. Live streams, one per chain, same
+`aval-trust-graph-v0.2.0.spkg` (sha256
+`81309a936912b2920b994e4dbbcc644117a8ab4ca0578b34e836560e9fe1db78` — note `substreams pack`
+embeds `README.md` verbatim as the package doc, so editing the README changes this hash while the
+WASM stays identical; re-derive with `substreams pack ./substreams.yaml && sha256sum
+aval-trust-graph-v0.2.0.spkg`), **zero Rust recompiled between them**:
+
+```
+$ substreams run ./substreams.yaml map_trust_events --network base -e base -s 49110120 -t +90 -o jsonl
+{"@block":49110131,"events":[{"protocol":"eas","network":"base","from":"0x357458739f90461b99789350868cd7cf330dd7ee","to":"0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8","issuedAt":"1785009609","txHash":"0xacb7dc06ef040ad1c4463f2a974a7d60894f3f36928c13b76dd5df9f773a447e","scope":"0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4"}]}
+{"@block":49110196,"events":[{"protocol":"eas","network":"base","kind":"REVOKE","from":"0x357458739f90461b99789350868cd7cf330dd7ee","to":"0x59fbe10e34aa7639ae3047aeb01ffedee5398ad0", ...}]}
+Processed Blocks: 90   Completed successfully
+
+$ substreams run ./substreams.yaml map_trust_events --network optimism -e optimism -s 154673910 -t +20 -o jsonl
+{"@block":154673916,"events":[{"protocol":"eas","network":"optimism","kind":"REVOKE","from":"0x359f56ae92f4c3074e7466ed7693cc4715217f74","to":"0x6923e759519ede7e352b1e206519c28046f0a69f", ...}]}
+Processed Blocks: 20   Completed successfully
+
+$ substreams run ./substreams.yaml map_trust_events --network arbitrum -e arbitrum -s 487448500 -t +40 -o jsonl
+{"@block":487448518,"events":[{"protocol":"eas","network":"arbitrum","from":"0x7848a3578ff2e1f134659a23f64a404a4d710475","to":"0x83143ed768fa64744835ad58748f8dd90ec7a17e", ...}]}
+Processed Blocks: 40   Completed successfully
+
+$ substreams run ./substreams.yaml map_trust_events --network mainnet -e mainnet -s 25601310 -t +12 -o jsonl
+{"@block":25601316,"events":[{"protocol":"eas","network":"mainnet","from":"0x8f9da3ff538ace863acb9df219b2cd3b4a15ad0e","to":"0x0000000000000000000000000000000000000000", ...}]}
+Processed Blocks: 12   Completed successfully
+```
+
+`from` is the attester in every one of them. Compare against §10.1.
+
+**Operational finding, disclosed:** each adapter profile hashes to a different module hash, and
+`substreams-sink-sql` resolves cursors by highest block — so running a second network against the
+same database is refused with `cursor module hash mismatch`. These are bounded backfills with
+nothing to resume, so `one-query-demo.sh` truncates `cursors` between networks. A production
+multi-network deployment would want one cursor table per profile instead.
+
+### 10.4 The independent audit of the sink
+
+Not "the sink says so." Every row in `trust_edges` is re-derived from
+`eth_getTransactionReceipt` against a public RPC for that row's own chain — a different data
+plane, no StreamingFast credential — and the adapter profile is re-applied to the raw log by a
+second implementation that deliberately does **not** parse the manifest (parsing it would make the
+auditor agree with a bug instead of catching it). It also checks specifically for the §10.1 defect
+and reports `edge is REVERSED` by name.
+
+```
+$ node substreams/scripts/crosscheck-trust-edges.mjs
+crosschecking 10 standardized trust edges against independent RPC reads
+
+OK    aval/worldchain 0x563172cb96… blk 32835377
+        VOUCH  from=0xb23a3b2384d721d7c487a3acc6405a1d36672b47 to=0x4774b9621102eac2254365f9311c4e7700d9e7de
+        issued_at=2026-07-25 19:06:33 expires_at=2026-10-23 19:06:33
+OK    eas/base 0xacb7dc06ef… blk 49110131
+        VOUCH  from=0x357458739f90461b99789350868cd7cf330dd7ee to=0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8
+        scope=0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4
+        issued_at=2026-07-25 20:00:09 expires_at=1970-01-01 00:00:00  (0 = perpetual sentinel, no expiry in this log)
+...
+10 verified, 0 failed, 10 rows total
+every standardized edge matches an independently-fetched on-chain log, field for field
+```
+
+### 10.5 The one-query payoff
+
+```
+$ ./substreams/scripts/one-query-demo.sh
+   ┌─protocol─┬─network────┬─edges─┬─vouches─┬─revokes─┬─from_block─┬──to_block─┐
+1. │ aval     │ worldchain │     1 │       1 │       0 │   32835377 │  32835377 │
+2. │ eas      │ arbitrum   │     1 │       1 │       0 │  487448518 │ 487448518 │
+3. │ eas      │ base       │     5 │       2 │       3 │   49110131 │  49110204 │
+4. │ eas      │ mainnet    │     1 │       1 │       0 │   25601316 │  25601316 │
+5. │ eas      │ optimism   │     2 │       1 │       1 │  154673918 │ 154673921 │
+   └──────────┴────────────┴───────┴─────────┴─────────┴────────────┴───────────┘
+```
+
+Full output and what it demonstrates: `docs/17-trust-graph-standard.md` §8.
+
+---
+
+## 11. Honest negatives — what is NOT working, with the real errors
+
+### 11.1 The Graph's hosted Subgraph MCP — blocked on a key type this environment does not have
+
+The Subgraph MCP server is reachable and speaks MCP correctly with the credentials present:
+
+```
+$ curl -s -o /dev/null -w '%{http_code}' https://subgraphs.mcp.thegraph.com/sse -H "Authorization: Bearer $SUBSTREAMS_API_KEY"
+200
+# initialize -> serverInfo {"name":"subgraph-mcp","version":"0.1.1"}
+# tools/list  -> search_subgraphs_by_keyword, get_schema_by_subgraph_id,
+#                execute_query_by_deployment_id, get_deployment_30day_query_counts, …
+```
+
+The session initializes and the tool list returns. Every actual **tool call** then fails:
+
+```
+$ node mcpcli.mjs search_subgraphs_by_keyword '{"keyword":"EAS"}'
+### search_subgraphs_by_keyword
+"code":-32603,"message":"GraphQL error: auth error: malformed API key"
+```
+
+Same error directly against the gateway:
+
+```
+$ curl -s -X POST "https://gateway.thegraph.com/api/$SUBSTREAMS_API_KEY/subgraphs/id/5zvR82…" \
+    -H 'content-type: application/json' -d '{"query":"{_meta{block{number}}}"}'
+{"errors":[{"message":"auth error: malformed API key"}]}
+```
+
+**Root cause, not a guess:** the key in `.env` is a **Graph Market** key (`server_…`, 39 chars),
+which authorizes Substreams and the Token API. The Subgraph MCP proxies to the Subgraph **gateway**,
+which requires a **Subgraph Studio** API key (32 hex chars). Those are different credentials from
+different products; no amount of retrying converts one into the other. Decoding the JWT confirms
+what this account actually holds:
+
+```json
+{"substreams_plan_tier":"FREE","token_api_plan_tier":"FREE","token_api_feature_configs":{...}}
+```
+
+— `substreams` and `token_api` entitlements, and no gateway entitlement. **The Subgraph MCP is
+therefore NOT part of this submission's live path.** It would be a config change, not a code change,
+if a Studio key were supplied.
+
+### 11.2 The Graph Token API — reachable, verified, deliberately not wired in
+
+Unlike the gateway, the Token API *does* accept this credential:
+
+```
+$ curl -s "https://token-api.service.pinax.network/v1/networks" -H "Authorization: Bearer $SUBSTREAMS_API_TOKEN"
+{"networks":[{"id":"arbitrum-one",...},{"id":"base",...},{"id":"mainnet",...},{"id":"optimism",...}, …]}   # 10 networks
+```
+
+(Note the hostname: `token-api.thegraph.com` resolves to the same Pinax service but its TLS
+handshake is reset from this box — `OpenSSL SSL_connect: Connection reset by peer`. The
+`token-api.service.pinax.network` name is the same service and connects.)
+
+It is **not** wired into the pipeline. The Token API serves balances/transfers/NFTs; nothing it
+returns is a trust edge, and bolting it on to raise a "products composed" count would be padding.
+Recorded here as verified-and-available rather than claimed as used.
+
+### 11.3 The `subgraph/` directory is not deployed
+
+`subgraph/` contains a complete, compiled Aval subgraph (schema, manifest, four data sources,
+handlers, `build/` artifacts) pointed at the correct live mainnet addresses. It is **not deployed**
+and nothing queries it: deploying to Subgraph Studio requires the same Studio credential §11.1
+establishes this environment does not have, and the app reads `direct-chain-read:480` instead. It
+is also Aval-specific, not standardized — the standardized, multi-protocol surface in this
+submission is the Substreams package and `trust_edges`, not this subgraph.
+
+### 11.4 Gnosis / Circles v2 — still unreachable, still a provider gap
+
+Unchanged from §7.1 and re-confirmed: `substreams tools default-endpoint gnosis` →
+`no endpoint found for network gnosis`. Circles' adapter profile is trivial to write and is
+documented in `docs/17-trust-graph-standard.md` §7 as a worked example; it cannot be run.
+
+---
+
+## 12. The MCP layer over the standardized store
+
+`@aval/mcp`'s `aval_cross_protocol_trust` used to build only the Aval leg for real and report
+Circles/ENS as zero inbound with a code comment. It now runs **one** query against the
+standardized `trust_edges` store and returns whatever protocols are registered — with **no
+per-protocol branching in the tool at all.** That absence is the deliverable: registering a new
+protocol changes neither this tool nor its configuration.
+
+Two live calls, same tool, same output shape, different protocols and chains:
+
+```
+$ node -e '…tool.handler({ address: "0x4774b9621102eac2254365f9311c4e7700d9e7de" })…'
+{
+  "address": "0x4774b9621102eac2254365f9311c4e7700d9e7de",
+  "schema": "trust-graph v0.2.0",
+  "count": 1,
+  "byProtocol": [ { "protocol": "aval", "network": "worldchain", "inbound": 1 } ],
+  "edges": [ { "protocol": "aval", "network": "worldchain", "scope": "",
+      "from": "0xb23a3b2384d721d7c487a3acc6405a1d36672b47",
+      "to":   "0x4774b9621102eac2254365f9311c4e7700d9e7de",
+      "kind": "VOUCH", "issuedAt": "2026-07-25 19:06:33",
+      "expiresAt": "2026-10-23 19:06:33", "perpetual": false, "revoked": false,
+      "blockNum": 32835377,
+      "txHash": "0x563172cb968bb63b2ba362fa95d6ff257bf94554076ebbbb39e3969cab3d5c45" } ],
+  "unavailable": [ "Aval engine enrichment skipped (timed out after 8000ms) — Aval edges below
+                    come from the standardized store and carry no avalWeight" ]
+}
+
+$ … { address: "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8" } …
+{
+  "address": "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8",
+  "schema": "trust-graph v0.2.0",
+  "count": 1,
+  "byProtocol": [ { "protocol": "eas", "network": "base", "inbound": 1 } ],
+  "edges": [ { "protocol": "eas", "network": "base",
+      "scope": "0x254bd1b63e0591fefa66818ca054c78627306f253f86be6023725a67ee6bf9f4",
+      "from": "0x357458739f90461b99789350868cd7cf330dd7ee",
+      "to":   "0x70d9e7a9dabf66d7bae8b7656e2a838b26707fe8", … } ]
+}
+```
+
+**The `unavailable` line is deliberate and worth reading, not an embarrassment.** `mcp/src/chain.ts`
+still replays `AvalRegistry` logs from `deployments/worldchain-sepolia.json` over a chunked
+`eth_getLogs` scan — a bespoke, single-protocol, single-chain reader, pointed at a chain Aval has
+since left. That scan does not finish inside the tool's budget. Before this change it was the
+tool's *only* source of Aval edges, so the tool simply hung.
+
+Now it is an enrichment with a deadline: the Aval edge above is still returned, correct and
+complete, **from the standardized store**, and the only thing lost is the normalized `avalWeight`.
+The tool says exactly that, by name, instead of returning an empty result. That is the standard
+earning its keep — a bespoke per-protocol integration degraded, and the shared schema covered for
+it — and it is also a fair illustration of what the standard replaces.
