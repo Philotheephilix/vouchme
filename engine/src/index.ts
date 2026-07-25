@@ -1,5 +1,5 @@
 /**
- * @aval/engine — the Aval trust-mathematics scoring engine.
+ * @vouchme/engine — the VouchMe trust-mathematics scoring engine.
  *
  * A pure, dependency-free function `(edges, anchors, now) -> scores`, implementing
  * docs/01-trust-math.md end to end. No I/O, no wall-clock reads, no randomness, no floats in the

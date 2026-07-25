@@ -1,5 +1,5 @@
 /**
- * Aval — engine constants, in centi-points (score × 100) unless noted otherwise.
+ * VouchMe — engine constants, in centi-points (score × 100) unless noted otherwise.
  *
  * Single source of truth for these values is docs/10-constants.md; derivations live in
  * docs/01-trust-math.md and docs/16-presence-drip.md. Every numeric literal in this file cites

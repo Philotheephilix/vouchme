@@ -1,4 +1,4 @@
-// @aval/gateway — src/server.ts
+// @vouchme/gateway — src/server.ts
 //
 // Hono HTTP server exposing:
 //   GET /health              liveness + config sanity check
@@ -13,7 +13,7 @@ import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { isAddress, isHex, type Address, type Hex } from "viem";
 import { resolveByName, type GatewayConfig } from "./context.js";
-import { CHAIN_PROVENANCE, getAnchorBookAddress, getAvalRegistryAddress } from "./chain.js";
+import { CHAIN_PROVENANCE, getAnchorBookAddress, getVouchMeRegistryAddress } from "./chain.js";
 import {
   decodeCcipRequest,
   encodeAddrResult,
@@ -29,7 +29,7 @@ import {
 } from "./sign.js";
 
 /**
- * No required env var here: there is no deployed Aval Subgraph
+ * No required env var here: there is no deployed VouchMe Subgraph
  * (deployments/worldchain-sepolia.json's own notes), so `chain.rpcUrl` is an OPTIONAL override —
  * chain.ts's own default (Tenderly primary, Alchemy public fallback) is fine for a fresh checkout.
  * Contract addresses and the deployment block come from deployments/worldchain-sepolia.json
@@ -51,11 +51,11 @@ export function createApp(config: GatewayConfig, signerKey: Hex): Hono {
   app.get("/health", (c: Context) => {
     return c.json({
       status: "ok",
-      service: "@aval/gateway",
+      service: "@vouchme/gateway",
       signer: signerAddress,
       chainId: 4801,
       network: "World Chain Sepolia",
-      avalRegistry: getAvalRegistryAddress(),
+      vouchMeRegistry: getVouchMeRegistryAddress(),
       // GenesisAnchorBook — this deployment's testnet stand-in for World ID's Address Book, which
       // does not exist on World Chain Sepolia (deployments/worldchain-sepolia.json). Never
       // reported as the real Address Book — see anchorSource below.
@@ -155,7 +155,7 @@ async function run(env: NodeJS.ProcessEnv = process.env): Promise<{ server: Retu
     host: hostname,
   });
   // eslint-disable-next-line no-console
-  console.log(`@aval/gateway listening on http://${hostname}:${port}`);
+  console.log(`@vouchme/gateway listening on http://${hostname}:${port}`);
   return { server, port };
 }
 
@@ -167,7 +167,7 @@ function main(): void {
   run().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     // eslint-disable-next-line no-console
-    console.error(`@aval/gateway failed to start: ${message}`);
+    console.error(`@vouchme/gateway failed to start: ${message}`);
     process.exitCode = 1;
   });
 }

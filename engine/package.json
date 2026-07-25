@@ -1,8 +1,8 @@
 {
-  "name": "@aval/engine",
+  "name": "@vouchme/engine",
   "version": "0.1.0",
   "private": true,
-  "description": "Aval trust-mathematics scoring engine — a pure, dependency-free function (edges, anchors, now) -> scores.",
+  "description": "VouchMe trust-mathematics scoring engine — a pure, dependency-free function (edges, anchors, now) -> scores.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",

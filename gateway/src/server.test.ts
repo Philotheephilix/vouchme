@@ -1,11 +1,11 @@
-// @aval/gateway — src/server.test.ts
+// @vouchme/gateway — src/server.test.ts
 //
 // Smoke test for the HTTP server: it must start and serve GET /health without throwing when the
 // optional env vars are absent, and missing REQUIRED config must fail fast with a clear message
 // naming the variable rather than a stack trace. Run with `npm test` after `npm run build`
 // (node's built-in test runner).
 //
-// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes) —
+// There is no deployed VouchMe Subgraph (deployments/worldchain-sepolia.json's own notes) —
 // src/chain.ts reads World Chain Sepolia directly instead, using contract addresses from that same
 // deployment record and its own default RPC endpoints. The ONLY env var this server cannot run
 // without is the gateway's own signing key.
@@ -15,7 +15,7 @@ import { test } from "node:test";
 import { generatePrivateKey } from "viem/accounts";
 import { gatewaySignerAddress, loadSignerKeyFromEnv } from "./sign.js";
 import { createApp, loadConfig, startServer } from "./server.js";
-import { getAnchorBookAddress, getAvalRegistryAddress } from "./chain.js";
+import { getAnchorBookAddress, getVouchMeRegistryAddress } from "./chain.js";
 
 // The only env var this server cannot run without — everything else in gateway/.env.example has
 // a default or is optional. Kept minimal and explicit here (rather than read from ambient
@@ -49,10 +49,10 @@ test("server starts on a random port and serves a healthy GET /health with only 
 
     const body = (await res.json()) as Record<string, unknown>;
     assert.equal(body.status, "ok");
-    assert.equal(body.service, "@aval/gateway");
+    assert.equal(body.service, "@vouchme/gateway");
     assert.equal(body.signer, gatewaySignerAddress(signerKey));
     assert.equal(body.chainId, 4801);
-    assert.equal(body.avalRegistry, getAvalRegistryAddress());
+    assert.equal(body.vouchMeRegistry, getVouchMeRegistryAddress());
     assert.equal(body.anchorBook, getAnchorBookAddress());
     assert.equal(body.anchorSource, "genesis-testnet");
     assert.equal(body.subgraphDeployment, "direct-chain-read:4801");

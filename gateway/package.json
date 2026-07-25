@@ -1,9 +1,9 @@
 {
-  "name": "@aval/gateway",
+  "name": "@vouchme/gateway",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "CCIP-Read (ERC-3668) / ENSIP-10 wildcard resolver gateway for aval.eth — computes live text records from the Aval Subgraph and signs responses for on-chain verification.",
+  "description": "CCIP-Read (ERC-3668) / ENSIP-10 wildcard resolver gateway for vouchme.eth — computes live text records from the VouchMe Subgraph and signs responses for on-chain verification.",
   "license": "MIT",
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
@@ -15,7 +15,7 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
-    "@aval/engine": "*",
+    "@vouchme/engine": "*",
     "viem": "^2.21.0",
     "hono": "^4.6.0",
     "@hono/node-server": "^1.13.0"

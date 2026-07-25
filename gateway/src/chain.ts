@@ -1,10 +1,10 @@
-// @aval/gateway — src/chain.ts
+// @vouchme/gateway — src/chain.ts
 //
 // Live World Chain Sepolia reads — the trust graph's actual data source. There is no deployed
-// Aval Subgraph (deployments/worldchain-sepolia.json's own notes), so every number this module
-// produces is read directly off `AvalRegistry` events / view functions and
+// VouchMe Subgraph (deployments/worldchain-sepolia.json's own notes), so every number this module
+// produces is read directly off `VouchMeRegistry` events / view functions and
 // `GenesisAnchorBook.getIsUserVerified` — no indexer, no cache-as-source-of-truth, no fabricated
-// deployment id (the gateway's `aval.subgraph` text record — see context.ts — is the literal
+// deployment id (the gateway's `vouchme.subgraph` text record — see context.ts — is the literal
 // string `direct-chain-read:4801`, never a guessed IPFS hash).
 //
 // Mirrors app/src/lib/chain.ts's approach closely (same event ABI fragments, same Multicall3
@@ -42,7 +42,7 @@ interface DeploymentRecord {
   chainId: number;
   deploymentBlock: number;
   contracts: {
-    AvalRegistry: { address: Address };
+    VouchMeRegistry: { address: Address };
     GenesisAnchorBook: { address: Address };
   };
 }
@@ -55,8 +55,8 @@ function loadDeployment(): DeploymentRecord {
   return cachedDeployment;
 }
 
-export function getAvalRegistryAddress(): Address {
-  return loadDeployment().contracts.AvalRegistry.address;
+export function getVouchMeRegistryAddress(): Address {
+  return loadDeployment().contracts.VouchMeRegistry.address;
 }
 export function getAnchorBookAddress(): Address {
   return loadDeployment().contracts.GenesisAnchorBook.address;
@@ -65,7 +65,7 @@ export function getDeploymentBlock(): bigint {
   return BigInt(loadDeployment().deploymentBlock);
 }
 
-/** What every `aval.subgraph` text record reports: there is no subgraph, and this provenance
+/** What every `vouchme.subgraph` text record reports: there is no subgraph, and this provenance
  *  string says so rather than naming a fabricated deployment ID. */
 export const CHAIN_PROVENANCE = "direct-chain-read:4801";
 
@@ -116,7 +116,7 @@ function getClient(): PublicClient {
   return cachedClient;
 }
 
-// ── ABI fragments — exactly the surface read, matching contracts/src/AvalRegistry.sol and
+// ── ABI fragments — exactly the surface read, matching contracts/src/VouchMeRegistry.sol and
 // contracts/src/GenesisAnchorBook.sol, and identical to app/src/lib/chain.ts's own fragments. ───
 
 const ENROLLED_EVENT = {
@@ -166,7 +166,7 @@ const REVOKED_EVENT = {
   ],
 } as const satisfies AbiEvent;
 
-const AVAL_REGISTRY_ABI = [
+const VOUCHME_REGISTRY_ABI = [
   ENROLLED_EVENT,
   VOUCHED_EVENT,
   REAFFIRMED_EVENT,
@@ -366,7 +366,7 @@ function deriveStatus(now: number, credentialExpiresAt: number, fraudulent: bool
 }
 
 // Credential grace window (docs/10-constants.md §14: CREDENTIAL_GRACE_DAYS = 14). Kept local
-// rather than imported from @aval/engine so this low-level chain reader stays independent of the
+// rather than imported from @vouchme/engine so this low-level chain reader stays independent of the
 // engine, which context.ts (not this file) is the one to call.
 const CREDENTIAL_GRACE_DAYS = 14;
 
@@ -405,7 +405,7 @@ interface LiveGraph {
 
 async function fetchLiveGraphAtBlock(atBlock: bigint): Promise<LiveGraph> {
   const client = getClient();
-  const registry = getAvalRegistryAddress();
+  const registry = getVouchMeRegistryAddress();
   const anchorBook = getAnchorBookAddress();
   const deployBlock = getDeploymentBlock();
 
@@ -445,7 +445,7 @@ async function fetchLiveGraphAtBlock(atBlock: bigint): Promise<LiveGraph> {
     addresses.map((addr) =>
       client.readContract({
         address: registry,
-        abi: AVAL_REGISTRY_ABI,
+        abi: VOUCHME_REGISTRY_ABI,
         functionName: "members",
         args: [addr],
         blockNumber: atBlock,
@@ -569,7 +569,7 @@ export interface GetTrustGraphOptions {
   now?: bigint | undefined;
 }
 
-/** Trust graph shaped for @aval/engine's compute() input — inbound edges already active-filtered
+/** Trust graph shaped for @vouchme/engine's compute() input — inbound edges already active-filtered
  *  (docs/01-trust-math.md §14, §18: expiry is a query-time predicate, and duplicate/replayed
  *  (voucher, vouchee) records are resolved to exactly one edge before anything downstream sees
  *  them). `options.now` is accepted for API compatibility with subgraph.ts's signature but is not

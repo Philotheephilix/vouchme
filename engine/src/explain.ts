@@ -1,5 +1,5 @@
 /**
- * Aval — human-readable score explanations.
+ * VouchMe — human-readable score explanations.
  *
  * This is a product surface, not a debug aid: "why is my score what it is" has to answer for
  * every inbound edge, including the ones that contribute nothing — a legal voucher excluded only

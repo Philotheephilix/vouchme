@@ -1,5 +1,5 @@
 /**
- * Aval — the scoring engine (docs/01-trust-math.md §3–§9, §15; docs/16-presence-drip.md §7).
+ * VouchMe — the scoring engine (docs/01-trust-math.md §3–§9, §15; docs/16-presence-drip.md §7).
  *
  * `compute()` is a pure function: no I/O, no `Date.now()`, no randomness, no floats in the
  * scoring path. `now` is supplied by the caller. All scores are integer centi-points

@@ -1,11 +1,11 @@
-// @aval/gateway — src/resolve.ts
+// @vouchme/gateway — src/resolve.ts
 //
-// ENSIP-10 wildcard resolution for *.aval.eth.
+// ENSIP-10 wildcard resolution for *.vouchme.eth.
 //
-// The name IS the edge (docs/04-ens.md §1): `carol.alice.aval.eth` means
+// The name IS the edge (docs/04-ens.md §1): `carol.alice.vouchme.eth` means
 // "Alice vouched for Carol." Depth is label count. There is no name
 // registry to look up — every name is *derived* live from the trust graph
-// by walking labels from `aval.eth` down to the leaf, matching each label
+// by walking labels from `vouchme.eth` down to the leaf, matching each label
 // against an account's immutable `handle` among the previous hop's active
 // vouchees (or, for the first hop, among any anchor's active vouchees).
 //
@@ -67,8 +67,8 @@ const RECORD_ABI = [TEXT_ABI, ADDR_ABI] as const;
 
 /**
  * Decodes an ENSIP-10 DNS-wire-format name into its labels, leftmost
- * (most specific) label first — e.g. "carol.alice.aval.eth" decodes to
- * ["carol", "alice", "aval", "eth"].
+ * (most specific) label first — e.g. "carol.alice.vouchme.eth" decodes to
+ * ["carol", "alice", "vouchme", "eth"].
  */
 export function decodeDnsName(nameBytes: Uint8Array): string[] {
   const labels: string[] = [];
@@ -102,9 +102,9 @@ export function encodeDnsName(labels: string[]): Uint8Array {
 // ── depth + path -------------------------------------------------------
 
 export interface ParsedName {
-  /** Full label list, leaf first, e.g. ["carol", "alice", "aval", "eth"]. */
+  /** Full label list, leaf first, e.g. ["carol", "alice", "vouchme", "eth"]. */
   labels: string[];
-  /** Labels under the root, leaf first, e.g. ["carol", "alice"]. Empty for aval.eth itself. */
+  /** Labels under the root, leaf first, e.g. ["carol", "alice"]. Empty for vouchme.eth itself. */
   pathLabelsLeafFirst: string[];
   /** Same labels, root-to-leaf order, e.g. ["alice", "carol"] — the order vouches were issued in. */
   pathLabelsRootFirst: string[];
@@ -113,9 +113,9 @@ export interface ParsedName {
 }
 
 /**
- * Validates the name is under `aval.eth` and within MAX_DEPTH, and returns
+ * Validates the name is under `vouchme.eth` and within MAX_DEPTH, and returns
  * the parsed path. Returns null for anything else — per docs/04-ens.md
- * §5.1, `x.y.z.w.aval.eth` (depth 4) simply does not resolve; the attack
+ * §5.1, `x.y.z.w.vouchme.eth` (depth 4) simply does not resolve; the attack
  * (or the typo) is unrepresentable in the namespace, not rejected by a
  * runtime check we could get wrong.
  */
@@ -124,7 +124,7 @@ export function parseName(nameBytes: Uint8Array): ParsedName | null {
   if (labels.length < 2) return null;
   const tld = labels[labels.length - 1];
   const root = labels[labels.length - 2];
-  if (tld !== "eth" || root !== "aval") return null;
+  if (tld !== "eth" || root !== "vouchme") return null;
 
   const pathLabelsLeafFirst = labels.slice(0, labels.length - 2);
   const depth = pathLabelsLeafFirst.length;
@@ -143,15 +143,15 @@ export function parseName(nameBytes: Uint8Array): ParsedName | null {
 /**
  * The bare ENS label a `handle` should be matched/displayed as.
  *
- * `AvalRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
+ * `VouchMeRegistry.enroll()`'s own doc comment describes `handle` as "ENS label, validated
  * off-chain" — i.e. a bare label like "alice" — but this live deployment's actual enrollment
- * script (scripts/live-scenario.mjs: `const handle = \`${label}.aval.eth\`;`) writes the FULL
- * name on-chain instead, e.g. "alice.aval.eth". Both conventions are tolerated here (bare label
- * unchanged; "<label>.aval.eth" stripped to its first segment) so this deployment's data resolves
+ * script (scripts/live-scenario.mjs: `const handle = \`${label}.vouchme.eth\`;`) writes the FULL
+ * name on-chain instead, e.g. "alice.vouchme.eth". Both conventions are tolerated here (bare label
+ * unchanged; "<label>.vouchme.eth" stripped to its first segment) so this deployment's data resolves
  * without assuming every future enrollment repeats the same spec deviation.
  */
 export function bareLabel(handle: string): string {
-  const suffix = ".aval.eth";
+  const suffix = ".vouchme.eth";
   return handle.endsWith(suffix) ? handle.slice(0, -suffix.length) : handle;
 }
 
@@ -163,7 +163,7 @@ export interface ResolvedIdentity {
 }
 
 /**
- * Walks `aval.eth` -> ... -> leaf by handle, matching docs/04-ens.md §1's
+ * Walks `vouchme.eth` -> ... -> leaf by handle, matching docs/04-ens.md §1's
  * claim that "path to an anchor" is just reading the name left to right.
  *
  * At each step we need "did the current frontier issue an active vouch to
@@ -179,7 +179,7 @@ export function resolveNameToAddress(
   parsed: ParsedName,
   graph: NamingSnapshot,
 ): ResolvedIdentity | null {
-  if (parsed.depth === 0) return null; // aval.eth itself has no owner account
+  if (parsed.depth === 0) return null; // vouchme.eth itself has no owner account
 
   const handleById = new Map(graph.accounts.map((a) => [a.id, a.handle] as const));
   const anchors = new Set(graph.accounts.filter((a) => a.isAnchor).map((a) => a.id));
@@ -213,7 +213,7 @@ export function resolveNameToAddress(
 }
 
 export interface NamedPath {
-  /** e.g. "carol.alice.aval.eth" */
+  /** e.g. "carol.alice.vouchme.eth" */
   name: string;
   depth: number;
   oldestIssuedAt: bigint;
@@ -247,7 +247,7 @@ export function findAllPaths(address: Address, graph: NamingSnapshot): NamedPath
   ): void {
     if (currentId === target && depth > 0) {
       results.push({
-        name: [...labelsRootFirst].reverse().concat(["aval", "eth"]).join("."),
+        name: [...labelsRootFirst].reverse().concat(["vouchme", "eth"]).join("."),
         depth,
         oldestIssuedAt,
       });
@@ -320,7 +320,7 @@ export function decodeCcipRequest(dataHex: Hex): DecodedCcipRequest {
   const [dnsName, innerData] = outer.args;
   const parsed = parseName(hexToBytes(dnsName));
   if (!parsed) {
-    throw new MalformedRequestError("name is not under aval.eth or exceeds max_depth");
+    throw new MalformedRequestError("name is not under vouchme.eth or exceeds max_depth");
   }
 
   let inner;

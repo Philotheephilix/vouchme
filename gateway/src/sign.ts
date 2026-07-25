@@ -1,4 +1,4 @@
-// @aval/gateway — src/sign.ts
+// @vouchme/gateway — src/sign.ts
 //
 // EIP-191 signing of CCIP-Read gateway responses (docs/04-ens.md §3).
 //

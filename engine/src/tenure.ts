@@ -1,5 +1,5 @@
 /**
- * Aval — tenure curve (docs/16-presence-drip.md §4).
+ * VouchMe — tenure curve (docs/16-presence-drip.md §4).
  *
  * Continuous ideal:
  *

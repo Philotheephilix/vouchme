@@ -1,5 +1,5 @@
 /**
- * Aval engine — input/output types.
+ * VouchMe engine — input/output types.
  *
  * The engine is a pure function `(EngineInput) -> EngineOutput`. All monetary/score quantities
  * are integer centi-points (score × 100). Time is unix seconds, supplied by the caller via

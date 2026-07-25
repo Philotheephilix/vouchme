@@ -1,13 +1,13 @@
-// @aval/gateway — src/context.ts
+// @vouchme/gateway — src/context.ts
 //
 // Wires live chain data -> engine -> ENS text records.
 //
-// This is the only place in the gateway that calls @aval/engine, so the
-// gateway and aval-mcp are guaranteed to agree (docs/06-mcp-skills.md §7
+// This is the only place in the gateway that calls @vouchme/engine, so the
+// gateway and vouchme-mcp are guaranteed to agree (docs/06-mcp-skills.md §7
 // build checklist: "Engine imported as a library — the same code the
 // gateway runs, so the MCP and ENS never disagree").
 //
-// There is no deployed Aval Subgraph (deployments/worldchain-sepolia.json's own notes) —
+// There is no deployed VouchMe Subgraph (deployments/worldchain-sepolia.json's own notes) —
 // `getTrustGraph`/`getNamingGraph` below read World Chain Sepolia directly (src/chain.ts) instead
 // of querying one, so every text record this module computes traces back to real chain events and
 // a real `compute()` call.
@@ -24,9 +24,9 @@ import {
   type EngineInput,
   type EngineOutput,
   type Vouch,
-} from "@aval/engine";
+} from "@vouchme/engine";
 
-/** Display-point (÷100) mirror of @aval/engine's own BASE — never a second, independently-
+/** Display-point (÷100) mirror of @vouchme/engine's own BASE — never a second, independently-
  *  hardcoded fallback number, so a change to docs/10-constants.md's BASE follows automatically. */
 const BASE_DISPLAY = BASE_CENTI / 100;
 
@@ -78,7 +78,7 @@ export interface ResolvedRecords {
 
 /**
  * Converts a unix-seconds timestamp read from the Subgraph (GraphQL `BigInt` scalar) into the
- * plain `number` @aval/engine's `EngineInput.now` expects (engine/src/types.ts — the engine is
+ * plain `number` @vouchme/engine's `EngineInput.now` expects (engine/src/types.ts — the engine is
  * dependency-free and does all its scoring in integer centi-points, so `bigint` never crosses
  * its boundary). This is the one seam where a Subgraph `BigInt` becomes an engine `number`;
  * throws rather than silently losing precision if the value can't be represented exactly.
@@ -86,7 +86,7 @@ export interface ResolvedRecords {
 function bigintSecondsToEngineNow(seconds: bigint): number {
   if (seconds > BigInt(Number.MAX_SAFE_INTEGER) || seconds < BigInt(-Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(
-      `timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @aval/engine`,
+      `timestamp ${seconds.toString()} exceeds Number.MAX_SAFE_INTEGER — cannot pass to @vouchme/engine`,
     );
   }
   return Number(seconds);
@@ -110,7 +110,7 @@ function toEngineInput(snapshot: TrustGraphSnapshot, now: bigint): EngineInput {
   }
   const accounts: Account[] = snapshot.accounts.map((a) => ({
     id: a.id,
-    // chain.ts reads only AvalRegistry (human) accounts — PlatformRegistry accounts are a
+    // chain.ts reads only VouchMeRegistry (human) accounts — PlatformRegistry accounts are a
     // separate contract this gateway does not read (see this file's and mcp/engine.ts's matching
     // module comments) — so every account reaching this function is human.
     kind: "human" as const,
@@ -131,10 +131,10 @@ function toEngineInput(snapshot: TrustGraphSnapshot, now: bigint): EngineInput {
 }
 
 /**
- * The authoritative score/tier/depth for one address, straight off @aval/engine's own
+ * The authoritative score/tier/depth for one address, straight off @vouchme/engine's own
  * `compute()` output — never reimplemented. `output.score` is integer centi-points
  * (score × 100, engine/src/types.ts); `/ 100` here is the one place that unit crosses into the
- * decimal points every `aval.score` text record and docs/04-ens.md's own example ("62.5") use.
+ * decimal points every `vouchme.score` text record and docs/04-ens.md's own example ("62.5") use.
  * `depth` may be `Infinity` for an address with no active path to any origin — callers render
  * that case explicitly rather than let it silently stringify as "Infinity".
  */
@@ -143,7 +143,7 @@ function readEngineAccountResult(output: EngineOutput, address: string): { score
   if (scoreCenti === undefined) {
     // Not present in this computation — shouldn't happen, since `address` was already confirmed
     // to be in trustGraph.accounts, which is exactly what built engineInput.accounts. BASE_DISPLAY
-    // (derived from @aval/engine's own BASE, docs/10-constants.md §1) rather than a hardcoded
+    // (derived from @vouchme/engine's own BASE, docs/10-constants.md §1) rather than a hardcoded
     // literal, so this fallback tracks a constants change automatically.
     return { score: BASE_DISPLAY, tier: 0, depth: 0 };
   }
@@ -222,46 +222,46 @@ async function buildRecords(
         : earliestInboundExpiry;
 
   const tenure = tenureCenti(0); // epochsClaimed not indexed by this scaffold's 4 data sources — see subgraph/README.md
-  void tenure; // reserved for when PresenceDrip epochsClaimed is wired into `aval.score`'s base term
+  void tenure; // reserved for when PresenceDrip epochsClaimed is wired into `vouchme.score`'s base term
 
   const operator = pathAddressBeforeLeaf(canonical, namingGraph, address);
 
   const records: Record<string, string> = {
-    "aval.score": score.toFixed(2),
-    "aval.tier": String(tier),
+    "vouchme.score": score.toFixed(2),
+    "vouchme.tier": String(tier),
     // Depth 0 means "origin" (an anchor, or a promoted Tier-2 account) in this protocol — the MOST
     // trusted position in the graph — so an unreachable account must never fall back to 0, which
     // would render a ring member indistinguishable from an anchor. "unreachable" matches
-    // @aval/mcp's depthForJson() convention.
-    "aval.depth": Number.isFinite(depth) ? String(depth) : "unreachable",
-    "aval.path": canonicalName,
-    "aval.vouches.in": String(account.inbound.length),
-    "aval.vouches.out": `${outboundCount}/${slots}`,
-    "aval.credential": namingAccount?.credential ?? "",
-    "aval.anchor": String(account.isAnchor),
-    "aval.expires": secondsToIso(expiresAtSeconds),
+    // @vouchme/mcp's depthForJson() convention.
+    "vouchme.depth": Number.isFinite(depth) ? String(depth) : "unreachable",
+    "vouchme.path": canonicalName,
+    "vouchme.vouches.in": String(account.inbound.length),
+    "vouchme.vouches.out": `${outboundCount}/${slots}`,
+    "vouchme.credential": namingAccount?.credential ?? "",
+    "vouchme.anchor": String(account.isAnchor),
+    "vouchme.expires": secondsToIso(expiresAtSeconds),
     // TODO: CredibilityVault bond balances are not indexed by any of this
-    // scaffold's 4 subgraph.yaml data sources (AvalRegistry, ReportRegistry,
+    // scaffold's 4 subgraph.yaml data sources (VouchMeRegistry, ReportRegistry,
     // PlatformRegistry, PresenceDrip) — a vault data source is required to
     // populate this for real. Placeholder kept explicit rather than omitted
     // so the key is always present, per docs/04-ens.md §2.
-    "aval.bonded": "0",
-    "aval.subgraph": trustGraph.deploymentId,
+    "vouchme.bonded": "0",
+    "vouchme.subgraph": trustGraph.deploymentId,
     // Stored, user-set fields — passthrough only; not computed here. A real
     // deployment reads these from a small profile store keyed by address.
     avatar: "",
     description: "",
     url: "",
-    // ENSIP-26 (docs/04-ens.md §4.1). Aval has no separate on-chain agent
+    // ENSIP-26 (docs/04-ens.md §4.1). VouchMe has no separate on-chain agent
     // registry among this scaffold's 4 data sources, so these keys are
     // computed for any resolved name using its direct voucher as
     // "operator" — correct for a genuine agent name (docs' own example,
-    // trader.carol.alice.aval.eth, has carol — the voucher — as operator)
+    // trader.carol.alice.vouchme.eth, has carol — the voucher — as operator)
     // and harmless for an ordinary human name.
     "agent-context": buildAgentContext(canonicalName, score, tier, operator),
-    "agent-endpoint[mcp]": `${config.mcpEndpointBase ?? "https://mcp.aval.xyz/agent"}/${canonicalName}`,
-    "agent-endpoint[a2a]": `${config.a2aEndpointBase ?? "https://a2a.aval.xyz"}/${canonicalName}`,
-    "agent-endpoint[web]": `${config.webEndpointBase ?? "https://aval.xyz/a"}/${canonicalName}`,
+    "agent-endpoint[mcp]": `${config.mcpEndpointBase ?? "https://mcp.vouchme.xyz/agent"}/${canonicalName}`,
+    "agent-endpoint[a2a]": `${config.a2aEndpointBase ?? "https://a2a.vouchme.xyz"}/${canonicalName}`,
+    "agent-endpoint[web]": `${config.webEndpointBase ?? "https://vouchme.xyz/a"}/${canonicalName}`,
   };
 
   return {
@@ -282,7 +282,7 @@ function pathAddressBeforeLeaf(
 ): string {
   if (!canonical) return "";
   const parts = canonical.name.split(".");
-  // parts = [...labels..., "aval", "eth"]; the operator's handle is the
+  // parts = [...labels..., "vouchme", "eth"]; the operator's handle is the
   // second-to-last path label (immediately left of the leaf), or if the
   // leaf itself is depth 1, there is no operator (an anchor vouched directly).
   const pathLabels = parts.slice(0, parts.length - 2);
@@ -302,7 +302,7 @@ function buildAgentContext(
 ): string {
   if (!canonicalName) return "";
   const operatorLine = operatorAddress
-    ? `Operated by \`${operatorAddress}\` (Aval tier ${tier}, score ${score.toFixed(1)}).`
+    ? `Operated by \`${operatorAddress}\` (VouchMe tier ${tier}, score ${score.toFixed(1)}).`
     : "Operated directly by a verified human (no upstream operator).";
   return [
     `# ${canonicalName}`,
@@ -312,8 +312,8 @@ function buildAgentContext(
     "**Delegated authority:** this name inherits its operator's tier and CANNOT issue vouches",
     "(vouching requires human presence — see docs/04-ens.md §4.3).",
     "",
-    `**Verify:** recompute from the source referenced in \`aval.subgraph\` (World Chain Sepolia, ` +
-      `read directly — no subgraph deployed) using the Aval engine.`,
+    `**Verify:** recompute from the source referenced in \`vouchme.subgraph\` (World Chain Sepolia, ` +
+      `read directly — no subgraph deployed) using the VouchMe engine.`,
   ].join("\n");
 }
 
