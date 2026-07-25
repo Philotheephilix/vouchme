@@ -60,3 +60,10 @@ yarn-error.log*
 coverage/
 .vscode/
 .idea/
+
+# dev server output — separate from .next so `next dev` and `next build` can coexist
+.next-dev/
+
+# rust build output
+substreams/**/target/
+*.spkg
