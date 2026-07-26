@@ -63,16 +63,15 @@ export function ReportForm({ signedIn }: { signedIn: boolean }) {
     return (
       <div>
         <p className="bond-note">
-          Filed against <strong>{filed.ensName ?? filed.target}</strong> at weight{" "}
-          {(filed.weightPoints / 100).toFixed(2)}, bonded for {vouchme(filed.bondWei)} VOUCHME. Their vouchers have 72
-          hours to rebut. Until then their score is unchanged and only <em>scoreAtRisk</em> moves.
+          Filed against <strong>{filed.ensName ?? filed.target}</strong>. Weight {(filed.weightPoints / 100).toFixed(2)},
+          bond {vouchme(filed.bondWei)} VOUCHME. Their vouchers have 72 hours to rebut.
         </p>
         <a className="sent" href={`https://worldscan.org/tx/${filed.fileTxHash}`} target="_blank" rel="noreferrer">
           ReportFiled · {filed.fileTxHash.slice(0, 10)}…{filed.fileTxHash.slice(-8)}
         </a>
         {filed.scoreRequestTxHash ? (
           <p className="report-meta">
-            ScoreRequest recorded first:{" "}
+            ScoreRequest{" "}
             <a href={`https://worldscan.org/tx/${filed.scoreRequestTxHash}`} target="_blank" rel="noreferrer">
               {filed.scoreRequestTxHash.slice(0, 10)}…
             </a>
@@ -118,15 +117,12 @@ export function ReportForm({ signedIn }: { signedIn: boolean }) {
           className="textarea"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Only the hash of this goes on chain. The words stay on Lend."
+          placeholder="Only the hash goes on chain."
           maxLength={500}
         />
       </label>
 
-      <p className="bond-note">
-        Lend files this under its own name and bonds its own VOUCHME behind it. If the subject&apos;s vouchers rebut and
-        a jury finds the accusation malicious, that bond is slashed and Lend can never report again.
-      </p>
+      <p className="bond-note">Lend bonds its own VOUCHME behind this. A malicious verdict slashes it.</p>
 
       {error ? <p className="error">{error}</p> : null}
 

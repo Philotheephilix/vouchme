@@ -37,20 +37,17 @@ export default async function ReportPage() {
 
       <section aria-label="File a report">
         <p className="bond-note">
-          Lend reports as a <strong>registered platform</strong>, not as you. VouchMe only permits that against someone
-          Lend has actually looked up — the lookup is recorded on chain as an attributed ScoreRequest before the report
-          is filed, because a platform cannot report a person it never dealt with.
+          Lend reports as a <strong>registered platform</strong>, not as you. The lookup is recorded on chain before the
+          report is filed.
         </p>
 
         {!configured ? (
           <p className="error">
-            Reporting is not configured: <code>LEND_PLATFORM_PRIVATE_KEY</code> is unset. Run{" "}
-            <code>scripts/seed-lendme-platform.mjs</code> and set the key it prints.
+            <code>LEND_PLATFORM_PRIVATE_KEY</code> is unset, so Lend cannot report.
           </p>
         ) : !registered ? (
           <p className="error">
-            {platform ? short(platform) : "Lend"} is not a registered platform on this deployment, so it cannot report
-            anyone yet. Run <code>scripts/seed-lendme-platform.mjs</code> against the deployment this app points at.
+            {platform ? short(platform) : "Lend"} is not a registered platform on this deployment.
           </p>
         ) : null}
 
@@ -66,10 +63,7 @@ export default async function ReportPage() {
       <section aria-label="Reports Lend has filed" style={{ marginTop: "2rem" }}>
         <span className="label">Filed by Lend</span>
         {reports.length === 0 ? (
-          <p className="empty">
-            Nothing filed yet. This log lives in Lend&apos;s memory and is lost on restart — the authoritative record is
-            the <code>ReportFiled</code> event on World Chain, which no restart can touch.
-          </p>
+          <p className="empty">Nothing filed yet.</p>
         ) : (
           <div className="reports">
             {reports.map((r) => (
@@ -94,10 +88,7 @@ export default async function ReportPage() {
         )}
       </section>
 
-      <p className="foot">
-        A report takes away vouched standing, never the fact that someone is a live human — that is attested by World ID,
-        so no accusation reaches it.
-      </p>
+      <p className="foot">A report removes vouched standing, never proof of personhood.</p>
     </main>
   );
 }
