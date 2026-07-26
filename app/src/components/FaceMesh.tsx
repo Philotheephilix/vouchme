@@ -18,13 +18,18 @@ import { geometryFromArrays } from "@/lib/faceMesh";
  *
  * The particle system (snoise/curl vertex shader, scatter→target coherence lerp, pointer influence)
  * keeps VouchMe's treatment:
- *   1. Light theme — dark points on a transparent canvas, glow is the app accent indigo.
- *   2. Colour is sampled from the real mesh's per-vertex colour (merged across the capture angles),
- *      darkened so it reads on the pale surface and pushed toward graphite as it recedes so the
- *      silhouette holds.
+ *   1. Light theme — grey points on a transparent canvas.
+ *   2. GREYSCALE ONLY. The sampled photo colour is collapsed to its Rec. 709 luminance and used to
+ *      pick a point on a single ink -> graphite ramp, so the light and shadow of a real face
+ *      survive while the skin tone that carried it does not. Depth pushes points toward ink at the
+ *      back so the silhouette still holds. The pointer glow is a brightness lift, not a hue.
  *   3. Reputation coherence — `score`/`tier`/`isAnchor` set how *formed* the face is; a low-standing
- *      identity is a loose granule-face, a high one is crisp. It never fully dissolves: the face
- *      stays findable at every tier.
+ *      identity is a loose granule-face, a high one is crisp. `SPREAD_CEILING` caps it below 1 so
+ *      it never collapses into a solid shell — it always reads as separated dots, at every tier,
+ *      anchors included.
+ *   4. It turns. A continuous `SPIN_RADIANS_PER_SEC` rotation, not the old sin() sway that reversed
+ *      every few seconds and read as a wobble. Suppressed entirely under `prefers-reduced-motion`,
+ *      which renders one static frame.
  */
 
 export interface FaceMeshProps {
@@ -38,9 +43,23 @@ export interface FaceMeshProps {
 }
 
 // --- palette (light theme) -------------------------------------------------
+/** Continuous turn speed. ~0.2 rad/s is a full revolution every ~31s — enough to read as motion
+ *  without becoming the thing you look at. Only applied when the viewer has not asked for reduced
+ *  motion; that path still renders a single static frame. */
+const SPIN_RADIANS_PER_SEC = 0.2;
+
+/** Radius of the scatter cloud each particle is pulled back toward. Larger = airier. */
+const SCATTER_RADIUS = 3.0;
+
+/** Coherence is never allowed to reach 1, so the face never fully collapses onto the mesh surface
+ *  and always reads as separated dots. Applied as a ceiling rather than by lowering the reputation
+ *  curve, so the ordering the score encodes is untouched — a higher score is still a more formed
+ *  face, just never a solid one. */
+const SPREAD_CEILING = 0.82;
+
 const INK = 0x14161a; // near-black, the darkest points
 const GRAPHITE = 0x8b8f9a; // muted grey, points that recede toward the back
-const GLOW = 0x7b7ff0; // app accent indigo, only under pointer influence
+const GLOW = 0xd7d9de; // pale grey lift under the pointer — a brightness change, not a hue
 
 const TIER1_SCORE = 55;
 const TIER2_SCORE = 140;
@@ -75,7 +94,7 @@ function hashAddress(address: string): number {
  * brand-new Tier-0 identity must still read as a FACE, not a dust cloud.
  */
 function coherenceFor(score: number, tier: 0 | 1 | 2, isAnchor: boolean): number {
-  if (isAnchor) return 1;
+  if (isAnchor) return SPREAD_CEILING;
   let c: number;
   if (score <= 0) {
     c = 0.55;
@@ -86,7 +105,7 @@ function coherenceFor(score: number, tier: 0 | 1 | 2, isAnchor: boolean): number
     c = 0.82 + (1 - Math.exp(-1.6 * over)) * 0.18; // → ~1.0
   }
   c += tier * 0.02;
-  return Math.max(0, Math.min(1, c));
+  return Math.max(0, Math.min(1, c)) * SPREAD_CEILING;
 }
 
 const vertexShader = `
@@ -155,6 +174,7 @@ function buildFace(count: number, form: FaceForm): { target: Float32Array; color
   const ink = new THREE.Color(INK);
   const p = new THREE.Vector3();
   const col = new THREE.Color();
+  const grey = new THREE.Color();
 
   for (let i = 0; i < count; i++) {
     sampler.sample(p, undefined, col);
@@ -164,13 +184,18 @@ function buildFace(count: number, form: FaceForm): { target: Float32Array; color
     target[i * 3 + 2] = p.z * FACE_SCALE;
 
     const depth = (p.z - zMin) / zSpan; // 0 = back, 1 = front
-    const edge = 1 - depth;
-    // photo colour darkened for the light surface; recede toward graphite/ink at the back
-    col.setRGB(col.r * 0.55, col.g * 0.55, col.b * 0.55);
-    col.lerp(graphite, edge * 0.45).lerp(ink, edge * 0.12);
-    colors[i * 3] = col.r;
-    colors[i * 3 + 1] = col.g;
-    colors[i * 3 + 2] = col.b;
+
+    // Grey only — no hue anywhere. The sampled photo colour is collapsed to its perceptual
+    // luminance (Rec. 709), which keeps the light and shadow of a real face while discarding the
+    // skin tone that carried it. Luminance then picks a point on a single ink -> graphite ramp, so
+    // every particle is the same colour at different brightness, and depth still reads: points at
+    // the back sit further toward ink.
+    const lum = 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b;
+    grey.copy(ink).lerp(graphite, Math.min(1, lum * 1.25));
+    grey.lerp(ink, (1 - depth) * 0.35);
+    colors[i * 3] = grey.r;
+    colors[i * 3 + 1] = grey.g;
+    colors[i * 3 + 2] = grey.b;
   }
 
   geo.dispose();
@@ -249,8 +274,9 @@ function initScene(
   const scatter = new Float32Array(N * 3);
   const seeds = new Float32Array(N);
   for (let i = 0; i < N; i++) {
-    // tight scatter field so even the loosest state hugs the face
-    const rr = 1.7 * Math.cbrt(rng());
+    // The cloud the particles are drawn back from. Widened from 1.7 so the face reads as
+    // suspended dust rather than a shell — see SPREAD_CEILING, which stops it fully collapsing.
+    const rr = SCATTER_RADIUS * Math.cbrt(rng());
     const st = rng() * Math.PI * 2;
     const sp = Math.acos(2 * rng() - 1);
     scatter[i * 3] = rr * Math.sin(sp) * Math.cos(st);
@@ -308,6 +334,13 @@ function initScene(
     renderer.setSize(w, height);
     camera.aspect = w / height;
     camera.updateProjectionMatrix();
+    // Repaint immediately. `setSize` assigns canvas.width/height unconditionally, and any write to
+    // those resets the WebGL drawing buffer to transparent. The animated path repaints next frame
+    // and never notices — but under `prefers-reduced-motion` there is no next frame, only the one
+    // render below, and ResizeObserver ALWAYS delivers an initial observation right after
+    // `observe()`. So the single render was being wiped a tick later and the hero sat blank for
+    // exactly the users who asked for less motion, which is a bad group to show nothing to.
+    renderer.render(scene, camera);
   };
   const ro = new ResizeObserver(resize);
   ro.observe(container);
@@ -337,7 +370,7 @@ function initScene(
       uniforms.uMouseStrength.value =
         (uniforms.uMouseStrength.value as number) +
         (pStrength - (uniforms.uMouseStrength.value as number)) * (1 - Math.exp(-4 * dt));
-      group.rotation.y = Math.sin(clock.elapsedTime * 0.35) * 0.26;
+      group.rotation.y += dt * SPIN_RADIANS_PER_SEC;
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(loop);
