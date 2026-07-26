@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────────
+   Fiar — design tokens.
+
+   Subject: the lending-library circulation card. A card lives in a pocket glued inside the thing
+   it belongs to; when you borrow it, someone stamps a date on it in purple aniline ink and files
+   the card until you bring the thing back. That artifact IS this product, so the interface is
+   built from it: manila stock, ruled columns, typed entries, one purple stamp.
+
+   Deliberately nothing like VouchMe's own dark security-print system. Fiar is a third party. It
+   should look like a different company, because it is one.
+   ───────────────────────────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* ── colour ────────────────────────────────────────────────────────────────────────────────
+     Ground is the pale institutional sage of a mid-century library wall, not warm cream —
+     the warmth is rationed to the cards themselves, where the paper actually is. */
+  --color-ground: #d9ded4;
+  --color-ground-2: #cdd4c7;
+
+  --color-card: #e8d9ae; /* manila card stock */
+  --color-card-2: #dfcd9a; /* the deeper wash where a card is folded or filed */
+  --color-pocket: #c6ab6d; /* the glued pocket, and every card edge */
+
+  --color-ink: #23261f; /* typed and printed text */
+  --color-ink-soft: #6a7263; /* secondary text, ruled captions */
+
+  --color-rule: #a9b7a1; /* ruled lines on the ground */
+  --color-rule-card: #c3ad78; /* ruled lines on manila */
+
+  /* Aniline purple: what library date stamps were actually inked with. The single accent, and
+     the only place saturation is allowed. */
+  --color-stamp: #6b4e9e;
+  --color-stamp-soft: #8f78b8;
+
+  /* Used once, for a limit the viewer has hit. Never decorative. */
+  --color-limit: #b3342a;
+
+  /* ── type ──────────────────────────────────────────────────────────────────────────────────
+     Two families, two jobs, no overlap. Words are set in Archivo. Every FIGURE — money, score,
+     hop count, block number — is set in Courier Prime, because entries on a circulation card
+     were typed. That split is the typographic signature. */
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-typed: var(--font-courier-prime), ui-monospace, "SFMono-Regular", monospace;
+
+  --text-2xs: 10px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 19px;
+  --text-xl: 26px;
+  --text-2xl: 38px;
+
+  /* ── form ──────────────────────────────────────────────────────────────────────────────────
+     Card stock has cut corners, not rounded ones. One tiny radius, used sparingly. */
+  --radius-sm: 1px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* The desk: a faint grid of filing-drawer rules under everything. */
+  background-image: linear-gradient(var(--color-ground-2) 1px, transparent 1px);
+  background-size: 100% 32px;
+}
+
+/* ── the card ─────────────────────────────────────────────────────────────────────────────────
+   Manila stock with a printed left margin rule, a hard bottom edge where the card sits in its
+   pocket, and ruled writing lines. */
+.card {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-pocket);
+  border-bottom-width: 3px;
+  box-shadow: 2px 2px 0 rgb(35 38 31 / 0.08);
+  position: relative;
+}
+
+/* The red margin rule printed down every circulation card. Here it is the stamp purple, which
+   makes the accent structural rather than applied. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 22px;
+  width: 1px;
+  background-color: var(--color-stamp);
+  opacity: 0.28;
+}
+
+/* ── the stamp ────────────────────────────────────────────────────────────────────────────────
+   The signature. A rubber-stamp impression carrying the rate this person's standing bought.
+   `mix-blend-multiply` is what makes it read as ink absorbed INTO manila rather than a purple
+   box placed on top of it. */
+.stamp {
+  color: var(--color-stamp);
+  border: 2px solid var(--color-stamp);
+  box-shadow: inset 0 0 0 1px var(--color-stamp);
+  mix-blend-mode: multiply;
+  opacity: 0.88;
+  transform: rotate(-2.5deg);
+}
+
+.stamp-strike {
+  color: var(--color-limit);
+  border-color: var(--color-limit);
+  box-shadow: inset 0 0 0 1px var(--color-limit);
+}
+
+/* One orchestrated moment on load: the stamp comes down. Nothing else in Fiar animates. */
+@keyframes stamp-down {
+  0% {
+    transform: rotate(-9deg) scale(1.5);
+    opacity: 0;
+  }
+  55% {
+    transform: rotate(-1.5deg) scale(0.97);
+    opacity: 0.95;
+  }
+  100% {
+    transform: rotate(-2.5deg) scale(1);
+    opacity: 0.88;
+  }
+}
+
+.stamp-animate {
+  animation: stamp-down 420ms cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp-animate {
+    animation: none;
+  }
+}
+
+/* Keyboard focus stays visible everywhere, in the accent, offset clear of the card edge. */
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-stamp);
+  outline-offset: 2px;
+}
