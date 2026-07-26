@@ -11,7 +11,21 @@ import type { Item } from "./policy";
 
 const BASE_URL = process.env.VOUCHME_API_URL ?? "http://localhost:3000";
 
-const vouchme = createVouchMe({ baseUrl: BASE_URL, timeoutMs: 4_000 });
+/**
+ * How long to wait on a VouchMe read.
+ *
+ * 4s is right for a deployment backed by a Subgraph. It is nowhere near enough for one reading the
+ * chain directly: VouchMe's live mode walks World Chain logs per request and answers in ~33s, so a
+ * short timeout there turns every quote into "VouchMe is unreachable" and prices the whole
+ * catalogue at the floor.
+ *
+ * Configurable rather than raised for everyone, because a long timeout is a real cost — it is a
+ * checkout screen holding a person still. The right fix belongs upstream in VouchMe's read path,
+ * not here; this only keeps Fiar honest about which deployment it is pointed at.
+ */
+const TIMEOUT_MS = Number(process.env.VOUCHME_TIMEOUT_MS ?? 4_000);
+
+const vouchme = createVouchMe({ baseUrl: BASE_URL, timeoutMs: TIMEOUT_MS });
 
 export { VouchMeError };
 export type { Proximity, Standing };
