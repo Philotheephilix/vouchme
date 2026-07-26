@@ -28,6 +28,15 @@ const IDENTITY_CHECK_TIMEOUT_MS = 120_000;
  *  they take neither the `<main>` padding nor the bottom nav. */
 const PUBLIC_ROUTES = new Set(["/pitch", "/landing"]);
 
+/** The mini-app column. A constant, so it lives at module scope rather than forcing every early
+ *  return in the component to be ordered after its declaration. */
+const mainStyle = {
+  paddingBottom: "calc(104px + env(safe-area-inset-bottom))",
+  maxWidth: 480,
+  width: "100%",
+  margin: "0 auto",
+} as const;
+
 /**
  * The whole app is gated on session + enrollment state:
  *
@@ -153,13 +162,6 @@ export function AppGate({ children }: { children: ReactNode }) {
   if (!address) {
     return <LoginScreen />;
   }
-
-  const mainStyle = {
-    paddingBottom: "calc(104px + env(safe-area-inset-bottom))",
-    maxWidth: 480,
-    width: "100%",
-    margin: "0 auto",
-  } as const;
 
   if (status === "checking") {
     return (
