@@ -20,7 +20,7 @@ import styles from "./landing.module.css";
 export const metadata: Metadata = {
   title: "VouchMe — proof of human is a floor",
   description:
-    "Personhood proves you are a human. It does not prove you are not already here under another name. VouchMe scores standing from the humans who already know you, and makes collusion worthless by construction.",
+    "World ID proves you are a human. It cannot prove you are not already here under another name. VouchMe scores you from the people who already know you, and makes collusion worth nothing.",
 };
 
 const NAV = [
@@ -83,14 +83,14 @@ const FIAR = [
     score: "20.0",
     deposit: "0.0300",
     reaches: "2 of 6",
-    why: "Six accounts vouching for each other in a ring. Every edge contributes zero, so the ring pays exactly what a stranger pays.",
+    why: "A ring vouching for itself. Every edge is worth zero, so it pays what a stranger pays.",
   },
   {
     holder: "carol",
     score: "50.0",
     deposit: "0.0214",
     reaches: "2 of 6",
-    why: "Tier 0 still, but 30 points above the floor — and vouched by the drill's owner, which is another 10% off.",
+    why: "Still Tier 0, but 30 points up — and the owner vouches for her, which is 10% more off.",
   },
   {
     holder: "alice",
@@ -104,7 +104,7 @@ const FIAR = [
     score: "100.0",
     deposit: "0.0045",
     reaches: "6 of 6",
-    why: "Orb-verified anchor. Hits the 15% floor, and still is not free.",
+    why: "Orb anchor. Hits the 15% floor, and still pays.",
   },
 ];
 
@@ -149,10 +149,9 @@ export default function LandingPage() {
                 <em>VouchMe is the ladder.</em>
               </h1>
               <p className={styles.heroLead} style={{ "--i": 2 } as CSSProperties}>
-                Personhood systems answer <i>is this a live human?</i> They do not answer{" "}
-                <i>is this human the same one who already has an account?</i> VouchMe answers the second question with
-                the only Sybil-resistant resource already densely distributed among real people: the humans who already
-                know them.
+                World ID proves you are <i>a</i> human. It cannot prove you are not{" "}
+                <i>already here under another name.</i> VouchMe closes that gap with the one thing nobody can fake at
+                scale: the people who already know you.
               </p>
               <div className={styles.ctaRow} style={{ "--i": 3 } as CSSProperties}>
                 <Link href="/" className="btn btn-lg btn-primary">
@@ -163,7 +162,7 @@ export default function LandingPage() {
                 </a>
               </div>
               <p className={styles.heroFoot} style={{ "--i": 4 } as CSSProperties}>
-                No score is stored. No score can be bought. Every number below is a constant in the protocol.
+                Nothing is stored. Nothing can be bought. Every number here is a protocol constant.
               </p>
             </div>
 
@@ -185,7 +184,7 @@ export default function LandingPage() {
                 </ul>
               </div>
               <figcaption className={styles.railCaption}>
-                The whole scale. Nothing sits below 20 — a report can take reputation away, never the credential.
+                The whole scale. Nothing falls below 20. A report can take your standing, never your credential.
               </figcaption>
             </figure>
           </div>
@@ -197,8 +196,7 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>The gap</span>
           <h2 className={styles.h2}>A nullifier binds the wrong thing.</h2>
           <p className={styles.lead}>
-            The constraint is airtight. It is also attached to the wrong end of the problem, and that is the whole
-            reason this project exists.
+            The rule is airtight. It just guards the wrong door.
           </p>
 
           <div className={`${styles.cardGrid} ${styles.cardGrid2} ${styles.figures}`}>
@@ -206,18 +204,16 @@ export default function LandingPage() {
               <span className={styles.cardTag}>Holds perfectly</span>
               <h3 className={styles.cardTitle}>One account per World ID</h3>
               <p className={styles.cardBody}>
-                Per app, per action, a person produces exactly one nullifier. Nothing gets past it. It is where every
-                app should start, and every app should stop treating it as the finish.
+                One person, one nullifier, per app. Nothing gets past it. Start here — just do not stop here.
               </p>
             </article>
             <article className={styles.card}>
               <span className={styles.cardTag}>Does not hold</span>
               <h3 className={styles.cardTitle}>One World ID per human</h3>
               <p className={styles.cardBody}>
-                Selfie Check is a low-assurance credential — World&apos;s own documentation calls it{" "}
-                <i>&ldquo;some Sybil resistance … weaker than higher-assurance methods like iris scanning.&rdquo;</i>{" "}
-                An attacker holding <code>n</code> Selfie Checks holds <code>n</code> World IDs, therefore{" "}
-                <code>n</code> nullifiers, therefore <code>n</code> accounts.
+                Selfie Check is weak. World&apos;s own docs call it{" "}
+                <i>&ldquo;weaker than higher-assurance methods like iris scanning.&rdquo;</i> Hold{" "}
+                <code>n</code> Selfie Checks and you hold <code>n</code> World IDs — so <code>n</code> accounts.
               </p>
             </article>
           </div>
@@ -226,22 +222,21 @@ export default function LandingPage() {
             <li className={styles.reject}>
               <span className={styles.rejectKey}>close it with hardware</span>
               <span className={styles.rejectVal}>
-                The Orb works. It does not reach the population that shows up on day one.
+                Works. Will not reach the people who show up on day one.
               </span>
             </li>
             <li className={styles.reject}>
               <span className={styles.rejectKey}>close it with documents</span>
-              <span className={styles.rejectVal}>Excludes everyone without documents, which is the wrong people.</span>
+              <span className={styles.rejectVal}>Shuts out everyone without papers.</span>
             </li>
             <li className={styles.reject}>
               <span className={styles.rejectKey}>close it with a stake</span>
-              <span className={styles.rejectVal}>Makes personhood a function of capital, which is the wrong test.</span>
+              <span className={styles.rejectVal}>Makes being human a question of money.</span>
             </li>
           </ul>
 
           <p className={styles.prose}>
-            What is left is already there, in enormous supply, and costs nothing to use:{" "}
-            <strong>other humans who already know you.</strong> Two structural rules turn that into a number.
+            What is left is everywhere, free, and already yours: <strong>people who know you.</strong>
           </p>
         </section>
 
@@ -251,8 +246,8 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>Rule one — attenuation</span>
           <h2 className={styles.h2}>You can relay trust. You cannot mint it.</h2>
           <p className={styles.lead}>
-            A vouch is worth 25% of the voucher&apos;s own score, capped at 20 points. Trust loses value every time it
-            moves, so no amount of vouching creates more of it than existed upstream.
+            A vouch is worth a quarter of the voucher&apos;s score, capped at 20. Trust shrinks every time it moves,
+            so vouching can never make more of it.
           </p>
 
           <div className={`${styles.cascade} ${styles.figures}`}>
@@ -284,10 +279,8 @@ export default function LandingPage() {
           </div>
 
           <p className={styles.prose}>
-            The cap binds for everyone at 80 and above, so an anchor&apos;s vouch and a strong member&apos;s vouch are
-            worth exactly the same 20 points. <strong>Being trusted does not make you a bigger faucet.</strong> Two
-            anchor vouches take a new account from 20 to 60 — over the Tier 1 line at 55, and no further without
-            somebody else.
+            <strong>Being trusted does not make you a bigger tap.</strong> Two anchor vouches lift a new account from
+            20 to 60 — past Tier 1, and no further alone.
           </p>
         </section>
 
@@ -297,9 +290,8 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>Rule two — direction</span>
           <h2 className={styles.h2}>The anti-collusion rule and the computation order are the same rule.</h2>
           <p className={styles.lead}>
-            A score sums contributions only from <strong>strictly lower depth</strong> — only from accounts strictly
-            closer to an anchor. That is not a rule about cheating. It is the order the sum is taken in, and it is the
-            only defence the system has.
+            A score only counts vouches from accounts <strong>closer to an anchor than you are.</strong> That is not a
+            fraud rule. It is the order the sum is added in — and it is the whole defence.
           </p>
 
           <div className={`${styles.panels} ${styles.figures}`}>
@@ -312,8 +304,7 @@ export default function LandingPage() {
               </div>
               <DepthPath className={styles.panelSvg} />
               <figcaption className={styles.panelCaption}>
-                Every vouch here crosses a boundary, so every vouch has a term in the sum. Trust arrives attenuated:
-                100 at the top, 60 one hop out, 50 two hops out.
+                Every vouch crosses a line, so every vouch counts. Trust thins as it travels: 100, then 60, then 50.
               </figcaption>
             </figure>
 
@@ -326,8 +317,8 @@ export default function LandingPage() {
               </div>
               <DepthRing className={styles.panelSvg} />
               <figcaption className={styles.panelCaption}>
-                Six accounts, six real and active vouches, nothing switched off and nothing flagged. None of the six
-                sits below another, so the sum has no terms and all six stay at the floor forever.
+                Six accounts, six real vouches, nothing flagged. Nobody here is closer to an anchor than anybody else,
+                so nothing counts. All six stay at 20 forever.
               </figcaption>
             </figure>
           </div>
@@ -335,9 +326,7 @@ export default function LandingPage() {
           <blockquote className={styles.pull}>
             <p className={styles.pullText}>There is no collusion detector to tune, evade, or false-positive.</p>
             <p className={styles.pullNote}>
-              Adding accounts to a ring adds edges that were already worth zero. Buying accounts buys more of the same
-              nothing. There is no threshold to sit under and no heuristic to learn, because there is no heuristic —
-              the ring costs the attacker real credentials and returns exactly what an empty graph returns.
+              No threshold to hide under, no model to fool. More accounts only add more edges worth zero.
             </p>
           </blockquote>
         </section>
@@ -348,46 +337,43 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>State</span>
           <h2 className={styles.h2}>Nothing here accumulates.</h2>
           <p className={styles.lead}>
-            A score is a pure function of the graph as it stands right now. There is no balance to drift, no history
-            to trade on, and nothing that keeps paying out after the relationship behind it ends.
+            A score is a function of the graph right now — no balance to drift, no history to trade.
           </p>
 
           <dl className={`${styles.ledger} ${styles.figures}`}>
             <div className={styles.ledgerRow}>
               <dt className={styles.ledgerKey}>90 days</dt>
               <dd className={styles.ledgerVal}>
-                A vouch expires unless it is re-affirmed. Its contribution drops to <b>zero</b> the moment it does —
-                no ramp, no grace, no decayed remainder.
+                A vouch dies unless renewed. It drops to <b>zero</b> the moment it does. No ramp, no grace.
               </dd>
             </div>
             <div className={styles.ledgerRow}>
               <dt className={styles.ledgerKey}>free, instant</dt>
               <dd className={styles.ledgerVal}>
-                Anyone can revoke their own vouch at any time, at zero cost, effective on the next read. Vouching for
-                someone is a statement you keep making, not one you made once.
+                Revoke your own vouch any time, free, live on the next read. A vouch is something you keep saying, not
+                something you said once.
               </dd>
             </div>
             <div className={styles.ledgerRow}>
               <dt className={styles.ledgerKey}>recomputed</dt>
               <dd className={styles.ledgerVal}>
-                Scores are computed on read from public data. Any third party can reproduce a score from the subgraph
-                alone — including the score we are showing you.
+                Scores are computed on read, from public data. Anyone can recompute them — including the ones on this
+                page.
               </dd>
             </div>
             <div className={styles.ledgerRow}>
               <dt className={styles.ledgerKey}>0</dt>
               <dd className={styles.ledgerVal}>
-                Code paths from a token balance into the scoring function. <b>VOUCHME is a bond, not a score</b> — it
-                exists so that filing a report costs something. CI asserts the separation:{" "}
+                Code paths from a token balance into the score. <b>VOUCHME is a bond, not a score</b> — it makes filing
+                a report cost something. CI proves it:{" "}
                 <code>1,000,000 VOUCHME bonded with zero vouches still scores 20.</code>
               </dd>
             </div>
           </dl>
 
           <p className={styles.prose}>
-            Not transferable. Not sellable. Not collateral. Not for sale.{" "}
-            <strong>The moment reputation is liquid, reputation is bought</strong> — which would put us back at the
-            staking answer we already rejected.
+            Not transferable. Not collateral. Not for sale.{" "}
+            <strong>The moment reputation is liquid, reputation is bought.</strong>
           </p>
         </section>
 
@@ -397,8 +383,8 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>Worked example</span>
           <h2 className={styles.h2}>Someone else&apos;s app, pricing the same graph.</h2>
           <p className={styles.lead}>
-            Fiar is a peer-to-peer lending mini app: borrow a drill from a neighbour, and your karma sets the deposit.
-            It treats a score as a dial rather than a door. Nobody is refused; everybody is priced.
+            Fiar lends things between neighbours, and your standing sets the deposit. A score is a dial, not a door:
+            nobody is refused, everybody is priced.
           </p>
 
           <div className={`${styles.tableWrap} ${styles.figures} scroll-x`}>
@@ -432,9 +418,7 @@ export default function LandingPage() {
               The collusion ring is not blocked. It is simply not cheaper.
             </p>
             <p className={styles.pullNote}>
-              And no code in Fiar had to know what a collusion ring is. It reads one number and multiplies. The ring
-              pays full price for the same reason a stranger does — it has nothing behind it — which is the whole
-              thesis arriving inside somebody else&apos;s app.{" "}
+              No code in Fiar knows what a collusion ring is. It reads one number and multiplies.{" "}
               <a href="https://fiar.davinciin.xyz" className={styles.footerLink} style={{ color: "inherit", textDecoration: "underline" }}>
                 fiar.davinciin.xyz
               </a>
@@ -448,9 +432,7 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>Integration</span>
           <h2 className={styles.h2}>One GET. No key, no OAuth, no consent screen.</h2>
           <p className={styles.lead}>
-            A World App mini app already knows its user&apos;s wallet address. That address is the only join key
-            VouchMe needs, and scores are public, so reading someone&apos;s standing is a single unauthenticated
-            request.
+            A World App mini app already knows your wallet address. That is the only key VouchMe needs.
           </p>
 
           <div className={styles.figures}>
@@ -477,28 +459,28 @@ export default function LandingPage() {
               <div className={styles.method}>
                 <dt className={styles.methodName}>standing(idOrAddress)</dt>
                 <dd className={styles.methodDesc}>
-                  Score, tier, depth, credential status and provenance. Returns null when someone has not enrolled,
-                  which is most of the world and is not an error.
+                  Score, tier, depth, credential, provenance. Returns null for anyone not enrolled — most of the
+                  world, and not an error.
                 </dd>
               </div>
               <div className={styles.method}>
                 <dt className={styles.methodName}>gate(address, policy)</dt>
                 <dd className={styles.methodDesc}>
-                  VouchMe&apos;s own promotion gates, with the reasons attached to a refusal.
+                  The promotion gates, with reasons when it refuses.
                 </dd>
               </div>
               <div className={styles.method}>
                 <dt className={styles.methodName}>proximity(from, to)</dt>
                 <dd className={styles.methodDesc}>
-                  Whether two people are connected, and who vouches for both of them. The read no personhood system
-                  can answer, because a nullifier has no neighbours.
+                  Whether two people are connected, and who vouches for both. No other personhood system can answer
+                  this — a nullifier has no neighbours.
                 </dd>
               </div>
             </dl>
 
             <p className={styles.prose}>
-              There is no <code>vouch()</code> and there never will be. Creating trust requires a present human inside
-              the VouchMe app; a third party may only read.
+              There is no <code>vouch()</code> and never will be. Making trust takes a present human. Outsiders read
+              only.
             </p>
           </div>
         </section>
@@ -509,18 +491,17 @@ export default function LandingPage() {
           <span className={styles.eyebrow}>Where this actually is</span>
           <h2 className={styles.h2}>What there is, and what there isn&apos;t.</h2>
           <p className={styles.lead}>
-            This is the part of a landing page that usually holds logos and user counts. We do not have any, so here
-            is the real inventory instead.
+            This is where a landing page puts logos and user counts. We have none. Here is what we do have.
           </p>
 
           <div className={`${styles.ledgerCols} ${styles.figures}`}>
             <article className={styles.card}>
               <h3 className={styles.cardTitle}>There is</h3>
               <ul className={`${styles.tally} ${styles.tallyHas}`}>
-                <li>A mechanism, specified down to the constants on this page.</li>
-                <li>A working app: enrol, vouch, revoke, and watch a score move.</li>
-                <li>A third-party app pricing real WLD off it, built by someone integrating in one GET.</li>
-                <li>Numbers you can recompute yourself from public subgraph data.</li>
+                <li>A mechanism, specified to the constant.</li>
+                <li>A working app: enrol, vouch, revoke, watch a score move.</li>
+                <li>Another app pricing real WLD off it.</li>
+                <li>Numbers you can recompute yourself.</li>
                 <li>The code, MIT.</li>
               </ul>
             </article>
@@ -529,9 +510,9 @@ export default function LandingPage() {
               <ul className={`${styles.tally} ${styles.tallyHasnt}`}>
                 <li>Users.</li>
                 <li>Revenue.</li>
-                <li>Partners, logos, or a design partner we can name.</li>
+                <li>Partners or logos.</li>
                 <li>A funding round.</li>
-                <li>A testimonial, or a figure anywhere above that came from anywhere but the protocol.</li>
+                <li>A testimonial, or any number above that did not come from the protocol.</li>
               </ul>
             </article>
           </div>
@@ -571,8 +552,7 @@ export default function LandingPage() {
           </ul>
         </div>
         <p className={styles.footerNote}>
-          Scores are scoped to the VouchMe action namespace — this is not a universal reputation oracle, and it is not
-          trying to become one. MIT licensed.
+          Scores are scoped to VouchMe. This is not a universal reputation oracle and is not trying to be. MIT.
         </p>
       </footer>
     </div>
