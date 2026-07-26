@@ -2,22 +2,26 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { loadFace } from "@/lib/faceStore";
+import { MeshSurfaceSampler } from "three/addons/math/MeshSurfaceSampler.js";
+import { loadFace, type FaceForm } from "@/lib/faceStore";
+import { geometryFromArrays } from "@/lib/faceMesh";
 
 /**
  * FaceMesh — a reputation-driven particle bust of the user's OWN scanned face.
  *
- * The target shape is sampled from the selfie captured during onboarding (`FaceCapture` →
- * `faceStore`), NOT a procedural stand-in. If no face has been scanned for this address, the hero
- * renders an explicit empty-state — there is deliberately no default/fallback face. The face is the
- * real one or none.
+ * The target shape is the REAL 468-point face mesh MediaPipe reconstructed during the 3-shot
+ * onboarding scan (`FaceCapture` → `faceStore`), surface-sampled into particles. This is what killed
+ * the old "egg": there is no faked dome-depth anymore — the particles sit on the true face surface
+ * (real per-vertex depth), so the hero reads as a front-facing face, not a rounded shell. If no face
+ * has been scanned for this address, the hero renders an explicit empty-state — there is
+ * deliberately no default/fallback face. The face is the real one or none.
  *
  * The particle system (snoise/curl vertex shader, scatter→target coherence lerp, pointer influence)
- * is reused from the original mockup, but:
+ * keeps VouchMe's treatment:
  *   1. Light theme — dark points on a transparent canvas, glow is the app accent indigo.
- *   2. The target point cloud is sampled from the scanned photo: (x,y) from pixel position inside a
- *      centred face oval, depth from an elliptical dome plus luminance relief, colour from the
- *      photo itself (darkened so it reads on the pale surface).
+ *   2. Colour is sampled from the real mesh's per-vertex colour (merged across the capture angles),
+ *      darkened so it reads on the pale surface and pushed toward graphite as it recedes so the
+ *      silhouette holds.
  *   3. Reputation coherence — `score`/`tier`/`isAnchor` set how *formed* the face is; a low-standing
  *      identity is a loose granule-face, a high one is crisp. It never fully dissolves: the face
  *      stays findable at every tier.
@@ -35,15 +39,16 @@ export interface FaceMeshProps {
 
 // --- palette (light theme) -------------------------------------------------
 const INK = 0x14161a; // near-black, the darkest points
-const GRAPHITE = 0x8b8f9a; // muted grey, points that recede toward the edges
+const GRAPHITE = 0x8b8f9a; // muted grey, points that recede toward the back
 const GLOW = 0x7b7ff0; // app accent indigo, only under pointer influence
 
 const TIER1_SCORE = 55;
 const TIER2_SCORE = 140;
 
 const N = 42000; // particle count
+const FACE_SCALE = 0.78; // shrink the size-3 normalized mesh to the hero's framing
 
-/** Seedable PRNG so the scatter field + sampling order are deterministic per address. */
+/** Seedable PRNG so the scatter field is deterministic per address. */
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -125,90 +130,50 @@ void main(){vec2 uv=gl_PointCoord-vec2(0.5);float d=length(uv);if(d>0.5)discard;
  gl_FragColor=vec4(c,a);}`;
 
 /**
- * Sample the scanned photo into 3D particle targets + per-particle colours.
+ * Surface-sample the real face mesh into 3D particle targets + per-particle colours.
  *
- * The photo is drawn cover-fit into a square raster; only pixels inside a centred face oval are
- * candidates (the camera background is discarded). Each particle takes an oval-interior pixel:
- *   - X,Y from the pixel position (normalised to ~[-1,1]),
- *   - Z from an elliptical dome (rounded face front) plus a small luminance relief so brows/nose
- *     read, and
- *   - colour from the photo pixel, darkened for the pale surface and pushed toward graphite as it
- *     recedes so the silhouette holds.
+ * Each particle lands on a random point of the face surface (uniform by area) and takes the mesh's
+ * interpolated colour there. For the light theme the colour is darkened and pushed toward graphite as
+ * the point recedes in depth, so the silhouette holds against the pale page rather than dissolving.
  */
-function buildFace(
-  count: number,
-  rng: () => number,
-  img: HTMLImageElement,
-): { target: Float32Array; colors: Float32Array } {
-  const S = 200; // sample raster
+function buildFace(count: number, form: FaceForm): { target: Float32Array; colors: Float32Array } {
   const target = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
-  const cvs = document.createElement("canvas");
-  cvs.width = S;
-  cvs.height = S;
-  const g = cvs.getContext("2d", { willReadFrequently: true });
-  if (!g) return { target, colors };
 
-  // cover-fit the (square-ish) photo into the raster
-  const scale = Math.max(S / img.width, S / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  g.drawImage(img, (S - dw) / 2, (S - dh) / 2, dw, dh);
-  const data = g.getImageData(0, 0, S, S).data;
+  const geo = geometryFromArrays(form.positions, form.colors);
+  const mesh = new THREE.Mesh(geo);
+  // deterministic sampling: MeshSurfaceSampler takes an optional RNG
+  const sampler = new MeshSurfaceSampler(mesh).setWeightAttribute(null).build();
 
-  const cx = S / 2;
-  const cy = S / 2;
-  const rx = S * 0.42; // face oval radii
-  const ry = S * 0.48;
+  // depth range for the recede-toward-graphite shading
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const zMin = bb.min.z;
+  const zSpan = Math.max(1e-4, bb.max.z - bb.min.z);
 
-  // Collect oval-interior pixel indices as sampling candidates.
-  const pts: number[] = [];
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const nx = (x - cx) / rx;
-      const ny = (y - cy) / ry;
-      if (nx * nx + ny * ny <= 1) pts.push(x, y);
-    }
-  }
-  const m = pts.length / 2;
-  if (m === 0) return { target, colors };
-
-  const ink = new THREE.Color(INK);
   const graphite = new THREE.Color(GRAPHITE);
-  const tmp = new THREE.Color();
+  const ink = new THREE.Color(INK);
+  const p = new THREE.Vector3();
+  const col = new THREE.Color();
 
   for (let i = 0; i < count; i++) {
-    const k = ((rng() * m) | 0) * 2;
-    const px = pts[k];
-    const py = pts[k + 1];
-    const idx = (py * S + px) * 4;
-    const pr = data[idx] / 255;
-    const pg = data[idx + 1] / 255;
-    const pb = data[idx + 2] / 255;
+    sampler.sample(p, undefined, col);
 
-    const X = ((px - cx) / (S / 2)) * 1.15;
-    const Y = -((py - cy) / (S / 2)) * 1.15;
+    target[i * 3] = p.x * FACE_SCALE;
+    target[i * 3 + 1] = p.y * FACE_SCALE;
+    target[i * 3 + 2] = p.z * FACE_SCALE;
 
-    const nx = (px - cx) / rx;
-    const ny = (py - cy) / ry;
-    const r2 = nx * nx + ny * ny;
-    const dome = r2 < 1 ? Math.sqrt(1 - r2) : 0; // rounded front
-    const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
-    const Z = dome * 0.9 + (lum - 0.5) * 0.22;
-
-    target[i * 3] = X;
-    target[i * 3 + 1] = Y;
-    target[i * 3 + 2] = Z;
-
-    // Photo colour, darkened for the light surface; edges fade toward graphite/ink so the
-    // silhouette stays legible rather than dissolving into the pale page.
-    tmp.setRGB(pr * 0.55, pg * 0.55, pb * 0.55);
-    const edge = 1 - Math.min(1, dome); // 0 at centre, 1 at the rim
-    tmp.lerp(graphite, edge * 0.45).lerp(ink, (1 - dome) * 0.12);
-    colors[i * 3] = tmp.r;
-    colors[i * 3 + 1] = tmp.g;
-    colors[i * 3 + 2] = tmp.b;
+    const depth = (p.z - zMin) / zSpan; // 0 = back, 1 = front
+    const edge = 1 - depth;
+    // photo colour darkened for the light surface; recede toward graphite/ink at the back
+    col.setRGB(col.r * 0.55, col.g * 0.55, col.b * 0.55);
+    col.lerp(graphite, edge * 0.45).lerp(ink, edge * 0.12);
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
   }
+
+  geo.dispose();
   return { target, colors };
 }
 
@@ -220,30 +185,18 @@ export function FaceMesh({ address, score, tier, isAnchor = false, height = 260,
     if (!container || typeof window === "undefined") return;
 
     // The face must be the scanned one. No scan → explicit empty-state, never a default face.
-    const dataUrl = loadFace(address);
-    if (!dataUrl) {
+    const form = loadFace(address);
+    if (!form) {
       renderEmpty(container, height);
       return () => {
         container.replaceChildren();
       };
     }
 
-    let cancelled = false;
-    let teardown: () => void = () => {};
-
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      container.replaceChildren();
-      teardown = initScene(container, img, { address, score, tier, isAnchor, height });
-    };
-    img.onerror = () => {
-      if (!cancelled) renderEmpty(container, height);
-    };
-    img.src = dataUrl;
+    container.replaceChildren();
+    const teardown = initScene(container, form, { address, score, tier, isAnchor, height });
 
     return () => {
-      cancelled = true;
       teardown();
       container.replaceChildren();
     };
@@ -254,10 +207,10 @@ export function FaceMesh({ address, score, tier, isAnchor = false, height = 260,
   );
 }
 
-/** Build the WebGL particle scene from a loaded face image. Returns a teardown fn. */
+/** Build the WebGL particle scene from a stored face form. Returns a teardown fn. */
 function initScene(
   container: HTMLElement,
-  img: HTMLImageElement,
+  form: FaceForm,
   { address, score, tier, isAnchor, height }: { address: string; score: number; tier: 0 | 1 | 2; isAnchor: boolean; height: number },
 ): () => void {
   const seed = hashAddress(address);
@@ -270,7 +223,7 @@ function initScene(
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     if (!renderer.getContext()) throw new Error("no webgl context");
   } catch {
-    renderStaticImage(container, img, height);
+    renderStaticImage(container, form, height);
     return () => container.replaceChildren();
   }
 
@@ -291,12 +244,12 @@ function initScene(
   scene.add(group);
 
   const rng = mulberry32(seed);
-  const { target, colors } = buildFace(N, rng, img);
+  const { target, colors } = buildFace(N, form);
 
   const scatter = new Float32Array(N * 3);
   const seeds = new Float32Array(N);
   for (let i = 0; i < N; i++) {
-    // tight scatter field (1.7, not 3.0) so even the loosest state hugs the face
+    // tight scatter field so even the loosest state hugs the face
     const rr = 1.7 * Math.cbrt(rng());
     const st = rng() * Math.PI * 2;
     const sp = Math.acos(2 * rng() - 1);
@@ -421,11 +374,15 @@ function renderEmpty(container: HTMLElement, height: number): void {
   container.appendChild(box);
 }
 
-/** WebGL-unavailable fallback: show the scanned still itself (still the real face, never procedural). */
-function renderStaticImage(container: HTMLElement, img: HTMLImageElement, height: number): void {
+/** WebGL-unavailable fallback: show the frontal-shot still if one was stored, else the empty-state. */
+function renderStaticImage(container: HTMLElement, form: FaceForm, height: number): void {
   container.replaceChildren();
+  if (!form.thumb) {
+    renderEmpty(container, height);
+    return;
+  }
   const el = document.createElement("img");
-  el.src = img.src;
+  el.src = form.thumb;
   el.alt = "";
   el.setAttribute("aria-hidden", "true");
   el.style.cssText = `display:block;margin:0 auto;height:${height}px;width:${height}px;object-fit:cover;border-radius:50%;opacity:.9`;

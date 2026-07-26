@@ -64,7 +64,7 @@ const mainStyle = {
  * switch of account, or enrolling in another tab, is picked up rather than cached.
  */
 export function AppGate({ children }: { children: ReactNode }) {
-  const { address } = useAuth();
+  const { address, restoring } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -165,6 +165,23 @@ export function AppGate({ children }: { children: ReactNode }) {
         <main style={mainStyle}>{children}</main>
         <BottomNav />
       </>
+    );
+  }
+
+  // Session restore hasn't settled yet. We genuinely don't know who this is, so hold a neutral
+  // loading screen rather than flash the sign-in wall — which is what made LoginScreen "pop up" for
+  // an instant on every fresh page load and every hard navigation before the cookie round trip
+  // resolved. Only once `restoring` clears do we trust `address` to mean "signed out".
+  if (restoring) {
+    return (
+      <main style={mainStyle}>
+        <div className="flex min-h-screen items-center justify-center" data-testid="gate-restoring">
+          <span className="eyebrow inline-flex items-center gap-2">
+            <span className="dot dot-pulse text-seal" />
+            Loading
+          </span>
+        </div>
+      </main>
     );
   }
 

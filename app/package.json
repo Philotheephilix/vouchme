@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@heroui/react": "^2.8.0",
+    "@mediapipe/tasks-vision": "^0.10.35",
     "@heroui/theme": "^2.4.0",
     "@vouchme/engine": "*",
     "@worldcoin/idkit": "^4.2.1",

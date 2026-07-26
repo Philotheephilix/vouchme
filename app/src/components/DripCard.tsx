@@ -116,7 +116,7 @@ export function DripCard({ presence, address, canClaim }: { presence: PresenceSt
           <div className="flex items-baseline gap-1">
             <span
               className="font-mono"
-              style={{ fontSize: 46, fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.035em", textShadow: "0 2px 18px rgba(20,15,60,0.28)" }}
+              style={{ fontSize: "clamp(38px, 12.5vw, 46px)", fontWeight: 700, lineHeight: 0.9, letterSpacing: "-0.035em", textShadow: "0 2px 18px rgba(20,15,60,0.28)" }}
             >
               {presence.accruedVouchMe.toFixed(1)}
             </span>

@@ -55,6 +55,10 @@ interface AuthState {
   connecting: boolean;
   error: string | null;
   isInWorldApp: boolean;
+  /** True from first mount until the one-shot session restore below has settled. Distinguishes
+   *  "we don't know yet who this is" from "nobody is signed in", so the gate can hold a neutral
+   *  loading screen instead of flashing the sign-in wall on every fresh page load / hard nav. */
+  restoring: boolean;
 }
 
 interface AuthContextValue extends AuthState {
@@ -147,6 +151,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     connecting: false,
     error: null,
     isInWorldApp: false,
+    // Preview seeds a fixture identity and skips the restore effect below, so nothing will ever flip
+    // this — start settled there. Everywhere else the restore round trip is still pending on mount.
+    restoring: process.env.NEXT_PUBLIC_PREVIEW !== "1",
   });
 
   // Install MiniKit once, client-side only, then restore whatever session we can find without
@@ -178,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const verified = await fetchVerifiedSession();
       if (cancelled) return;
       if (verified) {
-        setState((s) => ({ ...s, address: verified, via: inWorldApp ? "minikit" : "injected", isInWorldApp: inWorldApp }));
+        setState((s) => ({ ...s, address: verified, via: inWorldApp ? "minikit" : "injected", isInWorldApp: inWorldApp, restoring: false }));
         writeCookie(COOKIE_NAME, verified);
         return;
       }
@@ -188,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Inside World App with a wallet, but no verified session yet. Report signed OUT and let
         // `connect()` run the nonce -> signature -> verify round trip: the wallet being present is
         // not consent, and it is not proof.
-        if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: true }));
+        if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: true, restoring: false }));
         writeCookie(COOKIE_NAME, null);
         return;
       }
@@ -196,9 +203,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // A stale `vouchme_addr` mirror with no verified session behind it — e.g. an expired session.
         // Clear it rather than render a signed-in shell the server will refuse to fill.
         writeCookie(COOKIE_NAME, null);
-        if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: inWorldApp }));
+        if (!cancelled) setState((s) => ({ ...s, address: null, via: null, isInWorldApp: inWorldApp, restoring: false }));
       } else if (!cancelled) {
-        setState((s) => ({ ...s, isInWorldApp: inWorldApp }));
+        setState((s) => ({ ...s, isInWorldApp: inWorldApp, restoring: false }));
       }
     })();
     return () => {

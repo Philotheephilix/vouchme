@@ -1,14 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/session";
 import { Bullseye, ConcentricRings, DotField, Slashes, Starburst, Sunburst } from "./Artifacts";
 import { LoginHero } from "./illustrations";
 import { Wordmark } from "./Wordmark";
-
-// 28 MB glTF + three's GLTFLoader — pulled in a client-only chunk so it never touches SSR or the
-// first paint. The coin's own dashed-ring placeholder holds the space until the mesh streams in.
-const EthCoin = dynamic(() => import("./EthCoin").then((m) => m.EthCoin), { ssr: false });
 
 /** The entire signed-out experience — the app's onboarding cover. No score, no dial, no endorsement
  *  rows: a coloured, unhurried welcome that ends in one action. Nothing else renders until someone
@@ -75,18 +70,18 @@ export function LoginScreen() {
       />
       <Slashes size={54} count={3} className="artifact" style={{ position: "absolute", top: 118, right: 30, color: "var(--color-accent)" }} />
 
-      {/* the hero object — a real 3D Ethereum coin, spinning in place, riding above the poster marks
-          and below the copy. The one loud, tactile thing on the cover. Credit: CC-BY, kanzari.design. */}
-      <EthCoin size={150} className="artifact-drift" style={{ position: "absolute", top: 56, right: 8, zIndex: 2 }} />
-
       {/* the mark, top-left, riding above the blobs */}
       <div className="relative z-10 pt-14">
         <Wordmark size={19} />
       </div>
 
-      {/* onboarding cover illustration — a person presenting their trust graph */}
+      {/* onboarding cover illustration — an abstract trust graph. Scales with the viewport so it
+          never crowds the copy on a small iPhone: the SVG fills a width-capped box (globals.css
+          .login-hero-svg forces width:100%), so 58vw on a 320px screen, 252px on anything roomy. */}
       <div className="relative z-10 mt-8 flex justify-center anim-rise-bounce" style={{ color: "var(--color-cream)" }}>
-        <LoginHero size={252} />
+        <div style={{ width: "min(252px, 58vw)" }}>
+          <LoginHero size={252} className="login-hero-svg" />
+        </div>
       </div>
 
       <div className="relative z-10 mt-auto">
@@ -99,7 +94,7 @@ export function LoginScreen() {
 
         <h1
           className="text-cream anim-rise-bounce"
-          style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 700, letterSpacing: "-.042em" }}
+          style={{ fontSize: "clamp(30px, 9vw, 40px)", lineHeight: 1.05, fontWeight: 700, letterSpacing: "-.042em" }}
         >
           Proof of human
           <br />

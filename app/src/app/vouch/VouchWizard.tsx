@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { encodeFunctionData, isAddress, type Hex } from "viem";
 import { IDKitRequestWidget, selfieCheckLegacy, type IDKitResult } from "@worldcoin/idkit";
 import { MiniKit } from "@worldcoin/minikit-js";
@@ -125,6 +125,7 @@ async function waitForNewVouchOnChain(
 
 export function VouchWizard() {
   const auth = useAuth();
+  const router = useRouter();
   const config = useClientConfig();
   const [step, setStep] = useState(0);
 
@@ -350,6 +351,34 @@ export function VouchWizard() {
     }
   }, [auth.address, auth.via, attestData, config, target, mintVouchName]);
 
+  // A finished vouch leaves a full wizard's worth of state behind — a resolved target, a simulation,
+  // a World ID attestation, a tx hash, an ENS mint result. Walking "Back" through that from the
+  // result screen would replay stale, already-spent steps. So completion offers one action instead:
+  // wipe every field back to its initial value and return to step 0, a clean slate for the next vouch.
+  const resetWizard = useCallback(() => {
+    setStep(0);
+    setQuery("");
+    setResolving(false);
+    setResolveError(null);
+    setTarget(null);
+    setSim(null);
+    setSimError(null);
+    setSimLoading(false);
+    setRpContext(null);
+    setWidgetOpen(false);
+    setPresenceError(null);
+    setAttestData(null);
+    setAttesting(false);
+    setTxHash(null);
+    setTxStatus("idle");
+    setTxIsUserOp(false);
+    setTxError(null);
+    setEnsMint({ kind: "idle" });
+    // Also drop the ?to= deep-link so it can't auto-resolve the just-vouched target again.
+    setAutoResolved(true);
+    if (searchParams.get("to")) router.replace("/vouch");
+  }, [router, searchParams]);
+
   const first = step === 0;
 
   if (!auth.address) {
@@ -482,7 +511,7 @@ export function VouchWizard() {
                   <button
                     key={c.ensName}
                     type="button"
-                    onClick={() => { window.location.href = `/profile/${c.address}`; }}
+                    onClick={() => router.push(`/profile/${c.address}`)}
                     className="flex w-full min-h-[44px] items-center justify-between border-b border-rule py-3 text-left"
                   >
                     <span className="truncate-mono max-w-[180px] text-sm" style={{ color: "var(--color-cream)" }}>
@@ -752,7 +781,15 @@ export function VouchWizard() {
         ) : null}
       </section>
 
-      {step > 0 ? (
+      {step === 5 ? (
+        // The flow is spent — the vouch either landed or reverted, and every step behind this one
+        // holds stale, single-use state. The only forward action is to start clean.
+        <div className="mt-8 px-4">
+          <button type="button" onClick={resetWizard} className="btn btn-primary btn-block">
+            Vouch for someone else
+          </button>
+        </div>
+      ) : step > 0 ? (
         <div className="mt-8 flex gap-3 px-4">
           <button
             type="button"

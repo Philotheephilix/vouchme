@@ -82,7 +82,7 @@ export default async function HomePage() {
           <div className="flex items-baseline gap-0.5" data-testid="home-score-figure">
             <span
               className="font-mono"
-              style={{ fontSize: 56, fontWeight: 700, letterSpacing: "-.04em", lineHeight: 1 }}
+              style={{ fontSize: "clamp(46px, 15vw, 56px)", fontWeight: 700, letterSpacing: "-.04em", lineHeight: 1 }}
             >
               {fmtScore(ME.score).split(".")[0]}
             </span>

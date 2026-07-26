@@ -378,6 +378,14 @@
     transform-origin: center;
   }
 
+  /* the login hero fills a width-capped wrapper instead of its own fixed px, so it scales down on a
+     narrow iPhone rather than crowding the copy. Presentation-attr width/height on the SVG lose to
+     this rule, so `size={252}` becomes the natural/max size and the wrapper does the shrinking. */
+  .login-hero-svg {
+    width: 100%;
+    height: auto;
+  }
+
   /* wide content (tables, addresses) scrolls in its own box — no page ever scrolls horizontally */
   .scroll-x {
     overflow-x: auto;

@@ -54,8 +54,8 @@ export function Header({ eyebrow, title, subtitle, mono = false }: HeaderProps) 
             className={`relative z-[1] anim-rise mt-1.5 ${mono ? "truncate-mono" : ""}`}
             style={
               mono
-                ? { fontSize: 28, fontWeight: 700, letterSpacing: "-.02em", color: "var(--color-cream)" }
-                : { fontSize: 36, fontWeight: 700, lineHeight: 1.03, letterSpacing: "-.035em", color: "var(--color-cream)" }
+                ? { fontSize: "clamp(22px, 6.5vw, 28px)", fontWeight: 700, letterSpacing: "-.02em", color: "var(--color-cream)" }
+                : { fontSize: "clamp(27px, 8.5vw, 36px)", fontWeight: 700, lineHeight: 1.03, letterSpacing: "-.035em", color: "var(--color-cream)" }
             }
           >
             {mono ? truncateMiddle(title, 26) : title}

@@ -8,58 +8,28 @@ export function TrustGraph({ size = 220, className }: { size?: number; className
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
-      aria-label="People connected in a trust graph"
+      aria-label="A hub node joined by spokes to five outline nodes, a trust graph"
     >
       {/* soft background blob */}
-      <circle cx="120" cy="122" r="94" fill="var(--color-accent)" fillOpacity={0.15} />
+      <circle cx={120} cy={120} r={88} fill="var(--color-accent)" fillOpacity={0.15} />
 
-      {/* trust edges between the three people */}
-      <path d="M78 92 L162 92" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-      <path d="M78 92 L120 172" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-      <path d="M162 92 L120 172" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-
-      {/* edge midpoint node dots (accent) */}
-      <circle cx="120" cy="92" r="3.5" fill="var(--color-accent)" />
-      <circle cx="99" cy="132" r="3.5" fill="var(--color-accent)" />
-      <circle cx="141" cy="132" r="3.5" fill="var(--color-accent)" />
-
-      {/* --- Person A (top-left node) --- */}
-      <circle cx="78" cy="82" r="10" fill="none" stroke="currentColor" strokeWidth={2} />
-      <path d="M72 76 Q78 70 84 76" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      {/* spokes from hub to each outer node */}
       <path
-        d="M62 108 Q62 92 78 92 Q94 92 94 108 Z"
-        fill="var(--color-accent)"
+        d="M120 120L76 72M120 120L176 74M120 120L184 138M120 120L128 184M120 120L54 148"
         stroke="currentColor"
         strokeWidth={2}
-        strokeLinejoin="round"
+        strokeLinecap="round"
       />
 
-      {/* --- Person B (top-right node) --- */}
-      <circle cx="162" cy="82" r="10" fill="none" stroke="currentColor" strokeWidth={2} />
-      <path d="M156 76 Q162 70 168 76" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        d="M146 108 Q146 92 162 92 Q178 92 178 108 Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinejoin="round"
-      />
+      {/* central hub node (filled) */}
+      <circle cx={120} cy={120} r={13} fill="var(--color-accent)" stroke="currentColor" strokeWidth={2} />
 
-      {/* --- Person C (bottom node) --- */}
-      <circle cx="120" cy="162" r="11" fill="none" stroke="currentColor" strokeWidth={2} />
-      <path d="M113 155 Q120 148 127 155" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <path
-        d="M101 190 Q101 172 120 172 Q139 172 139 190 Z"
-        fill="var(--color-accent)"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinejoin="round"
-      />
-
-      {/* ambient sparkle + floating dots */}
-      <path d="M196 62 l0 10 M191 67 l10 0" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-      <circle cx="46" cy="150" r="2.5" fill="var(--color-accent)" />
-      <circle cx="198" cy="152" r="2.5" fill="var(--color-accent)" />
+      {/* outer outline nodes */}
+      <circle cx={76} cy={72} r={8} fill="var(--color-paper)" stroke="currentColor" strokeWidth={2} />
+      <circle cx={176} cy={74} r={8} fill="var(--color-paper)" stroke="currentColor" strokeWidth={2} />
+      <circle cx={184} cy={138} r={8} fill="var(--color-paper)" stroke="currentColor" strokeWidth={2} />
+      <circle cx={128} cy={184} r={8} fill="var(--color-paper)" stroke="currentColor" strokeWidth={2} />
+      <circle cx={54} cy={148} r={8} fill="var(--color-paper)" stroke="currentColor" strokeWidth={2} />
     </svg>
   );
 }
