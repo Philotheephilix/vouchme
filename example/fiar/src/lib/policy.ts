@@ -33,9 +33,13 @@ export const POLICY = {
   depositFloor: 0.15,
   rateFloor: 0.5,
   /** Value ceiling by tier, in USD: `base + step × tier`. Reputation does not only make borrowing
-   *  cheaper, it makes more of the catalogue reachable — which is the part people act on. */
-  ceilingBase: 150,
-  ceilingPerTier: 250,
+   *  cheaper, it makes more of the catalogue reachable — which is the part people act on.
+   *
+   *  Sized against a catalogue of everyday household things ($30–$120) so an account at the
+   *  enrollment floor can still borrow something. A ladder whose bottom rung reaches nothing is a
+   *  wall, and it teaches a new user their standing is worthless rather than merely small. */
+  ceilingBase: 50,
+  ceilingPerTier: 60,
   /** A lapsed credential is not a report — it means nobody has checked recently. Fiar prices the
    *  uncertainty instead of refusing, by ignoring karma entirely for the duration. */
   gracePeriodKarmaMultiplier: 0.5,

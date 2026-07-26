@@ -52,7 +52,7 @@ k = clamp((score − 20) / (140 − 20), 0, 1)     // 0 at the enrollment floor,
 
 deposit = itemValue × max(0.15, 1 − 0.75k − connectionDiscount)
 rate    = listRate  × max(0.50, 1 − 0.40k)
-ceiling = $150 + $250 × tier
+ceiling = $50 + $60 × tier
 ```
 
 Four separate jobs for one number:
@@ -75,16 +75,21 @@ filed in among them, so climbing has a visible price attached before anyone clim
 
 Point Fiar at a VouchMe graph and switch card holders:
 
-| Holder | Score | Deposit on a $180 drill | Why |
-|---|---|---|---|
-| `ring1.eth` | 20.0 | **$180.00** — full price, and 5 of 6 items out of reach | Six accounts vouching for each other in a ring. Every edge contributes zero, so the ring pays exactly what a stranger pays. |
-| `carol` | 50.0 | $128.25, still over her $150 ceiling | One rung short. The card says so, and says the remedy is two more vouchers — not a payment. |
-| `alice` | 60.0 | $117.00 | Tier 1, plus both anchors vouch for her and for the drill's owner. |
-| `anchor1` | 100.0 | **$27.00** | Orb-verified anchor. Hits the 15% floor, and still is not free. |
+The catalogue is everyday household things — $30 to $120 — so the bottom rung of the ladder still
+reaches something. A ladder whose first rung reaches nothing is a wall, and teaches a new user that
+their standing is worthless rather than merely small.
 
-That first row is the whole thesis arriving inside somebody else's app: a collusion ring is not
-*blocked* by Fiar, it is simply not *cheaper*, and no code in Fiar had to know what a collusion ring
-is.
+| Holder | Score | Deposit on a $45 drill | Reaches | Why |
+|---|---|---|---|---|
+| `ring1.eth` | 20.0 | **$45.00** — full price | 2 of 6 | Six accounts vouching for each other in a ring. Every edge contributes zero, so the ring pays exactly what a stranger pays. |
+| `carol` | 50.0 | $32.06 | 2 of 6 | Tier 0 still, but 30 points above the floor — and directly vouched by the drill's owner, which is the extra 10% off. |
+| `alice` | 60.0 | $29.25 | 5 of 6 | Tier 1, and both anchors vouch for her *and* for the owner. |
+| `anchor1` | 100.0 | **$6.75** | 6 of 6 | Orb-verified anchor. Hits the 15% floor, and still is not free. |
+
+Note the ring is not *blocked*. It is simply not *cheaper* — and no code in Fiar had to know what a
+collusion ring is.
+
+That first row is the whole thesis arriving inside somebody else's app.
 
 ## Reading is open. Borrowing is not.
 

@@ -17,7 +17,7 @@ const verify = (body, cookie) =>
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     body: JSON.stringify(body),
   });
-const borrow = (cookie, body = { item: "drill" }) =>
+const borrow = (cookie, body = { item: "camera" }) =>
   fetch(`${BASE}/api/borrow`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
@@ -93,7 +93,7 @@ let usedToken = null;
   check(
     "signed-in borrow reprices server-side under the SESSION address",
     r.status === 403 && b.code === "over_ceiling",
-    `${r.status} ${b.code} — this EOA has no VouchMe standing, so ceiling $${b.quote?.ceilingUsd} < $180 drill`,
+    `${r.status} ${b.code} — this EOA has no VouchMe standing, so ceiling $${b.quote?.ceilingUsd} < $120 camera`,
   );
 }
 
@@ -101,7 +101,7 @@ let usedToken = null;
 {
   const r = await borrow(cookie, { item: "table" });
   const b = await r.json();
-  const ok = r.status === 200 && typeof b.authorization === "string" && b.quote.depositUsd === 140;
+  const ok = r.status === 200 && typeof b.authorization === "string" && b.quote.depositUsd === 30;
   check("an item within the ceiling authorizes and returns a sealed price", ok, `${r.status} deposit $${b.quote?.depositUsd} auth=${String(b.authorization).slice(0, 24)}…`);
 }
 
@@ -128,7 +128,7 @@ let openedReference = null;
   const p = b.payment ?? {};
   check(
     "borrow opens a payment for a fixed WLD settlement, separate from the deposit",
-    r.status === 200 && p.amountWld === 0.01 && p.isDemoAmount === true && b.quote.depositUsd === 140,
+    r.status === 200 && p.amountWld === 0.01 && p.isDemoAmount === true && b.quote.depositUsd === 30,
     `settle ${p.amountWld} WLD, quoted deposit $${b.quote?.depositUsd}, to ${p.to}`,
   );
   check("the payment reference is server-minted and alphanumeric", /^[a-z0-9]{32}$/.test(openedReference ?? ""), String(openedReference));
