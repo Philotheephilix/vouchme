@@ -11,7 +11,7 @@
  *   about ANY address and it answers 404, so no signed-in wallet can ever qualify against it and
  *   the entire allow-branch of the gate would go untested. So this half stands up a stub VouchMe
  *   that answers for the test wallet's own address, runs a second Lend against it, and checks the
- *   gate from the other side — that an Orb anchor clears Prime, that a tier-2 member does NOT, and
+ *   gate from the other side — that a high-scoring member clears Prime, that an Orb anchor does NOT, and
  *   that an allowed claim with no treasury key configured fails closed naming the variable rather
  *   than reporting a payout that never happened.
  *
@@ -132,13 +132,13 @@ let usedToken = null;
 }
 
 {
-  // The body names an Orb anchor's address and an anchor-only pool. The recipient is the session
+  // The body names an Orb anchor's address and the top pool. The recipient is the session
   // address, always, so this changes nothing.
   const r = await claim(BASE, cookie, { pool: "prime", address: "0x86e38ef286e38ef286e38ef286e38ef286e38ef2" });
   const b = await r.json();
   check(
     "an address in the request body does not override the session",
-    r.status === 403 && b.code === "not_qualified" && b.required === "Orb anchor",
+    r.status === 403 && b.code === "not_qualified" && b.required === "Score 105+",
     `${r.status} ${b.code} — ${b.error}`,
   );
 }
@@ -244,9 +244,9 @@ try {
     const r = await claim(SECOND, cookie2, { pool: "prime" });
     const b = await r.json();
     check(
-      "a tier-2 MEMBER is still refused Prime — that pool wants an Orb anchor",
-      r.status === 403 && b.required === "Orb anchor",
-      `${r.status} — ${b.error}`,
+      "a member scoring 150 PASSES the Prime gate, then fails closed on the missing treasury key",
+      r.status === 503 && b.code === "not_configured" && b.error.includes("LEND_TREASURY_PRIVATE_KEY"),
+      `${r.status} ${b.code} — ${b.error}`,
     );
   }
 
@@ -254,9 +254,13 @@ try {
   {
     const r = await claim(SECOND, cookie2, { pool: "prime" });
     const b = await r.json();
+    // The inversion that matters. An anchor holds the strongest credential in the system and clears
+    // both tier pools, but its score is administratively fixed at 100 and ignores every inbound
+    // vouch — so it can never reach a floor of 105, however long it holds that credential. Prime
+    // asks for trust that was earned, not granted.
     check(
-      "an Orb anchor PASSES the Prime gate, then fails closed on the missing treasury key",
-      r.status === 503 && b.code === "not_configured" && b.error.includes("LEND_TREASURY_PRIVATE_KEY"),
+      "an Orb anchor is REFUSED Prime — a fixed score of 100 can never reach the 105 floor",
+      r.status === 403 && b.code === "not_qualified" && b.required === "Score 105+",
       `${r.status} ${b.code} — ${b.error}`,
     );
   }

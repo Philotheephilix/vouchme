@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { ClaimButton } from "@/components/ClaimButton";
 import { PreviewBar } from "@/components/PreviewBar";
 import { SignIn, SignOut } from "@/components/SignIn";
@@ -91,6 +92,14 @@ export default async function LendPage({
           );
         })}
       </ul>
+
+      {/* Deliberately below the pools and deliberately quiet. Reporting spends Lend's own bond and
+          costs someone else their standing; it is not a call to action. */}
+      <nav className="nav" style={{ marginTop: "1.5rem" }}>
+        <Link className="btn btn-quiet" href="/report">
+          Report someone →
+        </Link>
+      </nav>
 
       <footer className="foot">
         <span>
