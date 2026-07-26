@@ -165,7 +165,7 @@ export function PitchSlides(): ReactNode {
           rows={[
             ["Starting score", "20", "Where a verified human begins. Nothing can push them below it."],
             ["Tier 1", "55", "You can now vouch for others — three at a time."],
-            ["Tier 2", "140", "Ten at a time. Not worth more each — the cap binds for everyone above 80."],
+            ["Tier 2", "140", "Ten at a time, and your vouches carry further."],
             ["Orb-verified", "100", "Fixed. These people are the starting point, not players."],
             ["A vouch is worth", "25%", "Of the voucher's own score. Strong voucher, stronger vouch."],
             ["Most one vouch can give", "20", "One friend can never carry a person on their own."],
@@ -277,7 +277,7 @@ export function PitchSlides(): ReactNode {
                 Prove you are Tier 1 without saying who you are.
               </Point>
               <Point label="Vouching in person">
-                Two phones tap. One new vouch per person per day, so ten slots take ten days to spend.
+                Two phones tap. One verified person can start ten others in ten minutes.
               </Point>
             </Points>
           </Panel>

@@ -55,7 +55,7 @@ const RAIL = [
 const CASCADE = [
   { name: "anchor1", score: "100", worth: "20.0", capped: true, tone: "var(--color-tier-2)" },
   { name: "alice", score: "60", worth: "15.0", capped: false, tone: "var(--color-tier-1)" },
-  { name: "new Tier 1", score: "55", worth: "13.75", capped: false, tone: "var(--color-tier-1)" },
+  { name: "carol", score: "50", worth: "12.5", capped: false, tone: "var(--color-tier-0)" },
 ];
 
 /** The SDK snippet from `example/README.md`, as tokens rather than a template literal — a literal's
@@ -162,7 +162,7 @@ export default function LandingPage() {
                 </a>
               </div>
               <p className={styles.heroFoot} style={{ "--i": 4 } as CSSProperties}>
-                Nothing is stored. Nothing can be bought. Every number here is a protocol constant or a measured result.
+                Nothing is stored. Nothing can be bought. Every number here is a protocol constant.
               </p>
             </div>
 

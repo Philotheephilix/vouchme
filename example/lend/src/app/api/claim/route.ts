@@ -1,7 +1,5 @@
 import { cookies } from "next/headers";
 import { getClaim, recordHash, release, reserve } from "@/lib/claims";
-import { attestationSatisfies, identityLabel } from "@/lib/identity";
-import { getAttestation } from "@/lib/identityStore";
 import { findPool, qualifies, requirementLabel } from "@/lib/pools";
 import { readVerifiedAddress } from "@/lib/session";
 import { isPreBroadcast, sendWld } from "@/lib/treasury";
@@ -23,18 +21,12 @@ export const dynamic = "force-dynamic";
  *   2. pool               — is this a thing we offer
  *   3. already claimed?   — cheap refusal before any network call
  *   4. standing           — read live, under the session address, from VouchMe
- *   5. standing gate      — the server decides; whatever the page rendered is irrelevant
- *   5b. identity gate     — separately, and on the server's own stored conclusion
+ *   5. gate               — the server decides; whatever the page rendered is irrelevant
  *   6. reserve            — take the slot, synchronously, immediately before sending
  *   7. send               — and record the hash before anyone waits for a receipt
  *
- * Step 6 sits after the gates and not before, so a refused claim does not burn the caller's one
+ * Step 6 sits after step 5 and not before, so a refused claim does not burn the caller's one
  * lifetime attempt at a pool they may qualify for tomorrow.
- *
- * 5 and 5b are two gates, not one, and they are never combined into a single boolean. Standing says
- * how much we trust this person; identity says whether we may lawfully serve them. Both must pass,
- * neither substitutes for the other, and the refusal names which one closed — because "earn Tier 2"
- * and "verify your age" are different instructions and a person told the wrong one is stuck.
  */
 export async function POST(req: Request): Promise<Response> {
   // 1. Who is signed in.
@@ -91,28 +83,6 @@ export async function POST(req: Request): Promise<Response> {
         error: `${pool.name} requires ${requirementLabel(pool.requirement)}.`,
         required: requirementLabel(pool.requirement),
         tier: standing?.tier ?? 0,
-      },
-      { status: 403 },
-    );
-  }
-
-  // 5b. The identity gate. Read from Lend's OWN store, written only by `/api/identity` after World
-  //     confirmed the attestation to this server. Nothing in this request can influence it: there is
-  //     no attestation field in the claim body to forge, and if the client sent one it would be
-  //     ignored, because this line does not look at `body`.
-  //
-  //     Fails closed on absence. No attestation, an expired one, or one that proved less than this
-  //     pool asks for, all land here.
-  const attestation = getAttestation(address);
-  if (!attestationSatisfies(pool.identity, attestation)) {
-    return Response.json(
-      {
-        code: "identity_required",
-        error: attestation
-          ? `${pool.name} needs an identity check covering ${identityLabel(pool.identity)}. Yours does not.`
-          : `${pool.name} requires an identity check (${identityLabel(pool.identity)}).`,
-        required: identityLabel(pool.identity),
-        attested: Boolean(attestation),
       },
       { status: 403 },
     );
