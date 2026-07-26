@@ -3,9 +3,9 @@
 // `Tokens` and `tokenToDecimals` are only on the /commands subpath — the package root exports
 // MiniKit and the provider and nothing else.
 import { Tokens, tokenToDecimals } from "@worldcoin/minikit-js/commands";
-import { activeMiniKit, ensureMiniKit, inWorldAppNow } from "@/lib/minikit";
+import { activeMiniKit, Command, commandAvailability, ensureMiniKit, inWorldAppNow } from "@/lib/minikit";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Connect, then borrow.
@@ -39,24 +39,35 @@ export function BorrowButton({
   const [error, setError] = useState<string | null>(null);
   const [paid, setPaid] = useState<Paid | null>(null);
 
+  // Install as early as possible. The handshake takes a moment, and doing it on mount means the
+  // command is usually already available by the time somebody taps.
+  useEffect(() => {
+    if (inWorldAppNow()) void ensureMiniKit();
+  }, []);
+
   const button =
     "mt-4 w-full border-2 border-stamp bg-stamp px-4 py-2.5 font-typed text-sm font-bold uppercase " +
     "tracking-[0.18em] text-card disabled:cursor-not-allowed disabled:opacity-60";
+
+  /** Install, then check. Returns an error string, or null when the command can be issued. */
+  async function readyFor(command: Command): Promise<string | null> {
+    if (!inWorldAppNow()) {
+      return "Open Fiar inside World App. The preview control is not a sign-in.";
+    }
+    const install = await ensureMiniKit();
+    if (!install.ok) return `World App did not finish connecting: ${install.detail}`;
+    const availability = commandAvailability(command);
+    return availability.available ? null : `Cannot continue: ${availability.reason}.`;
+  }
 
   async function connect() {
     setBusy(true);
     setError(null);
     try {
-      if (!inWorldAppNow()) {
-        setError("Open Fiar inside World App to connect a wallet. The preview control is not a sign-in.");
-        return;
-      }
-      // Without this, walletAuth reports "World App version does not support this command" — the
-      // handshake that tells MiniKit which commands exist never happened.
       setStep("Connecting to World App…");
-      const install = await ensureMiniKit();
-      if (!install.ok) {
-        setError(`World App did not finish connecting: ${install.detail}`);
+      const notReady = await readyFor(Command.WalletAuth);
+      if (notReady) {
+        setError(notReady);
         return;
       }
 
@@ -128,7 +139,16 @@ export function BorrowButton({
 
       // 2. World App moves the WLD. `reference` came from the server; a client-chosen one would
       //    let a client confirm a payment it invented.
+      //
+      //    The install check is repeated here and not just in connect(): signing in reloads the
+      //    page, which resets the module-level installed flag, so pay() would otherwise be the
+      //    first command issued against an uninstalled MiniKit and fail as "unsupported".
       setStep("Waiting for World App…");
+      const payNotReady = await readyFor(Command.Pay);
+      if (payNotReady) {
+        setError(payNotReady);
+        return;
+      }
       const payment = data.payment;
       const result = await activeMiniKit().pay({
         reference: payment.reference,

@@ -1,6 +1,9 @@
 "use client";
 
 import { MiniKit } from "@worldcoin/minikit-js";
+import { Command, isCommandAvailable } from "@worldcoin/minikit-js/commands";
+
+export { Command };
 
 /**
  * Getting MiniKit actually installed, which is not the one-liner it looks like.
@@ -41,6 +44,23 @@ export function activeMiniKit(): typeof MiniKit {
 
 export function getAppId(): string {
   return process.env.NEXT_PUBLIC_APP_ID ?? "";
+}
+
+/**
+ * Tells "MiniKit was never installed" apart from "this World App genuinely lacks the command".
+ *
+ * Both surface as the identical string — `pay is unavailable: World App version does not support
+ * this command` — and they need opposite responses: one is our bug, the other is the user's app
+ * being out of date. minikit-js decides availability from the host's declared support map, which
+ * only exists after `install()` completes the handshake, so before install every command reports
+ * unsupported and the message blames the version.
+ */
+export function commandAvailability(command: Command): { available: boolean; reason: string } {
+  if (!inWorldAppNow()) return { available: false, reason: "not running inside World App" };
+  if (!activeMiniKit().isInstalled()) return { available: false, reason: "MiniKit is not installed yet" };
+  return isCommandAvailable(command)
+    ? { available: true, reason: "available" }
+    : { available: false, reason: `this World App build does not support ${command}` };
 }
 
 let installed = false;
