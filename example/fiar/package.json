@@ -5,8 +5,8 @@
   "description": "Borrow things from neighbours without a deposit. A third-party World App mini app that prices rentals from VouchMe standing.",
   "scripts": {
     "dev": "next dev --port 3100",
-    "build": "next build",
-    "start": "next start --port 3100",
+    "build": "NEXT_DIST_DIR=.next-build next build",
+    "start": "NEXT_DIST_DIR=.next-build next start --port 3100",
     "typecheck": "tsc --noEmit",
     "test:auth": "node test/auth.mjs"
   },
