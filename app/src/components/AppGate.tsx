@@ -124,7 +124,16 @@ export function AppGate({ children }: { children: ReactNode }) {
     };
   }, [address, attempt]);
 
+  // `PUBLIC_ROUTES` has to be honoured HERE as well as in the render below, and forgetting it here
+  // is why /pitch used to bounce to /enroll a moment after it appeared. The early return for public
+  // routes cannot prevent this: it sits below every hook (deliberately, for stable hook order), so
+  // this effect still runs on /pitch and still fired the redirect. The deck rendered, `status`
+  // resolved to "not-enrolled" a beat later, and the reader was yanked to onboarding mid-slide.
+  //
+  // Slides are hash fragments, so `pathname` stays "/pitch" throughout — the bounce landed once,
+  // wherever in the deck the reader happened to be.
   useEffect(() => {
+    if (PUBLIC_ROUTES.has(pathname)) return;
     if (address && status === "not-enrolled" && pathname !== "/enroll") {
       router.replace("/enroll");
     }
