@@ -51,6 +51,8 @@ target/
 !.env.example
 *.pem
 *.key
+# MCP server configs carry Authorization headers in plaintext.
+.mcp.json
 
 # ─── logs and os ─────────────────────────────────────────────────────────────
 *.log
