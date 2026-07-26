@@ -11,9 +11,14 @@
  *   about ANY address and it answers 404, so no signed-in wallet can ever qualify against it and
  *   the entire allow-branch of the gate would go untested. So this half stands up a stub VouchMe
  *   that answers for the test wallet's own address, runs a second Lend against it, and checks the
- *   gate from the other side — that a high-scoring member clears Prime, that an Orb anchor does NOT, and
- *   that an allowed claim with no treasury key configured fails closed naming the variable rather
- *   than reporting a payout that never happened.
+ *   gate from the other side — that a high-scoring member clears Prime, and that an Orb anchor
+ *   does NOT.
+ *
+ * This file covers the STANDING gate only. Since the identity gate landed, clearing standing no
+ * longer reaches the treasury: a claim that passes here stops at `identity_required`, which is
+ * asserted below because it is the proof that the second gate exists and is independent. The
+ * identity half — including the case where both gates pass and the claim then fails closed on the
+ * missing treasury key — lives in `test/identity.mjs`.
  *
  * No real transaction is sent. Every run ends with an unfunded treasury on purpose.
  */
@@ -230,11 +235,14 @@ try {
     check("tier 1 does not reach Standard", r.status === 403 && b.required === "Tier 2", `${r.status} — ${b.error}`);
   }
   {
+    // Passing the STANDING gate is no longer enough to reach the treasury, and the refusal proves
+    // it: the message names the identity requirement, not the tier. Two orthogonal gates, and this
+    // account has cleared exactly one. The identity half is exercised in test/identity.mjs.
     const r = await claim(SECOND, cookie2, { pool: "starter" });
     const b = await r.json();
     check(
-      "tier 1 PASSES the Starter gate, then fails closed on the missing treasury key",
-      r.status === 503 && b.code === "not_configured" && b.error.includes("LEND_TREASURY_PRIVATE_KEY"),
+      "tier 1 PASSES the Starter standing gate, and is then stopped by the IDENTITY gate",
+      r.status === 403 && b.code === "identity_required" && b.attested === false,
       `${r.status} ${b.code} — ${b.error}`,
     );
   }
@@ -244,8 +252,8 @@ try {
     const r = await claim(SECOND, cookie2, { pool: "prime" });
     const b = await r.json();
     check(
-      "a member scoring 150 PASSES the Prime gate, then fails closed on the missing treasury key",
-      r.status === 503 && b.code === "not_configured" && b.error.includes("LEND_TREASURY_PRIVATE_KEY"),
+      "a member scoring 150 PASSES the Prime standing gate, and is then stopped by the IDENTITY gate",
+      r.status === 403 && b.code === "identity_required" && b.required === "18+, licensed country",
       `${r.status} ${b.code} — ${b.error}`,
     );
   }

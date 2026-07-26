@@ -308,6 +308,13 @@ function initScene(
     renderer.setSize(w, height);
     camera.aspect = w / height;
     camera.updateProjectionMatrix();
+    // Repaint immediately. `setSize` assigns canvas.width/height unconditionally, and any write to
+    // those resets the WebGL drawing buffer to transparent. The animated path repaints next frame
+    // and never notices — but under `prefers-reduced-motion` there is no next frame, only the one
+    // render below, and ResizeObserver ALWAYS delivers an initial observation right after
+    // `observe()`. So the single render was being wiped a tick later and the hero sat blank for
+    // exactly the users who asked for less motion, which is a bad group to show nothing to.
+    renderer.render(scene, camera);
   };
   const ro = new ResizeObserver(resize);
   ro.observe(container);

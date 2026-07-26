@@ -179,12 +179,18 @@ body {
 }
 
 .pool {
+  padding: 0.9rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+/* The name/amount/action line. Split out from `.pool` when the identity check arrived: the check
+   renders a consent panel BELOW this row, and a panel inside a flex row gets squeezed into a
+   column beside the amount. */
+.pool-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.875rem;
-  padding: 0.9rem 1.25rem;
-  border-top: 1px solid var(--line);
 }
 
 .pool:first-child {
@@ -205,6 +211,73 @@ body {
   margin-top: 0.1rem;
   font-size: 0.8125rem;
   color: var(--muted);
+}
+
+/* Both requirements, always visible, in the quietest type on the card. Someone who cannot meet the
+   age or jurisdiction rule should be able to read that off the list rather than discover it partway
+   through a document check. */
+.pool-meta {
+  margin-top: 0.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--locked);
+}
+
+/* ── identity check ────────────────────────────────────────────────────────── */
+
+.identity-panel {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.identity-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+/* What IS shared. Listed one per line rather than run together in a sentence, because a person
+   consenting needs to be able to count the claims. */
+.identity-shares {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.identity-shares .shares {
+  font-size: 0.8125rem;
+  padding-left: 1.1rem;
+  position: relative;
+}
+
+.identity-shares .shares::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+/* What is NOT shared, and the document prerequisite. Quiet, but present — this is the half a user
+   cannot verify for themselves. */
+.identity-fine {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.identity-countries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 
 .chip {

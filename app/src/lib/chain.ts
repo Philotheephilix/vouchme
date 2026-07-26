@@ -200,6 +200,12 @@ interface ChainState {
   accumulatorInFlight: Promise<void> | null;
   latestBlock: { fetchedAt: number; block: bigint } | null;
   graph: { fetchedAt: number; promise: Promise<LiveGraph> } | null;
+  /** The log-scan semaphore. On `ChainState` for the same reason everything else here is: Next
+   *  compiles `instrumentation.ts` and the route handlers into separate webpack bundles, so a
+   *  module-level `let` becomes one counter per bundle and the real ceiling silently doubles to
+   *  `2 x LOG_SCAN_CONCURRENCY` — which is precisely the concurrency this semaphore exists to cap. */
+  scanInFlight: number;
+  scanQueue: Array<() => void>;
 }
 
 const CHAIN_STATE_KEY = Symbol.for("vouchme.chain.state");
@@ -211,6 +217,8 @@ const state: ChainState = ((): ChainState => {
     anchorSource: null,
     client: null,
     accumulator: null,
+    scanInFlight: 0,
+    scanQueue: [],
     accumulatorInFlight: null,
     latestBlock: null,
     graph: null,
@@ -405,14 +413,7 @@ async function guardedRpcFetch(input: string | URL | Request, init?: RequestInit
   if (!isBatchBody(init?.body)) return response;
 
   const text = await response.text();
-  if (text.trimStart().startsWith("[")) {
-    const headers = new Headers(response.headers);
-    headers.delete("content-encoding");
-    headers.delete("content-length");
-    return new Response(text, { status: response.status, statusText: response.statusText, headers });
-  }
 
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   let requestCount = 0;
   try {
     const parsed: unknown = JSON.parse(String(init?.body));
@@ -420,6 +421,32 @@ async function guardedRpcFetch(input: string | URL | Request, init?: RequestInit
   } catch {
     // The count is for the message only; a body we cannot re-parse still gets reported.
   }
+
+  // An array is necessary but NOT sufficient: the lengths have to match too.
+  //
+  // viem's batch scheduler resolves each caller with `data[i]`, so a 1-element array answering an
+  // 8-element batch leaves `data[1..7]` undefined and `const [{ error }] = ...` throws the exact
+  // same "Cannot read properties of undefined" this guard exists to prevent. Checking only for a
+  // leading `[` would wave that through. drpc already serves its over-limit error as an HTTP 500
+  // with a JSON *array* body, and RPC_BATCH_SIZE is env-tunable, so this is one config change away
+  // rather than hypothetical.
+  if (text.trimStart().startsWith("[")) {
+    let replyCount: number | null = null;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (Array.isArray(parsed)) replyCount = parsed.length;
+    } catch {
+      // Unparseable despite starting with `[` — fall through and report it as malformed.
+    }
+    if (replyCount !== null && (requestCount === 0 || replyCount === requestCount)) {
+      const headers = new Headers(response.headers);
+      headers.delete("content-encoding");
+      headers.delete("content-length");
+      return new Response(text, { status: response.status, statusText: response.statusText, headers });
+    }
+  }
+
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const err = new MalformedRpcResponseError(url, response.status, requestCount, text);
   console.warn(`[chain] ${err.message}`);
   throw err;
@@ -823,25 +850,22 @@ const LOG_CHUNK_BLOCKS = BigInt(100);
 // scan.
 const LOG_SCAN_CONCURRENCY = envInt("LOG_SCAN_CONCURRENCY", 4, 1, 64);
 
-let scanInFlight = 0;
-const scanQueue: Array<() => void> = [];
-
 /** Hands the slot straight to the next waiter rather than decrementing and letting a newcomer race
  *  in ahead of it, so the ceiling is exact and the queue stays FIFO. */
 function releaseScanSlot(): void {
-  const next = scanQueue.shift();
+  const next = state.scanQueue.shift();
   if (next) {
     next();
     return;
   }
-  scanInFlight--;
+  state.scanInFlight--;
 }
 
 async function withScanSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (scanInFlight >= LOG_SCAN_CONCURRENCY) {
-    await new Promise<void>((resolve) => scanQueue.push(resolve));
+  if (state.scanInFlight >= LOG_SCAN_CONCURRENCY) {
+    await new Promise<void>((resolve) => state.scanQueue.push(resolve));
   } else {
-    scanInFlight++;
+    state.scanInFlight++;
   }
   try {
     return await fn();
@@ -1586,8 +1610,18 @@ const GRAPH_CACHE_TTL_MS = 15_000;
 export async function getLiveGraph(): Promise<LiveGraph> {
   const nowMs = Date.now();
   if (state.graph && nowMs - state.graph.fetchedAt < GRAPH_CACHE_TTL_MS) return state.graph.promise;
-  const latest = await getLatestBlockCached();
-  const promise = fetchLiveGraph(latest);
+  // Claim the cache slot SYNCHRONOUSLY, before the first await.
+  //
+  // This used to `await getLatestBlockCached()` and only then assign `state.graph`, which left the
+  // slot unclaimed across an `eth_blockNumber` round trip: two callers arriving in that window both
+  // passed the check above and both ran a full graph scan. Not theoretical — `instrumentation.ts`
+  // fires this at boot and the first real request lands inside exactly that window, which is the
+  // scenario the warm-up exists to prevent. `ensureLogsThrough` dedupes the getLogs half, but the
+  // per-account multicall reads ran twice.
+  //
+  // Moving the await inside the promise means the slot is occupied the instant the second caller
+  // checks, so it awaits the first caller's work instead of duplicating it.
+  const promise = (async () => fetchLiveGraph(await getLatestBlockCached()))();
   state.graph = { fetchedAt: nowMs, promise };
   // Don't let a failed fetch poison the cache for subsequent calls.
   promise.catch(() => {

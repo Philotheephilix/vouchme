@@ -1,9 +1,12 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { ClaimButton } from "@/components/ClaimButton";
+import { IdentityCheck } from "@/components/IdentityCheck";
 import { PreviewBar } from "@/components/PreviewBar";
 import { SignIn, SignOut } from "@/components/SignIn";
 import { claimsFor } from "@/lib/claims";
+import { attestationSatisfies, identityLabel } from "@/lib/identity";
+import { getAttestation } from "@/lib/identityStore";
 import { POOLS, qualifies, requirementLabel } from "@/lib/pools";
 import { readVerifiedAddress } from "@/lib/session";
 import { readStanding } from "@/lib/vouchme";
@@ -34,6 +37,10 @@ export default async function LendPage({
   const { standing, unavailable } = await readStanding(subject);
   const claimed = claimsFor(address);
 
+  // The server's own conclusion, never a client's. Read here only to draw the right chip; the
+  // decision that matters is re-made inside `/api/claim`.
+  const attestation = getAttestation(address);
+
   const tierLabel = standing?.kind === "anchor" ? "Anchor" : `Tier ${standing?.tier ?? 0}`;
 
   return (
@@ -60,34 +67,54 @@ export default async function LendPage({
 
       <ul className="pools" aria-label="Pools">
         {POOLS.map((pool) => {
-          const open = qualifies(pool, standing);
+          // The two gates, evaluated and rendered separately all the way to the screen. A single
+          // "locked" boolean would tell a person they cannot borrow without telling them which of
+          // two entirely different things to go and fix.
+          const standingOk = qualifies(pool, standing);
+          const identityOk = attestationSatisfies(pool.identity, attestation);
+          const open = standingOk && identityOk;
           const record = claimed.get(pool.id);
           return (
             <li key={pool.id} className={`pool${open ? "" : " is-locked"}`}>
-              <div>
-                <div className="pool-name">{pool.name}</div>
-                <div className="pool-amount">{pool.amountWld} WLD</div>
-              </div>
-              {record ? (
-                record.txHash ? (
-                  <a
-                    className="sent"
-                    href={`https://worldscan.org/tx/${record.txHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Sent
-                  </a>
+              <div className="pool-row">
+                <div>
+                  <div className="pool-name">{pool.name}</div>
+                  <div className="pool-amount">{pool.amountWld} WLD</div>
+                  {/* Stated up front, before anyone taps anything. Someone who cannot pass the age
+                      or jurisdiction requirement should learn it from the list, not after starting
+                      a document check. */}
+                  <div className="pool-meta">
+                    {requirementLabel(pool.requirement)} · ID {identityLabel(pool.identity)}
+                  </div>
+                </div>
+                {record ? (
+                  record.txHash ? (
+                    <a
+                      className="sent"
+                      href={`https://worldscan.org/tx/${record.txHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Sent
+                    </a>
+                  ) : (
+                    <span className="chip">Sending</span>
+                  )
+                ) : !address ? (
+                  <span className="chip">Sign in</span>
+                ) : !standingOk ? (
+                  // Standing is shown first deliberately. Sending someone through a document check
+                  // they will pass, only to leave them locked on tier, is a wasted disclosure.
+                  <span className="chip">{requirementLabel(pool.requirement)}</span>
+                ) : !identityOk ? (
+                  <span className="chip">ID check</span>
                 ) : (
-                  <span className="chip">Sending</span>
-                )
-              ) : !open ? (
-                <span className="chip">{requirementLabel(pool.requirement)}</span>
-              ) : address ? (
-                <ClaimButton pool={pool.id} />
-              ) : (
-                <span className="chip">Sign in</span>
-              )}
+                  <ClaimButton pool={pool.id} />
+                )}
+              </div>
+              {!record && address && standingOk && !identityOk ? (
+                <IdentityCheck pool={pool.id} needsJurisdiction={pool.identity.jurisdiction === "served"} />
+              ) : null}
             </li>
           );
         })}

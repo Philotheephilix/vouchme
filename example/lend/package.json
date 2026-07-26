@@ -8,10 +8,13 @@
     "build": "NEXT_DIST_DIR=.next-build next build",
     "start": "NEXT_DIST_DIR=.next-build next start --port 3200",
     "typecheck": "tsc --noEmit",
-    "test:claim": "node test/claim.mjs"
+    "test:claim": "node test/claim.mjs",
+    "test:identity": "node test/identity.mjs",
+    "test:probe": "node test/probe-idkit.mjs"
   },
   "dependencies": {
     "@vouchme/minikit-sdk": "file:../vouchme-sdk",
+    "@worldcoin/idkit-core": "^4.2.2",
     "@worldcoin/minikit-js": "^2.0.3",
     "next": "^15.1.6",
     "react": "^19.0.0",

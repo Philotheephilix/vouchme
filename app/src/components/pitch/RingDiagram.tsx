@@ -97,7 +97,7 @@ export function RingDiagram() {
     <div className="mt-6 grid gap-6 sm:grid-cols-2">
       <Panel
         title="A ring that vouches for itself"
-        caption="Six accounts, thirty edges, no anchor. Every voucher sits at the same depth as its target, so every contribution is zero. Not a detector firing — the sum simply has no terms in it, and there is nothing to tune or evade."
+        caption="Six accounts, six vouches, no anchor. Every voucher sits at the same depth as its target, so every contribution is zero — and wiring all thirty possible edges instead of six changes nothing. Not a detector firing: the sum simply has no terms in it, so there is nothing to tune or evade."
       >
         <svg
           viewBox="0 0 220 196"

@@ -56,9 +56,10 @@
     ".next-swap/types/**/*.ts",
     ".next-vercelcheck/types/**/*.ts",
     ".next-verify/types/**/*.ts",
+    ".next-vm1/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-vm1/types/**/*.ts"
+    ".next-build/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

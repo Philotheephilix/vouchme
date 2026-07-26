@@ -168,11 +168,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (process.env.NEXT_PUBLIC_PREVIEW === "1") return;
     let cancelled = false;
     (async () => {
-      try {
-        await ensureMiniKit(getAppId());
-      } catch {
-        // Config error (missing NEXT_PUBLIC_APP_ID) surfaces on an explicit connect() attempt.
-      }
+      // Install and session-read are INDEPENDENT, so they run together rather than in sequence.
+      //
+      // Awaiting the install first cost every browser visitor a five-second blank screen on the
+      // front door: `ensureMiniKit` polls `MiniKit.install()` every 150ms until its 5s deadline,
+      // and outside World App `window.WorldApp` never appears, so it always runs the full
+      // deadline. `AppGate` holds an unactionable "Loading" spinner for exactly as long as
+      // `restoring` is true, so the first thing a new visitor saw was five seconds of nothing —
+      // where before they saw the sign-in screen immediately.
+      //
+      // The session read never needed the install: it is an HTTP call to our own server against an
+      // httpOnly cookie. Running them concurrently means the slow one no longer gates the fast one,
+      // and `inWorldAppNow()` is still read after both settle, so nothing observes a half-installed
+      // MiniKit.
+      const [, verified] = await Promise.all([
+        ensureMiniKit(getAppId()).catch(() => {
+          // Config error (missing NEXT_PUBLIC_APP_ID) surfaces on an explicit connect() attempt.
+        }),
+        fetchVerifiedSession(),
+      ]);
       if (cancelled) return;
       // Ground truth from the host, not from module state — see `inWorldAppNow`.
       const inWorldApp = inWorldAppNow();
@@ -182,7 +196,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // `vouchme_addr` cookie are client-side facts that say nothing about whether a verified
       // `vouchme_session` exists — claiming a session the server won't honour is worse than showing a
       // Sign in button, because the Sign in button is the thing that fixes it.
-      const verified = await fetchVerifiedSession();
       if (cancelled) return;
       if (verified) {
         setState((s) => ({ ...s, address: verified, via: inWorldApp ? "minikit" : "injected", isInWorldApp: inWorldApp, restoring: false }));
