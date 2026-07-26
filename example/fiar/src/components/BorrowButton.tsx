@@ -1,9 +1,9 @@
 "use client";
 
-import { MiniKit } from "@worldcoin/minikit-js";
 // `Tokens` and `tokenToDecimals` are only on the /commands subpath — the package root exports
 // MiniKit and the provider and nothing else.
 import { Tokens, tokenToDecimals } from "@worldcoin/minikit-js/commands";
+import { activeMiniKit, ensureMiniKit, inWorldAppNow } from "@/lib/minikit";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -17,11 +17,6 @@ import { useState } from "react";
  * The price rendered beside this button is a suggestion. `/api/borrow` recomputes it under the
  * session address, and if standing moved in between it says so instead of charging the new number.
  */
-
-function inWorldApp(): boolean {
-  if (typeof window === "undefined") return false;
-  return "WorldApp" in window || MiniKit.isInstalled();
-}
 
 interface Paid {
   depositUsd: number;
@@ -53,10 +48,19 @@ export function BorrowButton({
     setBusy(true);
     setError(null);
     try {
-      if (!inWorldApp()) {
+      if (!inWorldAppNow()) {
         setError("Open Fiar inside World App to connect a wallet. The preview control is not a sign-in.");
         return;
       }
+      // Without this, walletAuth reports "World App version does not support this command" — the
+      // handshake that tells MiniKit which commands exist never happened.
+      setStep("Connecting to World App…");
+      const install = await ensureMiniKit();
+      if (!install.ok) {
+        setError(`World App did not finish connecting: ${install.detail}`);
+        return;
+      }
+
       // A SERVER-issued nonce. A locally generated one proves nothing — the server would be
       // checking a challenge the client chose.
       const nonceRes = await fetch("/api/auth/nonce", { method: "POST" });
@@ -66,7 +70,7 @@ export function BorrowButton({
         return;
       }
 
-      const result = await MiniKit.walletAuth({
+      const result = await activeMiniKit().walletAuth({
         nonce: nonce.nonce,
         statement: "Prove this wallet is yours so Fiar can hold your deposit.",
       });
@@ -99,6 +103,7 @@ export function BorrowButton({
       setError(err instanceof Error ? err.message : "Sign-in failed.");
     } finally {
       setBusy(false);
+      setStep(null);
     }
   }
 
@@ -122,11 +127,11 @@ export function BorrowButton({
         return;
       }
 
-      // 2. World App moves the USDC. `reference` came from the server; a client-chosen one would
+      // 2. World App moves the WLD. `reference` came from the server; a client-chosen one would
       //    let a client confirm a payment it invented.
       setStep("Waiting for World App…");
       const payment = data.payment;
-      const result = await MiniKit.pay({
+      const result = await activeMiniKit().pay({
         reference: payment.reference,
         to: payment.to,
         tokens: [{ symbol: Tokens.WLD, token_amount: tokenToDecimals(payment.amountWld, Tokens.WLD).toString() }],
