@@ -24,6 +24,34 @@ const borrow = (cookie, body = { item: "camera" }) =>
     body: JSON.stringify(body),
   });
 
+// ── 0. warm up ───────────────────────────────────────────────────────────────
+// Against a dev server the FIRST request to each route pays for compiling it, and the same is
+// true of the VouchMe server behind it. Cold, that comfortably outruns the client timeout and
+// every priced assertion fails as `vouchme_unavailable` — a red suite that says nothing about the
+// code. Production runs `next start` from a build and has no such cost, so warming here removes a
+// harness artifact rather than hiding a product defect.
+{
+  const warm = async (path, init) => {
+    try {
+      await fetch(`${BASE}${path}`, init);
+    } catch {
+      /* the point is to pay the compile cost, not to assert anything about it */
+    }
+  };
+  await warm("/");
+  await warm("/api/auth/nonce", { method: "POST" });
+  await warm("/api/borrow", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ item: "table" }),
+  });
+  await warm("/api/pay/confirm", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
 // ── 1. borrow is closed by default ───────────────────────────────────────────
 {
   const r = await borrow(null);

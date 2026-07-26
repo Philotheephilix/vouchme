@@ -184,7 +184,28 @@ export function createVouchMe(options: VouchMeClientOptions): VouchMeClient {
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  /**
+   * One retry, and only for a transport failure — a timeout or an unreachable host.
+   *
+   * Never retried: any HTTP status. A 404 or a 500 is an ANSWER, and repeating the question does
+   * not change it. Only the cases where no answer arrived are worth asking twice.
+   *
+   * This exists because failing closed here is not free. A transient timeout makes `standing()`
+   * throw, the caller prices the user as if they had no reputation, and the person silently pays
+   * the full amount for a read that merely arrived late. Observed in practice: the suite flaked at
+   * roughly one run in three against a dev server whose route compile outran the 4s default.
+   */
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
+    try {
+      return await attempt<T>(path, init);
+    } catch (err) {
+      const transport = err instanceof VouchMeError && (err.code === "timeout" || err.code === "unreachable");
+      if (!transport) throw err;
+      return await attempt<T>(path, init);
+    }
+  }
+
+  async function attempt<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;

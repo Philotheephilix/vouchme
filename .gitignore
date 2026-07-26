@@ -73,3 +73,13 @@ substreams/**/target/
 # Alternate Next.js build outputs (NEXT_DIST_DIR) used to build without disturbing a
 # running server — same artefacts as .next, same reason to never commit them.
 .next-*
+
+# Vercel CLI link state — contains the project/org id, not a secret, but it is
+# machine-local and the project is already Git-linked in the dashboard.
+.vercel
+.env*
+# Re-assert the exception. This `.env*` is broader than the `.env` / `.env.*` pair above and, being
+# later in the file, it overrode their `!.env.example` negation — silently ignoring every
+# .env.example that was not already tracked. Files already in the index kept working, which is what
+# made it invisible: only NEW example files disappeared.
+!.env.example
