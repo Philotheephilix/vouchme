@@ -7,9 +7,9 @@
  * is that session, and the only cookie any server page trusts for authorization.
  *
  * `vouchme_addr` is written (mirrored) alongside it, plain and client-writable, because
- * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load. It is
- * display-only: nothing that grants access to another member's data in Home, Reports or Profile
- * trusts it.
+ * src/lib/session.tsx reads it client-side to restore UI state without a round trip on load, and
+ * because src/app/agents/page.tsx still reads it directly. It is display/back-compat only: nothing
+ * that grants access to another member's data in Home, Reports or Profile trusts it.
  *
  * Nonce pattern deliberately mirrors src/app/api/enroll/rp-context/route.ts: a nonce + issuedAt +
  * expiresAt signed server-side with the same secret this deployment already provisions
@@ -53,6 +53,17 @@ function getVerificationClient(): PublicClient {
 }
 
 export class AuthConfigError extends Error {}
+
+// Refuse to boot a production server that was handed the preview bypass. The guard inside
+// `readVerifiedAddress` already makes the flag inert here, but silently ignoring it is the wrong
+// failure: whoever set it believes authentication is off and would not find out until someone
+// audited the running process. Crashing at import names the mistake at the moment it is made.
+if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_PREVIEW === "1") {
+  throw new AuthConfigError(
+    "NEXT_PUBLIC_PREVIEW=1 is set on a production build. That flag disables the sign-in gate and " +
+      "is for local browser preview only. Unset it, or run a development build.",
+  );
+}
 
 export const SESSION_COOKIE = "vouchme_session";
 export const LEGACY_ADDR_COOKIE = "vouchme_addr";
@@ -219,7 +230,35 @@ export interface CookieReader {
  *  null for missing, forged, tampered, expired or malformed sessions — callers then behave exactly
  *  as if signed out. */
 export function readVerifiedAddress(cookieStore: CookieReader): Address | null {
-  return verifySessionValue(cookieStore.get(SESSION_COOKIE)?.value);
+  const verified = verifySessionValue(cookieStore.get(SESSION_COOKIE)?.value);
+  if (verified) return verified;
+  // Local browser-preview bypass: with no real session, hand server pages a demo identity so the
+  // redesigned UI renders in a plain browser with no World App.
+  //
+  // GUARDED ON NODE_ENV, and that guard is load-bearing. Two claims that were made for this bypass
+  // are both false, and each made it look safer than it was:
+  //
+  //  1. "Never active in a normal build — the flag lives only in .env.local." On the SERVER this
+  //     compiles to a live `process.env` read, not a build-time constant. Verified by building
+  //     with the flag unset and then starting that same build with it set: an anonymous request
+  //     with no cookie was served the full signed-in dashboard, and `/profile/<anyone>` returned
+  //     another member's handle, score, vouchers and reports. No rebuild required to arm it, so a
+  //     stray env var on the deploy silently removes authentication for every server page.
+  //  2. "Fixture mode ignores this value for data." This deployment runs LIVE mode, where
+  //     `loadVouchMeData(viewingAddress)` resolves the address against the real chain, so the
+  //     bypass returns a real identity's real data rather than a harmless demo one.
+  //
+  // `NODE_ENV` is set to "production" by `next build`/`next start` and cannot be overridden from
+  // the environment the way a NEXT_PUBLIC_ var can, so this is the one condition a misconfigured
+  // deploy cannot flip.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.NEXT_PUBLIC_PREVIEW === "1" &&
+    process.env.NEXT_PUBLIC_PREVIEW_ADDRESS
+  ) {
+    return process.env.NEXT_PUBLIC_PREVIEW_ADDRESS as Address;
+  }
+  return null;
 }
 
 export interface CookieWriter {

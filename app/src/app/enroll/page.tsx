@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { encodeFunctionData, type Hex } from "viem";
 import { IDKitRequestWidget, selfieCheckLegacy, type IDKitResult } from "@worldcoin/idkit";
 import { MiniKit } from "@worldcoin/minikit-js";
 import { Header } from "@/components/Header";
-import { ScoreDial } from "@/components/ScoreDial";
+import { ScoreCard } from "@/components/ScoreCard";
+import { FaceCapture } from "@/components/FaceCapture";
+import { EnrollHandle, Minting, Success, VerifyWorldId } from "@/components/illustrations";
 import { ANCHOR_VOUCH_CONTRIBUTION, ENROLLMENT_BASE_SCORE, TIER_1_THRESHOLD_SCORE } from "@/lib/mock";
 import { activeMiniKit, inWorldAppNow, useAuth } from "@/lib/session";
 import { fetchRpContext, type RpContext } from "@/lib/worldid-client";
@@ -118,6 +120,13 @@ export default function EnrollPage() {
   const [txIsUserOp, setTxIsUserOp] = useState(false);
   const [mint, setMint] = useState<MintResponse | null>(null);
   const [mintError, setMintError] = useState<string | null>(null);
+  // The scanned face — captured here, stored device-local, and the sole source for the home hero's
+  // particle bust. There is no default face, so this capture is what makes the dashboard's face real.
+  const [faceCaptured, setFaceCaptured] = useState(false);
+  // The step's only forward action is the page-level CTA at the bottom of this screen, which sits
+  // below the fold on a phone. Capturing a face changes nothing the user can see without
+  // scrolling, so the capture brings the CTA to them.
+  const ctaRef = useRef<HTMLButtonElement | null>(null);
 
   const handleValid = HANDLE_RE.test(handle) && !handle.startsWith("-") && !handle.endsWith("-");
 
@@ -256,10 +265,10 @@ export default function EnrollPage() {
   if ("error" in config) {
     return (
       <div className="pb-8">
-        <Header eyebrow="ENROLL" />
-        <section className="px-4 pt-10">
-          <div className="border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
-            <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
+        <Header eyebrow="ENROLL" title="Enroll" />
+        <section className="px-4 pt-6">
+          <div className="rounded-[10px] border border-protest/40 p-4" style={{ backgroundColor: "var(--color-protest-subtle)" }}>
+            <p className="eyebrow text-protest">
               World ID not configured
             </p>
             <p className="mt-2 text-sm leading-relaxed text-cream">{config.error}</p>
@@ -272,17 +281,23 @@ export default function EnrollPage() {
   if (stage === "minting" || stage === "done") {
     return (
       <div className="pb-8">
-        <Header eyebrow="ENROLL" />
-        <section className="px-4 pt-10 text-center">
-          <h1 className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-            {handle}.vouchme.eth
-          </h1>
-          {/* The credential visibly earning the score, not the number just materialising — the
-              guilloché stroke-draw plays on mount, exactly the moment it was built for. */}
-          <div className="mt-4">
-            <ScoreDial score={ENROLLMENT_BASE_SCORE} tier={0} countedVouchCount={0} size={140} />
+        <Header eyebrow="ENROLL" title="You're in" subtitle={`${handle}.vouchme.eth is yours`} />
+        <section className="px-4 pt-2 text-center">
+          {/* Minting still running vs. minted-and-done — the spot illustration carries the moment. */}
+          <div className="mb-4 flex justify-center anim-rise-bounce" style={{ color: "var(--color-cream)" }}>
+            {stage === "minting" ? <Minting size={196} /> : <Success size={196} />}
           </div>
-          <p className="mt-2 font-mono text-2xs uppercase tracking-widest text-graphite">
+          {/* The first thing you own here, worn like a card: base score, Tier 0, your fresh name. */}
+          <div className="text-left">
+            <ScoreCard
+              name={`${handle}.vouchme.eth`}
+              address={(auth.address ?? "0x0000") as string}
+              score={ENROLLMENT_BASE_SCORE}
+              tier={0}
+              depth={null}
+            />
+          </div>
+          <p className="eyebrow mt-3">
             base {ENROLLMENT_BASE_SCORE.toFixed(1)} · selfie check
           </p>
           {txHash && !txIsUserOp ? (
@@ -304,7 +319,7 @@ export default function EnrollPage() {
 
           <div className="mt-6 border-t border-rule pt-4">
             {stage === "minting" ? (
-              <p className="font-mono text-2xs uppercase tracking-widest text-graphite">
+              <p className="eyebrow">
                 Minting {handle}.vouchme.eth on Ethereum Sepolia…
               </p>
             ) : mint ? (
@@ -357,8 +372,7 @@ export default function EnrollPage() {
                 <button
                   type="button"
                   onClick={() => void mintName(auth.address as `0x${string}`)}
-                  className="mt-3 min-h-[44px] w-full border px-4 font-mono text-xs uppercase tracking-widest"
-                  style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+                  className="btn btn-primary btn-block mt-3"
                 >
                   Retry minting your name
                 </button>
@@ -366,9 +380,24 @@ export default function EnrollPage() {
             ) : null}
           </div>
 
+          {/* Scan the face that becomes your dashboard. It is the only source for that particle
+              face — skip it and the hero shows an empty ring, never a stand-in. */}
+          {auth.address ? (
+            <div className="mt-6 border-t border-rule pt-5 text-left">
+              <FaceCapture
+                address={auth.address}
+                onCaptured={() => {
+                  setFaceCaptured(true);
+                  ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+              />
+            </div>
+          ) : null}
+
           <p className="mt-6 text-sm leading-relaxed text-cream">{AFTER_ENROLL_COPY}</p>
 
           <button
+            ref={ctaRef}
             type="button"
             disabled={stage === "minting"}
             onClick={() => {
@@ -376,10 +405,9 @@ export default function EnrollPage() {
               // which is exactly what should now flip from "onboarding" to "the real app".
               window.location.href = "/";
             }}
-            className="mt-8 min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-40"
-            style={{ borderColor: "var(--color-rule)" }}
+            className="btn btn-secondary btn-block mt-8 disabled:opacity-40"
           >
-            Go to your dashboard
+            {faceCaptured ? "Go to your dashboard" : "Skip for now — go to dashboard"}
           </button>
         </section>
       </div>
@@ -388,20 +416,20 @@ export default function EnrollPage() {
 
   return (
     <div className="pb-8">
-      <Header eyebrow="ENROLL" />
+      <Header eyebrow="ENROLL" title="Create your account" subtitle="Proof of human is a floor — this is the ladder." />
 
-      <section className="px-4 pt-10 text-center">
-        <h1 className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-          VouchMe
-        </h1>
-        <p className="mx-auto mt-4 max-w-xs text-sm leading-relaxed text-cream">
-          Proof of human is a floor.
-          <br />
-          This is the ladder.
-        </p>
+      <section className="px-4 pt-4 text-center">
+        {/* Spot illustration for the moment: choosing a handle, or the live World ID verification. */}
+        <div className="mb-2 flex justify-center anim-rise-bounce" style={{ color: "var(--color-cream)" }}>
+          {stage === "verifying" || stage === "attesting" || stage === "submitting" ? (
+            <VerifyWorldId size={204} />
+          ) : (
+            <EnrollHandle size={204} />
+          )}
+        </div>
         {/* Always visible, not gated behind a connected wallet: the signed-out first view should
             still say what this page is for. */}
-        <p className="mt-2 font-mono text-2xs uppercase tracking-widest text-graphite">
+        <p className="eyebrow mt-2">
           Verify with World ID · Selfie Check · ~20 seconds
         </p>
 
@@ -410,8 +438,7 @@ export default function EnrollPage() {
             type="button"
             onClick={() => void auth.connect()}
             disabled={auth.connecting}
-            className="mt-8 min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-50"
-            style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+            className="btn btn-primary btn-block btn-lg mt-8 disabled:opacity-50"
           >
             {auth.connecting ? "Connecting…" : "Connect wallet"}
           </button>
@@ -421,14 +448,13 @@ export default function EnrollPage() {
             <p className="mt-1 truncate-mono font-mono text-2xs text-graphite">signed in as {auth.address}</p>
 
             <div className="mt-6 text-left">
-              <label className="mb-1 block font-mono text-2xs uppercase tracking-widest text-graphite" htmlFor="handle">
+              <label className="eyebrow mb-1 block" htmlFor="handle">
                 Choose a handle
               </label>
               <div className="flex items-stretch gap-2">
                 <input
                   id="handle"
-                  className="min-h-[44px] flex-1 border bg-transparent px-3 font-mono text-sm text-cream"
-                  style={{ borderColor: "var(--color-rule)" }}
+                  className="field flex-1"
                   value={handle}
                   onChange={(e) => {
                     setHandle(e.target.value.trim().toLowerCase());
@@ -450,8 +476,7 @@ export default function EnrollPage() {
               type="button"
               onClick={() => void startVerification()}
               disabled={!handleValid || checkingHandle || (stage !== null && stage !== "handle")}
-              className="mt-6 min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-40"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary btn-block btn-lg mt-6 disabled:opacity-40"
             >
               {checkingHandle
                 ? "Checking handle…"
@@ -493,13 +518,6 @@ export default function EnrollPage() {
       </section>
 
       <div className="my-10 border-t border-rule" />
-
-      <section className="px-4">
-        <div className="mb-3 font-mono text-2xs uppercase tracking-widest text-graphite">
-          After you verify — score {ENROLLMENT_BASE_SCORE.toFixed(1)}, tier 0
-        </div>
-        <p className="text-sm leading-relaxed text-cream">{AFTER_ENROLL_COPY}</p>
-      </section>
     </div>
   );
 }

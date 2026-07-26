@@ -4,6 +4,7 @@ import { TierBadge } from "@/components/TierBadge";
 import { readVerifiedAddress } from "@/lib/authSession";
 import { anchorSourceLabel, dropVouchMeSuffix, fmtScore, truncateMiddle } from "@/lib/format";
 import { loadVouchMeData } from "@/lib/mock";
+import { TrustGraph } from "@/components/illustrations";
 import type { ExploreScenario } from "@/lib/types";
 
 function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
@@ -14,7 +15,7 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
   if (!scenario.available) {
     return (
       <div className="flex-1">
-        <div className="mb-3 font-mono text-2xs uppercase tracking-widest text-graphite">{scenario.exhibit}</div>
+        <div className="mb-3 eyebrow">{scenario.exhibit}</div>
         <h2 className="text-sm text-cream">{scenario.label}</h2>
         <p className="mt-1 text-2xs leading-relaxed text-graphite">{scenario.unavailableReason}</p>
       </div>
@@ -24,7 +25,7 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
   return (
     <div className="flex-1">
       <div className="mb-3 flex items-baseline justify-between">
-        <span className="font-mono text-2xs uppercase tracking-widest text-graphite">{scenario.exhibit}</span>
+        <span className="eyebrow">{scenario.exhibit}</span>
         <span className="font-mono text-lg" style={{ color }}>
           {fmtScore(scenario.finalScore)}
         </span>
@@ -59,7 +60,7 @@ function ScenarioColumn({ scenario }: { scenario: ExploreScenario }) {
             its own flex-basis and its own middle-out ellipsis, so a long target can never eat into
             the source's space, or vice versa, the way one shared CSS ellipsis on a single string
             would. */}
-        <div className="mb-1 font-mono text-2xs uppercase tracking-widest text-graphite">Edges</div>
+        <div className="mb-1 eyebrow">Edges</div>
         {scenario.edges.length === 0 ? (
           <p className="py-1 text-2xs text-graphite">No vouches between these accounts yet.</p>
         ) : null}
@@ -109,12 +110,16 @@ export default async function ExplorePage() {
   return (
     <div className="pb-8">
       {/* Neutral title: a deployment may have no ring at all, so the columns name themselves. */}
-      <Header eyebrow="EXPLORE" title="who reaches an anchor" />
+      <Header eyebrow="EXPLORE" title="Who reaches an anchor" subtitle="Two graphs, side by side, at their real scores." />
+
+      <div className="flex justify-center px-4 pt-6 text-graphite anim-rise-bounce">
+        <TrustGraph size={176} />
+      </div>
 
       <section className="grid grid-cols-1 gap-8 px-4 pt-6 md:grid-cols-[1fr_auto_1fr] md:gap-6">
         <ScenarioColumn scenario={EXPLORE_HONEST} />
         <div className="flex items-center justify-center border-t border-rule py-3 md:border-l md:border-t-0 md:px-3 md:py-0">
-          <span className="whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-graphite">
+          <span className="eyebrow whitespace-nowrap">
             Exhibit A / Exhibit B
           </span>
         </div>

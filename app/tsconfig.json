@@ -31,14 +31,39 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-dev/types/**/*.ts",
+    ".next-diag/types/**/*.ts",
+    ".next-landing/types/**/*.ts",
+    ".next-local/types/**/*.ts",
+    ".next-local2/types/**/*.ts",
+    ".next-local3/types/**/*.ts",
+    ".next-local4/types/**/*.ts",
+    ".next-local5/types/**/*.ts",
+    ".next-pitch/types/**/*.ts",
+    ".next-prod/types/**/*.ts",
+    ".next-prod10/types/**/*.ts",
+    ".next-prod11/types/**/*.ts",
+    ".next-prod12/types/**/*.ts",
+    ".next-prod13/types/**/*.ts",
+    ".next-prod2/types/**/*.ts",
+    ".next-prod3/types/**/*.ts",
+    ".next-prod4/types/**/*.ts",
+    ".next-prod5/types/**/*.ts",
+    ".next-prod6/types/**/*.ts",
+    ".next-prod7/types/**/*.ts",
+    ".next-prod8/types/**/*.ts",
+    ".next-prod9/types/**/*.ts",
+    ".next-swap/types/**/*.ts",
+    ".next-vercelcheck/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-check/types/**/*.ts"
+    ".next-vm1/types/**/*.ts"
   ],
-  "comment:exclude": "Build outputs only. Each `next build` writes a routes-to-modules validator into <distDir>/types and appends that path to `include` above; every past dist dir left one behind, so a stale one still names routes this app no longer has and `tsc --noEmit` fails on a route that was deliberately removed. Typechecking a build artifact proves nothing the source doesn't, so they are excluded rather than pruned by hand.",
   "exclude": [
     "node_modules",
     ".next-*",
     "build"
-  ]
+  ],
+  "comment:exclude": "Build outputs only. Each `next build` writes a routes-to-modules validator into <distDir>/types and appends that path to `include` above; every past dist dir left one behind, so a stale one still names routes this app no longer has and `tsc --noEmit` fails on a route that was deliberately removed. Typechecking a build artifact proves nothing the source doesn't, so they are excluded rather than pruned by hand."
 }

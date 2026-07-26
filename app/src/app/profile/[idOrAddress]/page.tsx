@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CREDENTIAL_GRACE_DAYS, CREDENTIAL_VALIDITY_DAYS } from "@vouchme/engine";
 import { Header } from "@/components/Header";
 import { ReportStamp, reportEffectLine } from "@/components/ReportStamp";
-import { TierBadge } from "@/components/TierBadge";
+import { ScoreCard } from "@/components/ScoreCard";
 import { VouchRow } from "@/components/VouchRow";
 import { readVerifiedAddress } from "@/lib/authSession";
 import { fmtScore, truncateMiddle } from "@/lib/format";
@@ -42,7 +42,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
   const cookieStore = await cookies();
   const viewingAddress = readVerifiedAddress(cookieStore) ?? undefined;
   // Return BEFORE reading any chain data, as every other gated route does (explore, reports,
-  // platform, home): whatever renders here ships in the RSC payload, so a signed-out
+  // platform, agents, home): whatever renders here ships in the RSC payload, so a signed-out
   // `curl` would read the subject's handle, address, score, tier, depth, credential and full
   // voucher list. Rendering nothing is the gate; painting a login screen over it is not.
   if (!viewingAddress) return null;
@@ -69,22 +69,20 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
 
   return (
     <div className="pb-8">
-      <Header eyebrow="PROFILE" title={subject.ensName} />
+      <Header eyebrow="PROFILE" title={subject.ensName} mono subtitle={`Tier ${subject.tier}`} />
 
+      {/* The credential worn as a card — the profile's identity object. Its face carries the
+          score, tier and depth; the credential and full address read beneath it. */}
       <section className="px-4 pt-6">
-        <div className="flex items-baseline justify-between border-b border-rule pb-4">
-          <span className="font-serif text-cream" style={{ fontSize: "var(--text-2xl)" }}>
-            {fmtScore(subject.score)}
-          </span>
-          <TierBadge tier={subject.tier} />
-        </div>
-        {/* Spelled out rather than shown as `depth ∞`: "not connected to any anchor" is the fact
-            that most needs words. */}
-        <p className="mt-2 font-mono text-2xs text-graphite">
-          @{subject.ensName.replace(/\.vouchme\.eth$/, "")} ·{" "}
-          {subject.depth === null ? "no path to an anchor" : `depth ${subject.depth}`}
-        </p>
-        <p className="mt-1 font-mono text-2xs text-graphite" data-testid="credential-line">
+        <ScoreCard
+          name={subject.ensName}
+          address={subject.address}
+          score={subject.score}
+          tier={subject.tier}
+          depth={subject.depth}
+          isAnchor={subject.kind === "anchor"}
+        />
+        <p className="mt-3 font-mono text-2xs text-graphite" data-testid="credential-line">
           {credentialLine(subject)}
         </p>
         <p className="truncate-mono mt-1 font-mono text-2xs text-graphite">{subject.address}</p>
@@ -95,7 +93,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
           anchor) is a profile that omits the one thing a reader most needs. `reportsAvailable`
           keeps the two empty states apart: "nobody has filed" vs "nobody asked the chain". */}
       <section className="mt-6 px-4">
-        <h2 className="mb-1 text-2xs uppercase tracking-widest text-graphite">Reports</h2>
+        <h2 className="mb-1 eyebrow">Reports</h2>
         {!data.reportsAvailable ? (
           <p className="py-3 text-2xs leading-relaxed text-graphite">
             Not read on this deployment — no ReportRegistry is configured, so this page cannot say whether anyone
@@ -119,7 +117,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
               </p>
             )}
             {reportsAgainstSubject.map((r) => (
-              <div key={r.id} className="border border-rule p-3">
+              <div key={r.id} className="card p-3">
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <span className="truncate-mono max-w-[180px] text-2xs text-cream">
                     from {truncateMiddle(r.reporter.ensName, 22)}
@@ -134,37 +132,45 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
       </section>
 
       <section className="mt-6 px-4">
-        <h2 className="mb-1 text-2xs uppercase tracking-widest text-graphite">Vouched for by</h2>
-        {subject.breakdown.length === 0 ? (
-          <p className="py-3 text-2xs leading-relaxed text-graphite">
-            {subject.kind === "anchor"
-              ? "No inbound vouches — and they would not change this score anyway: an anchor's score is fixed and ignores every inbound edge."
-              : "No vouches yet."}
-          </p>
-        ) : (
-          subject.breakdown.map((row) => <VouchRow key={row.voucher.ensName} row={row} />)
-        )}
+        {(() => {
+          const counted = subject.breakdown.filter((r) => r.counted);
+          const maxContribution = counted.reduce((m, r) => Math.max(m, r.contribution), 0);
+          return (
+            <>
+              <div className="mb-2 flex items-baseline justify-between">
+                <h2 className="eyebrow">Vouched for by</h2>
+                {subject.breakdown.length > 0 ? (
+                  <span className="font-mono text-2xs text-graphite">
+                    {counted.length} counted{counted.length !== subject.breakdown.length ? ` · ${subject.breakdown.length - counted.length} not` : ""}
+                  </span>
+                ) : null}
+              </div>
+              {subject.breakdown.length === 0 ? (
+                <div className="card px-4 py-6 text-center">
+                  <p className="text-2xs leading-relaxed text-graphite">
+                    {subject.kind === "anchor"
+                      ? "No inbound vouches — and they would not change this score anyway: an anchor's score is fixed and ignores every inbound edge."
+                      : "No vouches yet."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {subject.breakdown.map((row) => (
+                    <VouchRow key={row.voucher.ensName} row={row} max={maxContribution} />
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </section>
-
-      {isSelf ? (
-        <section className="mt-8 px-4">
-          <div className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">More</div>
-          <a href="/explore" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
-            Explore — who reaches an anchor, and who doesn&apos;t reach one
-          </a>
-          <a href="/reports" className="flex min-h-[44px] items-center border-b border-rule text-sm text-cream">
-            Reports — against you / filed by you
-          </a>
-        </section>
-      ) : null}
 
       <section className="mt-8 px-4">
         {isSelf ? null : canVouch ? (
           <a href={`/vouch?to=${encodeURIComponent(subject.address)}`} data-testid="profile-vouch-cta">
             <button
               type="button"
-              className="min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary btn-block"
             >
               Vouch for {truncateMiddle(subject.ensName, 20)}
             </button>
@@ -174,8 +180,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ idOrAd
             <button
               type="button"
               disabled
-              className="min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest opacity-40"
-              style={{ borderColor: "var(--color-rule)" }}
+              className="btn btn-secondary btn-block"
             >
               Vouch for {truncateMiddle(subject.ensName, 20)}
             </button>

@@ -7,13 +7,12 @@ const TIER_COLOR: Record<Tier, string> = {
   2: "var(--color-tier-2)",
 };
 
+/** Tier 0 reads as neutral taxonomy (outline); a tier with standing reads as live status (dot). */
 export function TierBadge({ tier, className = "" }: { tier: Tier; className?: string }) {
   const color = TIER_COLOR[tier];
   return (
-    <span
-      className={`inline-block whitespace-nowrap border px-1.5 py-0.5 font-mono text-2xs uppercase tracking-widest ${className}`}
-      style={{ color, borderColor: color }}
-    >
+    <span className={`badge badge-outline ${className}`} style={{ color }}>
+      {tier > 0 ? <span className="dot" /> : null}
       {tierLabel(tier)}
     </span>
   );

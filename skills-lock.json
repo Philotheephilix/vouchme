@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "presentation-pitch-deck": {
+      "source": "aaronvanston/skills-presentations",
+      "sourceType": "github",
+      "skillPath": "skills/presentation-pitch-deck/SKILL.md",
+      "computedHash": "469b3d199650b759392815cd372946ee1d57a0278e8d575c9afe5dc30b685e9f"
+    }
+  }
+}

@@ -1,0 +1,178 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Atlanta "Club" flyer — faithful recreation.
+   Everything scales off the poster width via container-query units (cqw), so the
+   composition is pixel-locked to its 360×640 design grid at any size.
+   1 design-px ≈ 0.2778cqw  (100 / 360)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.stage {
+  /* Fixed full-viewport overlay so the flyer stands alone — covers the app's
+     global bottom nav and account chrome that mount around this route. */
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 4vmin;
+  overflow: auto;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #1a1a1e 0%, #0b0b0d 70%);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+}
+
+.poster {
+  container-type: inline-size;
+  position: relative;
+  width: min(92vw, 46.25vh, 420px);
+  aspect-ratio: 360 / 640;
+  overflow: hidden;
+  border-radius: 3cqw;
+  background: #f7f6f3;
+  box-shadow:
+    0 2cqw 8cqw -2cqw rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  color: #0a0a0a;
+  isolation: isolate;
+}
+
+.ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6cqw 6.5cqw 7cqw;
+}
+
+/* ── top eyebrow row ─────────────────────────────────────────────────────────── */
+.topRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 800;
+  font-size: 2.55cqw;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.topRow .soft {
+  text-transform: none;
+  font-weight: 600;
+}
+
+/* ── brand lockup: monogram box + wordmark ───────────────────────────────────── */
+.brandRow {
+  margin-top: 4.5cqw;
+  display: flex;
+  align-items: center;
+  gap: 3cqw;
+}
+.atlBox {
+  font-weight: 900;
+  font-size: 5cqw;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  padding: 1.4cqw 2.2cqw 1.8cqw;
+  border: 0.75cqw solid #0a0a0a;
+  border-radius: 2.6cqw;
+}
+.wordmark {
+  font-weight: 900;
+  font-size: 4.2cqw;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+
+/* ── the headline ────────────────────────────────────────────────────────────── */
+.headline {
+  margin: 0.4cqw 0 0 -0.6cqw;
+  font-family: var(--font-archivo-black), var(--font-archivo), sans-serif;
+  font-weight: 900;
+  font-size: 39cqw;
+  line-height: 0.8;
+  letter-spacing: -0.05em;
+  color: #060606;
+}
+
+/* ── date + time ─────────────────────────────────────────────────────────────── */
+.dateRow {
+  margin-top: 5cqw;
+  display: flex;
+  align-items: center;
+  gap: 3cqw;
+}
+.date {
+  font-family: var(--font-archivo-black), var(--font-archivo), sans-serif;
+  font-weight: 900;
+  font-size: 11.5cqw;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: #070707;
+}
+.timePill {
+  font-weight: 800;
+  font-size: 2.9cqw;
+  letter-spacing: 0.02em;
+  color: #0a0a0a;
+  background: #fbfbf8;
+  padding: 1.1cqw 2.6cqw 1.3cqw;
+  border-radius: 10cqw;
+  white-space: nowrap;
+}
+
+/* ── lineup ──────────────────────────────────────────────────────────────────── */
+.lineup {
+  margin: 5cqw 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 7.6cqw;
+  line-height: 1.14;
+  font-weight: 400;
+  color: #070707;
+}
+.lineup li {
+  letter-spacing: -0.02em;
+}
+.lineup b,
+.lineup .b {
+  font-weight: 900;
+}
+.lineup .strong {
+  font-weight: 900;
+}
+
+/* ── vertical genre tag ──────────────────────────────────────────────────────── */
+.vertical {
+  position: absolute;
+  right: 3.8cqw;
+  top: 58%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-weight: 800;
+  font-size: 2.9cqw;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #0a0a0a;
+}
+
+/* ── address ─────────────────────────────────────────────────────────────────── */
+.address {
+  margin-top: auto;
+  align-self: center;
+  font-weight: 700;
+  font-size: 3.3cqw;
+  letter-spacing: 0.01em;
+  color: #0a0a0a;
+  padding: 1.3cqw 3.4cqw 1.6cqw;
+  border: 0.45cqw solid #0a0a0a;
+  border-radius: 10cqw;
+  white-space: nowrap;
+}

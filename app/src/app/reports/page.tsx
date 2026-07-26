@@ -10,7 +10,7 @@ import { explorerTxUrl } from "@/lib/worldchain";
 
 function ReportCard({ report, now }: { report: ReportEntry; now: Date }) {
   return (
-    <div className="overflow-hidden border border-rule p-4">
+    <div className="card overflow-hidden p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate-mono max-w-[180px] text-sm text-cream">
@@ -64,7 +64,7 @@ export default async function ReportsPage() {
   if (!reportsAvailable) {
     return (
       <div className="pb-8">
-        <Header eyebrow="REPORTS" />
+        <Header eyebrow="REPORTS" title="Report ledger" />
         <section className="px-4 pt-10">
           <p className="text-sm leading-relaxed text-cream">Reports aren&apos;t read on this deployment.</p>
           <p className="mt-3 text-2xs leading-relaxed text-graphite">
@@ -81,10 +81,12 @@ export default async function ReportsPage() {
       <Header eyebrow="REPORTS" />
 
       <section className="px-4">
-        <h2 className="mb-3 text-2xs uppercase tracking-widest text-graphite">Against you</h2>
+        <h2 className="mb-3 eyebrow">Against you</h2>
         <div className="space-y-3">
           {against.length === 0 ? (
-            <p className="text-2xs text-graphite">Nothing has been filed against you.</p>
+            <div className="py-2 text-center">
+              <p className="text-2xs text-graphite">Nothing has been filed against you.</p>
+            </div>
           ) : (
             against.map((r) => <ReportCard key={r.id} report={r} now={NOW} />)
           )}
@@ -92,7 +94,7 @@ export default async function ReportsPage() {
       </section>
 
       <section className="px-4">
-        <h2 className="mb-3 text-2xs uppercase tracking-widest text-graphite">Filed by you</h2>
+        <h2 className="mb-3 eyebrow">Filed by you</h2>
         <div className="space-y-3">
           {filed.length === 0 ? (
             <p className="text-2xs text-graphite">You haven&apos;t filed a report.</p>
@@ -100,6 +102,14 @@ export default async function ReportsPage() {
             filed.map((r) => <ReportCard key={r.id} report={r} now={NOW} />)
           )}
         </div>
+      </section>
+
+      <section className="px-4">
+        <p className="text-2xs leading-relaxed text-graphite">
+          Filing a report is not wired into this screen: it needs a VOUCHME bond in CredibilityVault before the
+          transaction can succeed, and this build has no bonding flow. The attestation a filing needs is served
+          by <span className="font-mono">/api/report/attest</span>.
+        </p>
       </section>
     </div>
   );

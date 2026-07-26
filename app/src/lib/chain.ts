@@ -68,6 +68,25 @@ export function getChainMode(): ChainMode {
   return process.env.NEXT_PUBLIC_CHAIN_MODE === "live" ? "live" : "fixture";
 }
 
+/** A tuning knob read from env, clamped to a range that cannot break the reader. An unset, empty or
+ *  unparseable value falls back to `fallbackValue` rather than throwing: these are performance
+ *  dials, and a typo in one must not take the whole app down the way a missing contract address
+ *  rightly does. */
+function envInt(name: string, fallbackValue: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallbackValue;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallbackValue;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+/** How many JSON-RPC requests may share one HTTP body. Bounded by the STRICTEST configured
+ *  provider, not by viem's `batch: true` default of 1000: drpc.org's free plan rejects any batch
+ *  over three with `{"code":31,"message":"Batch of more than 3 requests are not allowed on free
+ *  plan"}` (HTTP 500), and it is the primary endpoint on some deployments. `1` turns array bodies
+ *  off completely. */
+const RPC_BATCH_SIZE = envInt("RPC_BATCH_SIZE", 3, 1, 100);
+
 interface ChainConfig {
   /** Ordered, deduped; index 0 is primary, the rest are failover targets. */
   rpcUrls: string[];
@@ -98,6 +117,18 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/** One env value → the endpoints it names. A **comma-separated list** is accepted, so a single
+ *  variable can carry a whole failover chain (`WORLDCHAIN_RPC=https://a.example,https://b.example`)
+ *  instead of the deployment having to know this module's private list of alternative variable
+ *  names. A plain single URL is just a list of one, so every existing single-value `.env` keeps
+ *  working byte for byte and the endpoint that is configured today stays first. */
+function splitEndpoints(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 /** Every distinct URL among `names`, in order — NOT just the first one that happens to be set.
  *  These become a viem `fallback()` transport, so a provider that rate-limits under the burst of
  *  reads one page issues is routed around instead of failing the request.
@@ -109,7 +140,8 @@ function requireEnvAll(names: string[]): string[] {
   const urls: string[] = [];
   for (const name of names) {
     const v = process.env[name];
-    if (v && !urls.includes(v)) urls.push(v);
+    if (!v) continue;
+    for (const url of splitEndpoints(v)) if (!urls.includes(url)) urls.push(url);
   }
   if (urls.length > 0) return urls;
   throw new ChainConfigError(
@@ -147,11 +179,63 @@ function optionalAddress(name: string): Address | null {
   }
 }
 
-let cachedConfig: ChainConfig | null = null;
+/** Everything this module memoises, held in ONE object anchored on `globalThis`.
+ *
+ *  Not a style choice — plain module-level `let`s were silently per-bundle. Next.js compiles
+ *  `instrumentation.ts` into its own webpack bundle, so the built output contains two copies of
+ *  this module (confirmed in `.next/server/chunks`: instrumentation resolves chain.ts from one
+ *  chunk id, `/api/identity/[id]` and `/api/score/[address]` from a different one). Two copies
+ *  means two sets of module-level variables, so the boot-time warm-up filled a log accumulator and
+ *  graph cache that **no request handler could ever read**. `[instrumentation] chain cache warm in
+ *  6618ms` was true and useless: every request still paid a full cold scan from `DEPLOYMENT_BLOCK`.
+ *
+ *  `Symbol.for` is registry-global, so both bundles resolve the same key and share one store. It
+ *  also survives `next dev`'s module-cache eviction on every file edit — the exact cold-start
+ *  penalty instrumentation.ts's own doc comment set out to avoid. */
+interface ChainState {
+  config: ChainConfig | null;
+  anchorSource: LiveAnchorSource | null;
+  client: PublicClient | null;
+  accumulator: LogAccumulator | null;
+  accumulatorInFlight: Promise<void> | null;
+  latestBlock: { fetchedAt: number; block: bigint } | null;
+  graph: { fetchedAt: number; promise: Promise<LiveGraph> } | null;
+}
+
+const CHAIN_STATE_KEY = Symbol.for("vouchme.chain.state");
+
+const state: ChainState = ((): ChainState => {
+  const host = globalThis as typeof globalThis & { [CHAIN_STATE_KEY]?: ChainState };
+  host[CHAIN_STATE_KEY] ??= {
+    config: null,
+    anchorSource: null,
+    client: null,
+    accumulator: null,
+    accumulatorInFlight: null,
+    latestBlock: null,
+    graph: null,
+  };
+  return host[CHAIN_STATE_KEY];
+})();
 
 function getConfig(): ChainConfig {
-  if (cachedConfig) return cachedConfig;
-  cachedConfig = {
+  if (state.config) return state.config;
+  state.config = {
+    // Two rules govern this list, and they are independent of each other.
+    //
+    // 1. A URL carrying an API key belongs ONLY under a name without the NEXT_PUBLIC_ prefix.
+    //    Next.js inlines every NEXT_PUBLIC_* value into the browser bundle, so a keyed provider
+    //    URL under such a name publishes the key to every visitor. `WORLDCHAIN_RPC` is the
+    //    server-only slot for a keyed endpoint; the NEXT_PUBLIC_ ones must stay keyless, because
+    //    the client paths read them too (src/lib/worldchain.ts, src/lib/wallet.ts).
+    //
+    // 2. Order is failover order, and the primary has to be able to serve the read this module
+    //    actually makes — a `getLogs` spanning every block since DEPLOYMENT_BLOCK, thousands of
+    //    them. Metered free tiers routinely cap that: Alchemy's answers
+    //    `{"code":-32600,"message":"Under the Free tier plan, you can make eth_getLogs requests
+    //    with up to a 10 block range"}`. Such a provider is still worth keeping as a failover for
+    //    the keyless providers' rate limits, but putting it first only spends a round trip
+    //    failing before the fallback finds a provider that can answer.
     rpcUrls: requireEnvAll([
       "NEXT_PUBLIC_WORLDCHAIN_RPC",
       "WORLDCHAIN_RPC",
@@ -166,7 +250,7 @@ function getConfig(): ChainConfig {
     reportRegistry: optionalAddress("REPORT_REGISTRY_ADDRESS"),
     platformRegistry: optionalAddress("PLATFORM_REGISTRY_ADDRESS"),
   };
-  return cachedConfig;
+  return state.config;
 }
 
 /** Every contract address in play, for the `meta.contracts` envelope. Includes
@@ -227,33 +311,124 @@ export function getPlatformRegistryAddressServer(): Address | null {
 
 // anchorSource() is declared `pure` on GenesisAnchorBook — it returns a compile-time constant and
 // can never change for a given deployment, so it is fetched once per process.
-let cachedAnchorSource: LiveAnchorSource | null = null;
-
 async function getAnchorSource(client: PublicClient, book: Address): Promise<LiveAnchorSource> {
-  if (cachedAnchorSource !== null) return cachedAnchorSource;
+  if (state.anchorSource !== null) return state.anchorSource;
   // Decided by WHICH contract is configured, not by whether a call happened to fail. The real
   // Address Book has no anchorSource(), so asking it would revert — but a revert alone must never
   // be read as "these are Orb anchors."
   if (isWorldIdAddressBook(book)) {
-    cachedAnchorSource = "world-id-orb";
-    return cachedAnchorSource;
+    state.anchorSource = "world-id-orb";
+    return state.anchorSource;
   }
-  cachedAnchorSource = assertKnownAnchorSource(
+  state.anchorSource = assertKnownAnchorSource(
     await client.readContract({
       address: book,
       abi: GENESIS_ANCHOR_BOOK_ABI,
       functionName: "anchorSource",
     }),
   );
-  return cachedAnchorSource;
+  return state.anchorSource;
 }
 
-let cachedClient: PublicClient | null = null;
+// ─── malformed batch replies — the failure this module exists to not mistranslate ───────────────
+
+/** A provider answered a JSON-RPC **batch** (an array body) with something that is not an array.
+ *
+ *  This has its own error type because viem structurally cannot report it. Its HTTP client returns
+ *  a non-2xx body verbatim whenever that body merely *looks* like a JSON-RPC error
+ *  (`utils/rpc/http.ts`: "If the response body contains a valid JSON-RPC error, return it"), without
+ *  checking that a batch request got a batch response. `createBatchScheduler` then hands caller *i*
+ *  `data[i]`, which on a bare object is `undefined` for every caller, and
+ *  `clients/transports/http.ts` destructures it — `const [{ error, result }] = await fn(body)` —
+ *  producing `TypeError: Cannot read properties of undefined (reading 'error')` wrapped in
+ *  `UnknownRpcError`. That reaches the UI as `chain_unavailable`: "Can't reach World Chain right
+ *  now", for a provider that is healthy and merely throttling us.
+ *
+ *  Observed verbatim from a configured endpoint, in reply to an 8-element batch:
+ *
+ *      HTTP 429  {"id":1,"jsonrpc":"2.0","error":{"code":-32005,"message":"rate limit exceeded"}}
+ *
+ *  The size of the batch is irrelevant — a rate-limited batch of three answers the same way — so
+ *  capping the batch size reduces how often this is reached but cannot remove it. Only refusing to
+ *  hand viem a reply it cannot read does that. Raised as a normal transport failure so viem's
+ *  `fallback()` routes to the next endpoint instead of dying on the last one. */
+export class MalformedRpcResponseError extends Error {
+  constructor(
+    readonly rpcUrl: string,
+    readonly status: number,
+    readonly requestCount: number,
+    readonly rawBody: string,
+  ) {
+    super(
+      `${rpcHost(rpcUrl)} answered a JSON-RPC batch of ${requestCount} with a non-array body ` +
+        `(HTTP ${status}), which viem reads positionally and cannot decode. Raw body: ` +
+        `${rawBody.slice(0, RAW_BODY_LOG_LIMIT)}`,
+    );
+    this.name = "MalformedRpcResponseError";
+  }
+}
+
+const RAW_BODY_LOG_LIMIT = 400;
+
+function rpcHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** True for a body viem will send as a JSON-RPC batch (an array). Checked by first character
+ *  rather than `JSON.parse`, so the common path costs nothing. */
+function isBatchBody(body: BodyInit | null | undefined): boolean {
+  return typeof body === "string" && body.trimStart().startsWith("[");
+}
+
+/** Walks the `cause` chain for a `MalformedRpcResponseError`, which viem wraps in
+ *  `HttpRequestError` on its way out of the transport. */
+export function findMalformedRpcResponse(err: unknown): MalformedRpcResponseError | null {
+  for (let e: unknown = err, depth = 0; e instanceof Error && depth < 10; e = e.cause, depth++) {
+    if (e instanceof MalformedRpcResponseError) return e;
+  }
+  return null;
+}
+
+/** `fetch` for the RPC transports, which refuses to hand viem a batch reply it cannot read.
+ *
+ *  Non-batch requests are passed straight through untouched — no extra buffering, no behaviour
+ *  change. A batch request's body is read once here and re-attached to an equivalent `Response`
+ *  (rather than `clone()`d, which would buffer it twice), so viem sees exactly what the provider
+ *  sent whenever the shape is legal. `content-encoding`/`content-length` are dropped because the
+ *  text has already been decoded, and leaving them would describe the wire bytes, not this body. */
+async function guardedRpcFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const response = await fetch(input, init);
+  if (!isBatchBody(init?.body)) return response;
+
+  const text = await response.text();
+  if (text.trimStart().startsWith("[")) {
+    const headers = new Headers(response.headers);
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+    return new Response(text, { status: response.status, statusText: response.statusText, headers });
+  }
+
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  let requestCount = 0;
+  try {
+    const parsed: unknown = JSON.parse(String(init?.body));
+    if (Array.isArray(parsed)) requestCount = parsed.length;
+  } catch {
+    // The count is for the message only; a body we cannot re-parse still gets reported.
+  }
+  const err = new MalformedRpcResponseError(url, response.status, requestCount, text);
+  console.warn(`[chain] ${err.message}`);
+  throw err;
+}
 
 function getClient(): PublicClient {
-  if (cachedClient) return cachedClient;
+  if (state.client) return state.client;
   const cfg = getConfig();
-  cachedClient = createPublicClient({
+  state.client = createPublicClient({
     chain: worldChain(cfg.rpcUrls),
     // Aggregate concurrent eth_calls into Multicall3 instead of firing one request per account.
     //
@@ -276,12 +451,39 @@ function getClient(): PublicClient {
     // throttled provider, because the next attempt hits the same rate-limited host, and an
     // empty-bodied 429 surfaces as `chain_unavailable` when that provider is the only provider.
     // `rank: false` keeps declared order (env order is intent).
+    // JSON-RPC batch size is capped at what the strictest configured provider accepts, NOT left
+    // at viem's `batch: true` default of 1000. drpc.org's free plan rejects any batch over three
+    // requests — `{"code":31,"message":"Batch of more than 3 requests are not allowed on free
+    // plan"}`, served as HTTP 500 with a JSON *array* body. Because that body is an array,
+    // `data.error` is undefined in viem's HTTP client, so it never becomes a typed RPC error and
+    // instead escapes as `Cannot read properties of undefined (reading 'error')` inside
+    // UnknownRpcError — i.e. this app's `chain_unavailable`, which reads as "World Chain is down"
+    // for what is only a batch three requests too long.
+    //
+    // It cannot be caught locally: `wait: 0` batches whatever is queued in the same tick, and a
+    // warm dev machine coalesces two or three reads where a cold serverless invocation coalesces
+    // a dozen. The failure was reproducible only on Vercel. Bounding the batch (over a 16ms
+    // window, matching the multicall window above) keeps every provider inside its limit, and the
+    // multicall batching above is what actually collapses the per-account reads anyway.
+    //
+    // Capping the batch is necessary but NOT sufficient, and the difference matters: a provider
+    // that rate-limits a batch of three answers it with a single bare object just as readily as a
+    // batch of eight (measured, not assumed). `guardedRpcFetch` is what actually closes that hole —
+    // see `MalformedRpcResponseError`. `RPC_BATCH_SIZE=1` disables array bodies entirely, which is
+    // the setting to reach for if a future provider mishandles batches in some new way.
     transport: fallback(
-      cfg.rpcUrls.map((url) => http(url, { retryCount: 3, retryDelay: 750, batch: true })),
+      cfg.rpcUrls.map((url) =>
+        http(url, {
+          retryCount: 3,
+          retryDelay: 750,
+          fetchFn: guardedRpcFetch,
+          batch: RPC_BATCH_SIZE > 1 ? { batchSize: RPC_BATCH_SIZE, wait: 16 } : false,
+        }),
+      ),
       { rank: false, retryCount: 2 },
     ),
   });
-  return cachedClient;
+  return state.client;
 }
 
 // ─── ABI fragments — exactly the surface this module reads, matching subgraph/abis/VouchMeRegistry
@@ -609,18 +811,51 @@ function isWorldIdAddressBook(book: Address): boolean {
 // same value for the same reason).
 const LOG_CHUNK_BLOCKS = BigInt(100);
 
-// How many chunk requests are in flight at once. A serial scan costs (span / chunk) × 4 sequential
-// round trips, paid on every cold start — which happens on every edit under `next dev` (the module
-// cache is discarded) and once per process in production. 8 keeps the wall clock proportional to a
-// single round trip without a burst large enough to trip provider rate limits.
-const LOG_CHUNK_CONCURRENCY = 8;
+// How many chunk requests are in flight at once, across the WHOLE module — not per call.
+//
+// This used to be a per-call worker pool, which quietly meant nine of them: `ensureLogsThrough`
+// scans nine event types in one `Promise.all`, so a pool of 8 each allowed up to 72 concurrent
+// `eth_getLogs`, plus the per-account multicalls on top. That burst is self-inflicted rate
+// limiting — public endpoints start 429ing well below it (measured: roughly a third of 80
+// concurrent requests to one configured provider) — and a throttled batch is exactly what provokes
+// the malformed reply `MalformedRpcResponseError` documents. A single shared semaphore makes the
+// fan-out a property of this module rather than a multiple of how many event types it happens to
+// scan.
+const LOG_SCAN_CONCURRENCY = envInt("LOG_SCAN_CONCURRENCY", 4, 1, 64);
+
+let scanInFlight = 0;
+const scanQueue: Array<() => void> = [];
+
+/** Hands the slot straight to the next waiter rather than decrementing and letting a newcomer race
+ *  in ahead of it, so the ceiling is exact and the queue stays FIFO. */
+function releaseScanSlot(): void {
+  const next = scanQueue.shift();
+  if (next) {
+    next();
+    return;
+  }
+  scanInFlight--;
+}
+
+async function withScanSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (scanInFlight >= LOG_SCAN_CONCURRENCY) {
+    await new Promise<void>((resolve) => scanQueue.push(resolve));
+  } else {
+    scanInFlight++;
+  }
+  try {
+    return await fn();
+  } finally {
+    releaseScanSlot();
+  }
+}
 
 // The 100-block cap is Alchemy's, not the chain's — other configured providers serve 10 000-block
 // ranges happily. So: ask for a wide range first, and narrow to 100 ONLY for the ranges that are
 // actually refused. Against a wide-range provider the historical scan collapses to a handful of
 // requests; against Alchemy it degrades to a per-100-block scan. Neither provider is assumed — the
 // code discovers which it is talking to from the error it gets back.
-const LOG_CHUNK_BLOCKS_WIDE = BigInt(10_000);
+const LOG_CHUNK_BLOCKS_WIDE = BigInt(envInt("LOG_SCAN_CHUNK_BLOCKS", 10_000, 100, 100_000));
 
 /** True for a provider complaining that the requested block range is too large — as opposed to a
  *  genuine RPC failure, which must propagate rather than trigger a pointless re-scan. */
@@ -669,33 +904,37 @@ async function getLogsChunked<const TEvent extends AbiEvent>(
   /** One wide range, narrowed to `LOG_CHUNK_BLOCKS` sub-chunks only if the provider refuses it. */
   async function fetchRange(from: bigint, to: bigint): Promise<Log[]> {
     try {
-      return await client.getLogs({ address, event, fromBlock: from, toBlock: to });
+      return await withScanSlot(() => client.getLogs({ address, event, fromBlock: from, toBlock: to }));
     } catch (err) {
+      // Name the provider AND the range before this becomes a generic 503. Someone told "we
+      // couldn't confirm your account" is owed a server log that says which endpoint failed on
+      // which blocks, not a stack trace about `undefined`.
+      const malformed = findMalformedRpcResponse(err);
+      if (malformed) {
+        console.warn(
+          `[chain] ${event.name} scan ${from}-${to} on ${address} failed: ` +
+            `${rpcHost(malformed.rpcUrl)} returned an unreadable batch reply (HTTP ${malformed.status}). ` +
+            `Falling back to the next configured endpoint.`,
+        );
+      }
       if (!isBlockRangeError(err) || to - from < LOG_CHUNK_BLOCKS) throw err;
       const narrow: Log[] = [];
       for (let f = from; f <= to; ) {
         const end = f + LOG_CHUNK_BLOCKS - BigInt(1);
         const t = end > to ? to : end;
-        narrow.push(...(await client.getLogs({ address, event, fromBlock: f, toBlock: t })));
+        narrow.push(
+          ...(await withScanSlot(() => client.getLogs({ address, event, fromBlock: f, toBlock: t }))),
+        );
         f = t + BigInt(1);
       }
       return narrow;
     }
   }
 
-  const results: Log[][] = new Array(ranges.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    for (;;) {
-      const i = next++;
-      if (i >= ranges.length) return;
-      const r = ranges[i];
-      results[i] = await fetchRange(r.from, r.to);
-    }
-  }
-  const workers = Math.min(LOG_CHUNK_CONCURRENCY, ranges.length);
-  await Promise.all(Array.from({ length: workers }, () => worker()));
-
+  // Concurrency is bounded globally by `withScanSlot`, so every range can be launched at once and
+  // re-assembled in block order — `getLogs` results must stay ordered, since downstream code treats
+  // vouch/revoke sequence as meaningful.
+  const results = await Promise.all(ranges.map((r) => fetchRange(r.from, r.to)));
   return results.flat();
 }
 
@@ -725,9 +964,6 @@ interface LogAccumulator {
   scoreRequestedLogs: Log[];
 }
 
-let logAccumulator: LogAccumulator | null = null;
-let accumulatorInFlight: Promise<void> | null = null;
-
 async function ensureLogsThrough(
   client: PublicClient,
   vouchMeRegistry: Address,
@@ -736,8 +972,8 @@ async function ensureLogsThrough(
   deploymentBlock: bigint,
   upToBlock: bigint,
 ): Promise<LogAccumulator> {
-  if (!logAccumulator) {
-    logAccumulator = {
+  if (!state.accumulator) {
+    state.accumulator = {
       scannedThrough: deploymentBlock - BigInt(1),
       enrolledLogs: [],
       vouchedLogs: [],
@@ -750,14 +986,14 @@ async function ensureLogsThrough(
       scoreRequestedLogs: [],
     };
   }
-  if (upToBlock <= logAccumulator.scannedThrough) return logAccumulator;
+  if (upToBlock <= state.accumulator.scannedThrough) return state.accumulator;
 
-  if (!accumulatorInFlight) {
-    const acc = logAccumulator;
+  if (!state.accumulatorInFlight) {
+    const acc = state.accumulator;
     const from = acc.scannedThrough + BigInt(1);
     const to = upToBlock;
     const none = async (): Promise<Log[]> => [];
-    accumulatorInFlight = (async () => {
+    state.accumulatorInFlight = (async () => {
       const [
         newEnrolled,
         newVouched,
@@ -790,10 +1026,10 @@ async function ensureLogsThrough(
       acc.scoreRequestedLogs.push(...newScoreRequested);
       acc.scannedThrough = to;
     })().finally(() => {
-      accumulatorInFlight = null;
+      state.accumulatorInFlight = null;
     });
   }
-  await accumulatorInFlight;
+  await state.accumulatorInFlight;
   // Another caller may have asked for a still-newer block while we were fetching; catch up.
   return ensureLogsThrough(client, vouchMeRegistry, reportRegistry, platformRegistry, deploymentBlock, upToBlock);
 }
@@ -1324,15 +1560,13 @@ function toEngineReport(m: ReportMeta, platformIds: ReadonlySet<string>, scoreRe
 // requests landing on the same block always return the identical, already-computed result.
 
 const LATEST_BLOCK_TTL_MS = 4_000;
-let latestBlockCache: { fetchedAt: number; block: bigint } | null = null;
-
 async function getLatestBlockCached(): Promise<bigint> {
   const nowMs = Date.now();
-  if (latestBlockCache && nowMs - latestBlockCache.fetchedAt < LATEST_BLOCK_TTL_MS) {
-    return latestBlockCache.block;
+  if (state.latestBlock && nowMs - state.latestBlock.fetchedAt < LATEST_BLOCK_TTL_MS) {
+    return state.latestBlock.block;
   }
   const block = await getClient().getBlockNumber();
-  latestBlockCache = { fetchedAt: nowMs, block };
+  state.latestBlock = { fetchedAt: nowMs, block };
   return block;
 }
 
@@ -1348,18 +1582,16 @@ async function getLatestBlockCached(): Promise<bigint> {
 // enough that most of them miss. 15s is still well inside "live" for a trust score that changes on
 // human timescales, and it is the difference between one upstream fetch per page and several.
 const GRAPH_CACHE_TTL_MS = 15_000;
-let graphCache: { fetchedAt: number; promise: Promise<LiveGraph> } | null = null;
-
 /** The live graph, cached for `GRAPH_CACHE_TTL_MS`. */
 export async function getLiveGraph(): Promise<LiveGraph> {
   const nowMs = Date.now();
-  if (graphCache && nowMs - graphCache.fetchedAt < GRAPH_CACHE_TTL_MS) return graphCache.promise;
+  if (state.graph && nowMs - state.graph.fetchedAt < GRAPH_CACHE_TTL_MS) return state.graph.promise;
   const latest = await getLatestBlockCached();
   const promise = fetchLiveGraph(latest);
-  graphCache = { fetchedAt: nowMs, promise };
+  state.graph = { fetchedAt: nowMs, promise };
   // Don't let a failed fetch poison the cache for subsequent calls.
   promise.catch(() => {
-    if (graphCache?.promise === promise) graphCache = null;
+    if (state.graph?.promise === promise) state.graph = null;
   });
   return promise;
 }

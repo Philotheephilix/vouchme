@@ -39,47 +39,37 @@ export function reportEffectLine(report: ReportEntry): string {
   return "Upheld, but not subtracted: either it is outside the top-3 by weight, or the target's score is fixed (anchor) or already at its floor.";
 }
 
-/** The four terminal verdicts are four different things: UNPROVEN means the
- *  accusation was not substantiated and nobody is punished, MALICIOUS means the reporter was, and
- *  WITHDRAWN means it was never tested at all. The engine collapses all three into `rejected`
- *  because none of them subtracts a point — but stamping "REJECTED" on all three tells the person
- *  reading it the wrong thing about what happened. When the on-chain state is known, it wins. */
+/** The four terminal verdicts are four different things: UNPROVEN means the accusation was not
+ *  substantiated, MALICIOUS means the reporter was, WITHDRAWN means it was never tested. The engine
+ *  collapses all three into `rejected`, but stamping "REJECTED" on all three tells the reader the
+ *  wrong thing. When the on-chain state is known, it wins. */
 export function ReportStamp({ report, now }: { report: ReportEntry; now: Date }) {
   const isPending = report.status === "pending";
-  const pendingLabel = `PENDING · ${Math.max(0, Math.round(hoursUntil(report.challengeDeadline ?? report.filedAt, now)))}H LEFT`;
-  const upheldLabel = report.status === "decayed" ? "DECAYED · 0 WEIGHT" : `UPHELD -${fmtScore(report.weight)}`;
+  const pendingLabel = `Pending · ${Math.max(0, Math.round(hoursUntil(report.challengeDeadline ?? report.filedAt, now)))}h left`;
+  const upheldLabel = report.status === "decayed" ? "Decayed · 0 weight" : `Upheld −${fmtScore(report.weight)}`;
 
   const label =
     report.onChainState === "PENDING"
       ? pendingLabel
       : report.onChainState === "ARBITRATION"
-        ? "ARBITRATION"
+        ? "Arbitration"
         : report.onChainState === "UPHELD"
           ? upheldLabel
           : report.onChainState === "UNPROVEN"
-            ? "UNPROVEN"
+            ? "Unproven"
             : report.onChainState === "MALICIOUS"
-              ? "MALICIOUS"
+              ? "Malicious"
               : report.onChainState === "WITHDRAWN"
-                ? "WITHDRAWN"
+                ? "Withdrawn"
                 : report.status === "pending"
                   ? pendingLabel
                   : report.status === "upheld" || report.status === "decayed"
                     ? upheldLabel
-                    : "REJECTED";
+                    : "Rejected";
 
   return (
-    <span
-      data-testid="report-stamp"
-      className="inline-block max-w-full shrink-0 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wide opacity-80"
-      style={{
-        color: "var(--color-protest)",
-        border: `2px ${isPending ? "dashed" : "solid"} var(--color-protest)`,
-        borderRadius: "2px",
-        transform: "rotate(-3deg)",
-        transformOrigin: "center",
-      }}
-    >
+    <span data-testid="report-stamp" className="badge badge-outline shrink-0 text-protest">
+      <span className={`dot${isPending ? " dot-pulse" : ""}`} />
       {label}
     </span>
   );

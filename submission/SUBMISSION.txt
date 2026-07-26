@@ -1,0 +1,69 @@
+VouchMe — submission copy
+=========================
+
+
+1. SHORT DESCRIPTION (max 100 chars)
+------------------------------------
+
+A trust graph where a vouch is a name you own, and your score comes from who vouched for you.
+
+(93 chars.)
+
+Alternates:
+Humans vouch for humans. Your score comes from who vouched, weighted by how trusted they are. (93)
+Proof of personhood is a floor. VouchMe is the ladder: trust you inherit from people who have it. (97)
+
+
+2. DESCRIPTION
+--------------
+
+Proof of personhood answers "is there a unique human here?" It cannot answer "should I trust this human?" Everything downstream — lending without a deposit, marketplace escrow, agent permissions, airdrop weighting — needs the second answer and today fakes it with follower counts, wallet age, or a boolean badge.
+
+VouchMe closes that gap. Humans who are already trusted vouch for other humans, and your score is a function of *who* vouched for you, weighted by how trusted *they* are. Personhood is the floor; vouching is the ladder. The name is the mechanism: you vouch, and it is *you* who is on the line — in Portuguese commercial law that instrument is an "aval", a personal guarantee signed in your own name on somebody else's note.
+
+Four rules:
+
+1. Trust flows outward from anchors. Scores are computed breadth-first from verified accounts, counting contributions only from strictly lower depth. A clique that vouches for itself has no member below itself, so it contributes nothing to itself. The anti-collusion rule and the computation order are the same rule — no separate detector to evade.
+
+2. Humans add, platforms subtract. Apps get their own score, granted by the humans who vouch for them, and can file reports — but no platform can ever vouch for a human.
+
+3. Money makes claims cost something; it never makes them true. The token is a bond for filing and contesting reports. A million tokens and zero vouches is still the base score.
+
+4. Creating trust requires a present human; withdrawing it does not. Vouching is presence-gated and closed to agents. Revoking and reporting are always open.
+
+The hard part is the scoring. "Sum your vouches" is not just naive, it is exploitable by arithmetic rather than by bug: with base 20, multiplier 0.25 and per-edge cap 20, a ring of 7 accounts all sitting at 140 satisfies S = 20 + 6·min(0.25S, 20) exactly. The ring is a *valid solution* of the equation and is indistinguishable from seven real people, so detection cannot fix it. We leave the equation alone and change which solution is taken: the score is the LEAST fixed point, computed constructively outward from an anchor set of verified humans. Run the real engine on that 6-account, 30-edge ring with no anchor in it and every account scores the base and nothing more.
+
+The other idea is that the edge has no database row. A vouch *is* a subname: `carol.alice.vouchme.eth` means Alice vouched for Carol — not a label for the edge, the edge. Delete the name and the edge is gone. Depth in the graph is the label count in the name, so the max-depth rule is a rule about how long your name is; expiry is name expiry; revoking burns the name; and displayed scores are computed at resolution time, so they cannot go stale. Anyone can resolve the whole graph with stock tooling we did not write.
+
+Live today: six contracts on World Chain mainnet, two humans enrolled through the real app and one vouch between them; the name tree on Ethereum Sepolia with 17 member registries and non-transferable names; a scoring engine (60 tests), a resolver gateway, an agent-facing MCP server, a mini app, and a worked third-party integration that prices rental deposits off someone's standing instead of gating on a boolean.
+
+Honest limits: both live humans are verified anchors, whose score is fixed and ignores inbound edges, so the one live vouch changed no score — the trust-math demo lives on the seeded testnet deployment. Liveness is not enforced; it is unsatisfiable with the credential the wallet issues today. The deployed bytecode predates the project rename, so a redeploy is needed before chain and repo agree. All ENS writes are from one key.
+
+
+3. HOW IT'S MADE
+----------------
+
+Six packages in one npm workspace.
+
+contracts/ — Foundry/Solidity: registry, reports, platforms, token vault, presence drip. 58 tests.
+engine/ — One pure function: (accounts, vouches, reports, now) -> scores. No I/O, no clock, no randomness, no floats — integer centi-points throughout, so identical inputs give byte-identical outputs anywhere it runs. Zero dependencies, 60 tests.
+subgraph/ — The graph indexed from contract events, plus a standardized schema.
+gateway/ — CCIP-Read/wildcard resolver (Hono + viem) that computes text records at resolution time and signs them for on-chain verification.
+mcp/ — 18 trust tools for agents, importing the *same* engine the gateway runs, so an agent and a resolver can never disagree about a score. No vouch tool, ever.
+app/ — Next.js 15, React 19, Tailwind, viem, 21 API routes.
+
+The notable parts, mostly things that went wrong:
+
+* The wallet SDK hardcodes one chain ID and throws client-side on anything else, so a testnet user could sign in but never transact. No flag changes it; we redeployed to mainnet. The testnet deployment is kept anyway, because it is the only place we can seed an anchor set and demonstrate the trust math.
+
+* Our interface for the verification registry declared a function that does not exist on it, so the anchor check reverted for *every* address — invisible against our testnet stand-in, fatal in production. Found by calling the live contract, fixed, whole set redeployed; the dead addresses stay in the deployment file rather than being deleted.
+
+* A member is a registry *contract*, not a record. Issuing a vouch is `register(label, vouchee)` inside your own registry, so walking a trust path is repeated `getSubregistry()` — the breadth-first walk the engine does off chain is the same walk the name system does on chain. Registries deploy at a deterministic address derived from the label alone, so anyone can recompute a member's registry offline. That salt string is frozen at its pre-rename value on purpose: it is a CREATE2 input, and changing it would silently orphan 17 live registries.
+
+* Making names non-transferable took three attempts. The role constant the docs describe does not exist in the deployed contract, and revoking the bitmap is not enough because the permission check ORs a root-level grant over the per-name grant. Enforcement is root revocation plus a check that re-reads permissions after every mint and throws instead of returning a receipt — proven by a broadcast transfer that reverted.
+
+* Indexing: trust and attestation is a protocol *category* with no standardized schema, though every member expresses the same primitive — A asserts something about B, at a time, revocably. We wrote one and shipped its executable form: a single Substreams package indexing two protocols across five chains with zero per-protocol Rust, sinking into one table read by one query that names neither protocol nor chain. Adding the second protocol on four chains cost four config entries and one import — no new module, no recompile. All ten resulting rows were independently re-derived from public JSON-RPC.
+
+* That proof had to be built out of order and we left the trail intact: our testnet has no streaming endpoint, verified twice — once against the network registry, once by the CLI's two *different* error modes — so the first live streaming ran against another protocol on another chain until the mainnet move let the module stream our own contract.
+
+Verification discipline: nothing is claimed from a deploy script's stdout. Every address is re-read with eth_getCode and every getter re-read from a fresh client; the provisioning script accepts a member only after independently reading back its registry, its code size and its address record. Where a repo file disagreed with the chain, the chain won and the disagreement is written down — the errata file lists 19 numbered defects found against our own spec.

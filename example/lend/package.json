@@ -1,0 +1,27 @@
+{
+  "name": "lend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Micro-loans gated on VouchMe standing. A World App mini app: sign in, see your score, claim from a pool your tier unlocks.",
+  "scripts": {
+    "dev": "next dev --port 3200",
+    "build": "NEXT_DIST_DIR=.next-build next build",
+    "start": "NEXT_DIST_DIR=.next-build next start --port 3200",
+    "typecheck": "tsc --noEmit",
+    "test:claim": "node test/claim.mjs"
+  },
+  "dependencies": {
+    "@vouchme/minikit-sdk": "file:../vouchme-sdk",
+    "@worldcoin/minikit-js": "^2.0.3",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "viem": "^2.55.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.7.3"
+  }
+}

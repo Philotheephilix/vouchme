@@ -21,8 +21,8 @@ export function AccountControl() {
             void connect();
           }}
           disabled={connecting}
-          className="min-h-[36px] border px-3 font-mono text-2xs uppercase tracking-widest disabled:opacity-50"
-          style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+          className="btn btn-primary"
+          style={{ height: 32, padding: "0 12px" }}
         >
           {connecting ? "Connecting…" : "Sign in"}
         </button>
@@ -34,8 +34,7 @@ export function AccountControl() {
               setShowError(false);
               clearError();
             }}
-            className="max-w-[220px] text-right font-mono text-2xs leading-snug"
-            style={{ color: "var(--color-protest)" }}
+            className="max-w-[220px] text-right font-mono text-2xs leading-snug text-protest"
             title="Dismiss"
           >
             {error}
@@ -47,15 +46,15 @@ export function AccountControl() {
 
   return (
     <div className="flex items-center gap-2" data-testid="account-control">
-      <span className="font-mono text-2xs text-cream" data-testid="account-address">
-        {truncateMiddle(address, 14)}
+      <span className="truncate-mono max-w-[120px] font-mono text-2xs text-graphite" data-testid="account-address">
+        {truncateMiddle(address, 12)}
       </span>
       <button
         type="button"
         data-testid="sign-out"
         onClick={disconnect}
-        className="min-h-[36px] border px-2 font-mono text-2xs uppercase tracking-widest text-graphite"
-        style={{ borderColor: "var(--color-rule)" }}
+        className="btn btn-ghost"
+        style={{ height: 32, padding: "0 10px" }}
       >
         Sign out
       </button>

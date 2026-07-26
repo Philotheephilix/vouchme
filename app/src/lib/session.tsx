@@ -11,7 +11,8 @@
  *   - `vouchme_session` (httpOnly, HMAC-bound to the verified address) — the only cookie any server
  *     page (Home, Reports, Profile, this gate) trusts for authorization.
  *   - `vouchme_addr` (plain) — kept only so this module can read it back here for a fast,
- *     non-blocking UI restore on load. It is display-only; nothing security-relevant reads it.
+ *     non-blocking UI restore on load, and because src/app/agents/ still reads it directly. It is
+ *     display-only; nothing security-relevant reads it.
  */
 
 "use client";
@@ -135,8 +136,13 @@ async function ensureMiniKit(appId: string, timeoutMs = 5_000): Promise<{ ok: bo
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  // Local browser-preview bypass (NEXT_PUBLIC_PREVIEW=1 in the gitignored .env.local): seed the
+  // signed-in address with the fixture demo identity so the header, bottom nav and vouch/enroll
+  // gating render as a real member without a wallet. Never active in a normal build.
+  const previewAddress =
+    process.env.NEXT_PUBLIC_PREVIEW === "1" ? (process.env.NEXT_PUBLIC_PREVIEW_ADDRESS as Address | undefined) ?? null : null;
   const [state, setState] = useState<AuthState>({
-    address: null,
+    address: previewAddress,
     via: null,
     connecting: false,
     error: null,
@@ -150,6 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // render anything for an address restored this way until `connect()` actually runs the verified
   // round trip. That's a deliberate fail-closed gap, not a bypass of it.
   useEffect(() => {
+    // Preview bypass: keep the seeded fixture identity; don't run the real session restore, which
+    // would find no cookie and reset the address to null.
+    if (process.env.NEXT_PUBLIC_PREVIEW === "1") return;
     let cancelled = false;
     (async () => {
       try {

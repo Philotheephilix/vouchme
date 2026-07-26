@@ -38,30 +38,47 @@ export function SearchBox() {
   return (
     <form onSubmit={(e) => void runSearch(e)} data-testid="search-box">
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="search a handle or address"
-          className="min-h-[44px] flex-1 border bg-transparent px-3 font-mono text-sm text-cream"
-          style={{ borderColor: "var(--color-rule)" }}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          data-testid="search-input"
-        />
+        <div className="relative flex-1">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-graphite"
+          >
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="search a handle or address"
+            className="field w-full"
+            style={{ height: 52, paddingLeft: 44 }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            data-testid="search-input"
+          />
+        </div>
         <button
           type="submit"
           disabled={searching || !query.trim()}
-          className="min-h-[44px] shrink-0 border px-3 font-mono text-2xs uppercase tracking-widest disabled:opacity-40"
-          style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+          className="btn btn-accent shrink-0"
+          style={{ height: 52 }}
           data-testid="search-submit"
         >
           {searching ? "…" : "Search"}
         </button>
       </div>
       {error ? (
-        <p className="mt-2 text-2xs" style={{ color: "var(--color-protest)" }} data-testid="search-error">
+        <p className="mt-2 text-2xs text-protest" data-testid="search-error">
           {error}
         </p>
       ) : null}

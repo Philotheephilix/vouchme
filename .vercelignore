@@ -1,0 +1,29 @@
+# Vercel deploys `app/` (project Root Directory = app) but the upload must be the
+# repo root: `app` depends on the `@vouchme/engine` npm workspace, so the install
+# and the engine's `tsc` build both have to happen at the workspace root.
+#
+# Everything below is outside the Next.js build graph — app/src imports nothing
+# from these directories (verified: no relative import escapes app/, no fs reads,
+# no JSON imports). substreams/ alone is 1.4 GB, which would otherwise be uploaded
+# on every deploy.
+substreams/
+contracts/
+subgraph/
+docs/
+example/
+scripts/
+submission/
+skills/
+deployments/
+
+# Workspaces (engine, gateway, mcp) are NOT ignored: `npm install` at the root
+# needs each workspace's package.json to match package-lock.json.
+
+# Build outputs and local secrets — .env.local would otherwise be uploaded and
+# would override the project's Environment Variables during `next build`.
+.next/
+.next-*/
+engine/dist/
+.env
+.env.*
+!.env.example

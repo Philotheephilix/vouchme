@@ -10,16 +10,15 @@ function possessive(ensName: string): string {
 export function WeakestLink({ link }: { link: WeakestLinkT }) {
   if (!link.losesTier) return null;
   return (
-    <div className="border border-protest px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
+    <div
+      className="rounded-[10px] border border-protest/40 p-4"
+      style={{ backgroundColor: "var(--color-protest-subtle)" }}
+    >
+      <div className="eyebrow mb-1.5 text-protest">Weakest link</div>
       <p className="text-sm leading-relaxed text-cream">
-        <span className="font-mono" style={{ color: "var(--color-protest)" }}>
-          ⚠
-        </span>{" "}
         If {possessive(link.voucherEnsName)} vouch expires you drop to{" "}
-        <span className="font-mono" style={{ color: "var(--color-protest)" }}>
-          {fmtScore(link.scoreIfExpired)}
-        </span>{" "}
-        and lose <span className="font-mono text-cream">{tierLabel(link.currentTier)}</span>.
+        <span className="font-mono font-medium text-protest">{fmtScore(link.scoreIfExpired)}</span> and lose{" "}
+        <span className="font-mono font-medium">{tierLabel(link.currentTier)}</span>.
       </p>
     </div>
   );

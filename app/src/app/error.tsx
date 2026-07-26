@@ -23,15 +23,19 @@ export default function RouteError({ error, reset }: { error: Error & { digest?:
 
   return (
     <div className="pb-8" data-testid="route-error">
-      <header className="sticky top-0 z-30 bg-void" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="border-b border-rule px-4 py-3">
-          <div className="font-mono text-2xs uppercase tracking-widest text-graphite">VOUCHME · ERROR</div>
+      <header
+        className="sticky top-0 z-30 border-b border-rule bg-void/85 backdrop-blur"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
+        <div className="flex items-center px-4" style={{ minHeight: 52 }}>
+          <div className="eyebrow">VouchMe · Error</div>
         </div>
       </header>
 
       <section className="px-4 pt-6">
-        <div className="border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
-          <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
+        <div className="rounded-[10px] border border-protest/40 p-4" style={{ backgroundColor: "var(--color-protest-subtle)" }}>
+          <p className="eyebrow flex items-center gap-2 text-protest">
+            <span className="dot" />
             Could not load live data
           </p>
           <p className="mt-2 text-sm leading-relaxed text-cream">
@@ -44,12 +48,7 @@ export default function RouteError({ error, reset }: { error: Error & { digest?:
             browser console.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={reset}
-          className="mt-4 min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest"
-          style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
-        >
+        <button type="button" onClick={reset} className="btn btn-secondary btn-block mt-4">
           Retry
         </button>
       </section>

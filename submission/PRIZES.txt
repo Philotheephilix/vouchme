@@ -1,0 +1,106 @@
+VouchMe — per-prize answers
+===========================
+
+Repo: https://github.com/Philotheephilix/vouchme  (branch: main)
+One code link per prize, as the form asks.
+
+WHAT VOUCHME IS (the paragraph every box below opens with, in some form)
+
+Proof of personhood tells you a unique human is there. It cannot tell you whether to trust them. VouchMe is the layer above it: humans who are already trusted vouch for other humans, and your score is a function of *who* vouched for you, weighted by how trusted *they* are. Personhood is the floor; vouching is the ladder. It is the same human-to-human primitive Circles expresses with personal and group CRC — except the output is a reputation number rather than a currency, the edge is an ENS name rather than a token balance, and the graph is rooted in World ID so the trusted set has a verified bottom instead of an invite chain. Anything that today asks "are you real?" and needs "should I trust you?" — lending without a deposit, marketplace escrow, agent permissions, airdrop weighting — is a consumer.
+
+
+====================================================================
+THE GRAPH — $15,000
+====================================================================
+
+WHY WE'RE APPLICABLE
+--------------------
+
+VouchMe is a human-to-human trust graph: trusted humans vouch for other humans, and your score comes from who vouched for you weighted by how trusted they are — the Circles web-of-trust primitive, but producing a reputation score instead of a currency and rooted in World ID rather than an invite chain. A graph is only trustworthy if anyone can rebuild it, so ours is not in a database: it is indexed from contract events and recomputable by anyone.
+
+That is what led us to your prize. Trust and attestation is a protocol category with no standardized schema, even though every member of it — VouchMe, EAS, Circles — expresses the same primitive: account A asserts something about account B, at a time, revocably. We authored that standard (Trust Graph Standard v0.2.0) and shipped its executable form: one Substreams package that indexes two protocols across five chains with zero per-protocol Rust, sinking into a single `trust_edges` table read by one query that names neither protocol nor chain. Adding the second protocol on four extra chains cost four `networks:` entries and one import — no new module, no recompile — and all ten resulting sink rows were independently re-derived from public JSON-RPC before we claimed them.
+
+CODE
+----
+
+https://github.com/Philotheephilix/vouchme/blob/main/substreams/vouchme-trust/src/lib.rs#L334
+
+`map_trust_events` — the one protocol-agnostic handler. It decodes by parameterized topic0 and tail layout, which is why two protocols across five chains needed zero per-protocol Rust.
+
+EASE (1-10): 6
+--------------
+
+The model is genuinely good and the skills marketplace was the single biggest accelerator — `substreams-dev`, `substreams-ethereum` and `substreams-sql` are cited inline in our code comments. Points come off for setup, not for design: nothing was installed on this box, and the path to a first stream was Rust + rustup + the wasm32 target + a protoc install that only announced itself as a `cargo test` failure inside `build.rs`.
+
+FEEDBACK
+--------
+
+1. Network-not-found and auth-failed should not look like the same error. `-e worldchain-sepolia` fails with "endpoint's suffix must be a valid port" — the CLI fell through to treating an unregistered alias as a hostname. We only established that World Chain Sepolia is unsupported by comparing that message to the *different* error `worldchain` gives (unauthenticated). "Unknown network alias; see the networks registry" would have saved an hour.
+2. `build.rs` should check for protoc and say so. The failure surfaces as a prost-build panic during `cargo test`, which does not read as a missing apt package.
+3. Standardized schemas are documented as a thing that exists for DEXes and lending, but there is no stated process for proposing one for a new category. We wrote ours against the spirit of the existing ones and guessed. A short "how to propose a category schema" page would get you more of them.
+4. The sink docs assume you already chose ClickHouse or Postgres. A one-paragraph "pick this one if" would help; we picked ClickHouse for the analytical read pattern and only confirmed that was right afterwards.
+
+
+====================================================================
+WORLD — $15,000
+====================================================================
+
+WHY WE'RE APPLICABLE
+--------------------
+
+VouchMe is the layer directly above proof of personhood. World ID tells an app a unique human is present; it cannot tell the app whether that human is trustworthy, so today every consumer of it falls back to follower counts, wallet age, or a boolean badge. VouchMe answers the second question with the first one's guarantee underneath: humans who are already trusted vouch for other humans, your score is a function of who vouched for you weighted by how trusted they are, and a vouch is a personal guarantee — you vouch, and it is you who is on the line. Same human-to-human primitive as Circles' personal CRC, but the output is a reputation score rather than a currency, and the graph is rooted in Orb verification instead of an invite chain.
+
+World ID is therefore not a login here, it is the mathematical bottom of the system. VouchMe's score is a mutually recursive equation with infinitely many solutions — a ring of six accounts vouching for each other is a perfectly valid fixed point of "trust flows from trusted people" — and we resolve it by taking the least fixed point computed outward from an anchor set. Orb-verified humans are that anchor set, read live from World ID's Address Book on every call, so the one claim in VouchMe that does not depend on another VouchMe claim is World ID's. On top of that: nullifier-per-action gives one account per human, and the whole product ships as a World App mini app with a worked third-party integration that prices rental deposits off someone's standing. This is the human-to-human trust layer Circles built with personal CRC, but with a verified root instead of an invite-bootstrapped one.
+
+CODE
+----
+
+https://github.com/Philotheephilix/vouchme/blob/main/contracts/src/VouchMeRegistry.sol#L318
+
+`isAnchor()` — `addressBook.addressVerifiedUntil(a) > block.timestamp`, read live on every call, never cached and never a stored flag. This one line is where World ID's Orb registry becomes the bottom of our score's fixed point. Live at 0x6fEfEf2d44203300a6a33d631840C972181b8722 on World Chain mainnet.
+
+EASE (1-10): 5
+--------------
+
+MiniKit's happy path is genuinely fast — wallet auth to a broadcast transaction took an afternoon. The 5 is for the walls that are invisible until you hit them and then absolute: a hardcoded chain, an interface mismatch on the Address Book, and a verification flag that cannot be satisfied.
+
+FEEDBACK
+--------
+
+1. `minikit-js` 2.0.3 hardcodes `WORLD_CHAIN_ID = 480` and throws `invalid_operation` client-side for anything else, and its EIP-1193 provider pins `eth_chainId` to `0x1e0`. The practical effect is that World Chain Sepolia is not a testnet for mini apps: a user can sign in and can never transact. We deployed to mainnet with real funds during a hackathon because of this. Either support 4801 or say plainly in the docs that testnet mini apps cannot send transactions.
+2. The Address Book has no `getIsUserVerified(address)`. We wrote that interface from documentation-shaped memory and every `isAnchor()` call reverted on mainnet while passing against our testnet stand-in — the worst possible failure ordering. The real function is `addressVerifiedUntil(address) -> uint256`. Please publish the canonical Address Book ABI and address prominently; it is the single most useful contract you expose and it is hard to find.
+3. `require_user_presence` is unsatisfiable with `selfieCheckLegacy()`, which returns World ID 3.0 proofs whose payload has no such field. Since that preset is the only one the SDK exposes for this credential, the liveness guarantee is documented but unreachable. Either expose a preset that carries it or mark it as unavailable.
+4. Verifying which IDKit result field carries the nullifier cost us real time — it is inside `results[]`, not at the top level, and reading the wrong field produces a plausible-looking hash that silently breaks uniqueness. Worth a warning in the docs.
+
+
+====================================================================
+ENS — $5,000
+====================================================================
+
+WHY WE'RE APPLICABLE
+--------------------
+
+VouchMe is a human-to-human trust graph: trusted humans vouch for other humans, and your score is a function of who vouched for you weighted by how trusted they are — the Circles web-of-trust primitive, but producing a reputation score instead of a currency, and rooted in World ID rather than an invite chain. Every such system needs somewhere to keep its edges, and that is the design decision that brought us here.
+
+We do not display ENS names — we store the trust graph in the name tree. `carol.alice.vouchme.eth` does not label the statement "Alice vouched for Carol", it *is* that statement; delete the name and the edge is gone. Depth in the graph is the label count in the name, so our max-depth rule is a rule about name length; a vouch expires because the name expires; revoking burns the name. Each member is their own ENSv2 PermissionedRegistry deployed at an address derivable from their label alone, so issuing a vouch is `register(label, vouchee)` inside your own registry and walking a trust path is repeated `getSubregistry()` — the same breadth-first walk our engine does off chain. Every name is non-transferable, proven by a broadcast transfer that reverted. 17 member registries and nested vouch names are live on Sepolia and resolve through the UniversalResolver in stock viem, with none of our code involved.
+
+CODE
+----
+
+https://github.com/Philotheephilix/vouchme/blob/main/app/src/lib/ens-core.ts#L797
+
+`mintVouchSubname` — the whole thesis in one function: issuing a vouch is `register(vouchee, ...)` inside the voucher's own ENSv2 registry, so `carol.alice.vouchme.eth` does not describe the edge, it is the edge. Live on Sepolia: `erin.carol.alice.vouchme.eth` resolves in stock viem.
+
+EASE (1-10): 4
+--------------
+
+v1 is a 9 — it is the most pleasant contract surface in Ethereum. This score is entirely about v2, which we used because registry-per-name is what makes our design possible. It is powerful and it is close to undocumented; almost everything below we established by calling contracts and reading verified source.
+
+FEEDBACK
+--------
+
+1. v1 and v2 coexist with no signpost. `vouchme.eth` has no forward record in the v1 flat registry — `owner()` and `resolver()` both return zero — while the same registry answers correctly for `eth`. Anyone verifying our work against v1, which is what every tutorial and most tooling still points at, concludes our names do not exist. A "you are looking at v1, this name lives in v2" hint anywhere in that path would prevent a lot of wrong conclusions.
+2. `ROLE_CAN_TRANSFER` does not exist in the deployed `RegistryRolesLib` — only the admin half does. We implemented against the documented constant and shipped transferable "soulbound" names until we tested it for real.
+3. Revoking a role bitmap is not enough, and this is not stated anywhere: `hasRoles()` ORs the ROOT_RESOURCE grant over the per-resource grant, so an owner holding ALL_ROLES at root keeps every permission you just revoked per-name. This is a footgun with security consequences and deserves a bold callout.
+4. `VerifiableFactory` is not verified on Sourcify. We identified `deployProxy(address,uint256,bytes)` by selector-matching `0x5d84121a` against the canonical source. For a factory whose whole value proposition is verifiable deployment, this is an odd gap.
+5. There is no worked example of the pattern we needed — "each user owns a registry, subnames are relationships" — even though ENSv2's architecture is clearly built for it. That example would sell v2 better than any amount of prose.

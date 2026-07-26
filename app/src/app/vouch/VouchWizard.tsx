@@ -355,15 +355,14 @@ export function VouchWizard() {
   if (!auth.address) {
     return (
       <div className="pb-8">
-        <Header eyebrow="VOUCH" />
-        <section className="px-4 pt-10 text-center">
+        <Header eyebrow="VOUCH" title="Vouch for someone" />
+        <section className="px-4 pt-6 text-center">
           <p className="text-sm leading-relaxed text-cream">Sign in to vouch for someone.</p>
           <button
             type="button"
             onClick={() => void auth.connect()}
             disabled={auth.connecting}
-            className="mt-6 min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-50"
-            style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+            className="btn btn-primary btn-block btn-lg mt-6 disabled:opacity-50"
           >
             {auth.connecting ? "Connecting…" : "Sign in"}
           </button>
@@ -374,19 +373,61 @@ export function VouchWizard() {
 
   return (
     <div className="pb-8">
-      <Header eyebrow="VOUCH" title={`step ${step + 1} of ${STEPS.length} — ${STEPS[step]}`} />
+      <Header eyebrow="VOUCH" title={STEPS[step]} subtitle={`Step ${step + 1} of ${STEPS.length}`} />
 
-      <ol className="scroll-x flex gap-3 border-b border-rule px-4 py-3">
-        {STEPS.map((label, i) => (
-          <li
-            key={label}
-            className="whitespace-nowrap font-mono text-2xs uppercase tracking-widest"
-            style={{ color: i === step ? "var(--color-seal)" : i < step ? "var(--color-cream)" : "var(--color-graphite)" }}
-          >
-            {i + 1}. {label}
-          </li>
-        ))}
-      </ol>
+      {/* connected progress rail — nodes fill blue as you advance; the Header already names the
+          current step, so the rail stays purely visual and never clips a label at 6 steps wide. */}
+      <nav aria-label="Progress" className="border-b border-rule px-4 py-4">
+        <ol className="flex items-center">
+          {STEPS.map((label, i) => {
+            const done = i < step;
+            const current = i === step;
+            return (
+              <li key={label} className="flex flex-1 items-center last:flex-none">
+                <div
+                  className="relative flex items-center justify-center rounded-full"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    flex: "none",
+                    transition: "background .4s ease, color .4s ease, box-shadow .4s ease, transform .4s cubic-bezier(.22,1,.36,1)",
+                    background: done ? "var(--color-accent)" : current ? "var(--color-paper)" : "var(--color-paper-2)",
+                    color: done ? "#fff" : current ? "var(--color-accent)" : "var(--color-graphite)",
+                    boxShadow: current
+                      ? "0 0 0 2px var(--color-accent), 0 5px 16px -5px color-mix(in srgb, var(--color-accent) 60%, transparent)"
+                      : done
+                        ? "var(--shadow-sm)"
+                        : "inset 0 0 0 1px var(--color-rule-strong)",
+                    transform: current ? "scale(1.1)" : "scale(1)",
+                  }}
+                  title={`Step ${i + 1}: ${label}`}
+                  aria-current={current ? "step" : undefined}
+                >
+                  {done ? (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m4 12 5 5 11-11" />
+                    </svg>
+                  ) : (
+                    <span className="font-mono" style={{ fontSize: 11, fontWeight: 700 }}>
+                      {i + 1}
+                    </span>
+                  )}
+                </div>
+                {i < STEPS.length - 1 ? (
+                  <span
+                    aria-hidden
+                    className="mx-1.5 h-[2px] flex-1 rounded-full"
+                    style={{
+                      background: done ? "var(--color-accent)" : "var(--color-rule-strong)",
+                      transition: "background .4s ease",
+                    }}
+                  />
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
 
       <section className="px-4 pt-6">
         {step === 0 ? (
@@ -399,8 +440,7 @@ export function VouchWizard() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value.trim())}
                 placeholder="0x… or handle.vouchme.eth"
-                className="min-h-[44px] flex-1 border bg-transparent px-3 font-mono text-sm text-cream"
-                style={{ borderColor: "var(--color-rule)" }}
+                className="field flex-1"
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
@@ -409,8 +449,7 @@ export function VouchWizard() {
                 type="button"
                 disabled={!query || resolving}
                 onClick={() => void resolveTarget(isAddress(query) ? query : query.toLowerCase())}
-                className="min-h-[44px] shrink-0 border px-3 font-mono text-2xs uppercase tracking-widest disabled:opacity-40"
-                style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+                className="btn btn-primary shrink-0 disabled:opacity-40"
               >
                 {resolving ? "…" : "Resolve"}
               </button>
@@ -421,7 +460,7 @@ export function VouchWizard() {
               </p>
             ) : null}
             {target ? (
-              <div className="mt-3 border px-3 py-2" style={{ borderColor: "var(--color-rule)" }}>
+              <div className="card mt-3 p-4">
                 <p className="truncate-mono font-mono text-sm text-cream">{target.ensName}</p>
                 <p className="font-mono text-2xs text-graphite">
                   {target.kind} · {target.credentialStatus}
@@ -434,7 +473,7 @@ export function VouchWizard() {
                 {/* This list is `/api/candidates/{me}`, which returns people who could vouch FOR
                     you — `candidatesFor` filters to tier >= 1 and "not already vouching you".
                     They are not vouch targets, so a row opens their profile. */}
-                <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">People who could vouch for you</h3>
+                <h3 className="eyebrow mb-2">People who could vouch for you</h3>
                 <p className="mb-2 text-2xs leading-relaxed text-graphite">
                   Not people to vouch for — these are Tier 1+ accounts whose vouch would raise your score. Open one to
                   ask.
@@ -468,8 +507,7 @@ export function VouchWizard() {
               type="button"
               disabled={!target || simLoading}
               onClick={() => void runSimulation()}
-              className="mt-8 min-h-[44px] w-full border px-4 font-mono text-xs uppercase tracking-widest disabled:opacity-30"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary btn-block mt-8 disabled:opacity-30"
             >
               {simLoading ? "Simulating…" : "Preview"}
             </button>
@@ -506,8 +544,8 @@ export function VouchWizard() {
             {/* `VouchMeRegistry.vouch()` reverts on `VouchExists()` and `RateLimited()` — refuse here
                 rather than after walking the user through a ~20s Selfie Check. */}
             {sim.blockers.length > 0 ? (
-              <div className="mt-4 border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
-                <p className="font-mono text-2xs uppercase tracking-widest" style={{ color: "var(--color-protest)" }}>
+              <div className="mt-4 rounded-[10px] border border-protest/40 p-4" style={{ backgroundColor: "var(--color-protest-subtle)" }}>
+                <p className="eyebrow text-protest">
                   This vouch would fail on chain
                 </p>
                 {sim.blockers.map((b) => (
@@ -527,7 +565,7 @@ export function VouchWizard() {
         ) : null}
 
         {step === 2 ? (
-          <div className="border px-4 py-3" style={{ borderColor: "var(--color-protest)" }}>
+          <div className="rounded-[10px] border border-protest/40 p-4" style={{ backgroundColor: "var(--color-protest-subtle)" }}>
             <p className="text-sm leading-relaxed text-cream">
               <span className="font-mono" style={{ color: "var(--color-protest)" }}>
                 ⚠
@@ -556,8 +594,7 @@ export function VouchWizard() {
               type="button"
               onClick={() => void openPresence()}
               disabled={attesting}
-              className="min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-50"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary btn-block disabled:opacity-50"
             >
               {attesting ? "Verifying…" : attestData ? "Verified — reopen" : "Open World ID"}
             </button>
@@ -609,8 +646,7 @@ export function VouchWizard() {
               type="button"
               onClick={() => void sendVouchTx()}
               disabled={txStatus === "pending" || !attestData}
-              className="min-h-[44px] w-full border px-4 py-3 font-mono text-xs uppercase tracking-widest disabled:opacity-50"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary btn-block disabled:opacity-50"
             >
               {txStatus === "pending" ? "Sending…" : "Send vouch transaction"}
             </button>
@@ -664,7 +700,7 @@ export function VouchWizard() {
 
             {txStatus !== "reverted" ? (
               <div className="mt-6 border-t border-rule pt-4">
-                <h3 className="mb-2 font-mono text-2xs uppercase tracking-widest text-graphite">The vouch, as a name</h3>
+                <h3 className="eyebrow mb-2">The vouch, as a name</h3>
                 {ensMint.kind === "idle" || ensMint.kind === "minting" ? (
                   <p className="text-2xs text-graphite">Minting the subname on Ethereum Sepolia…</p>
                 ) : null}
@@ -704,8 +740,7 @@ export function VouchWizard() {
                     <button
                       type="button"
                       onClick={() => void mintVouchName()}
-                      className="mt-3 min-h-[44px] w-full border px-4 font-mono text-2xs uppercase tracking-widest"
-                      style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+                      className="btn btn-primary btn-block mt-3"
                     >
                       Retry the name
                     </button>
@@ -723,8 +758,7 @@ export function VouchWizard() {
             type="button"
             disabled={first}
             onClick={() => setStep((s) => Math.max(0, s - 1))}
-            className="min-h-[44px] flex-1 border px-4 font-mono text-xs uppercase tracking-widest text-graphite disabled:opacity-30"
-            style={{ borderColor: "var(--color-rule)" }}
+            className="btn btn-secondary flex-1 disabled:opacity-30"
           >
             Back
           </button>
@@ -736,8 +770,7 @@ export function VouchWizard() {
               disabled={(sim?.blockers.length ?? 0) > 0}
               title={sim?.blockers[0]}
               onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              className="min-h-[44px] flex-1 border px-4 font-mono text-xs uppercase tracking-widest disabled:opacity-30"
-              style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
+              className="btn btn-primary flex-1 disabled:opacity-30"
             >
               Next
             </button>

@@ -1,0 +1,1006 @@
+/* ─────────────────────────────────────────────────────────────────────────────────────────────
+   /landing — the public marketing page.
+
+   Everything here reads the app's own tokens from globals.css (`--color-*`, `--font-*`,
+   `--radius-*`, `--shadow-*`). No colour is invented; no second palette is introduced. What this
+   file adds is a *landing-scale layout*: the mini app is a 480px column at 13px body, and a page
+   read on a laptop needs a wider measure and a much larger display size. Those live as `--lp-*`
+   locals scoped to `.page`, so nothing leaks into the app.
+
+   Three structural devices carry the identity, and each one encodes something true:
+
+     · the dashed rule    — every section opens on one. In the depth diagram a dashed rule is the
+                            depth boundary trust has to cross to count. The page borrows the same
+                            mark for its section boundaries, so the vocabulary is learned before
+                            the diagram needs it.
+     · tier colour        — `--color-tier-0/1/2` (graphite / seal / anchor) already exist in the
+                            token layer. Every node, figure and score on this page takes its colour
+                            from its tier and from nothing else, so attenuation is legible as
+                            colour draining out of a graph, not just as numbers going down.
+     · mono figures       — every protocol constant is set in IBM Plex Mono, tabular. Figures are
+                            the product here; they are never set in the body face.
+
+   Motion is deliberately thin, and there is no JavaScript on this route at all — see the note above
+   the keyframes at the foot of this file for why the obvious scroll-reveal was cut.
+   ───────────────────────────────────────────────────────────────────────────────────────────── */
+
+.page {
+  --lp-max: 1140px;
+  --lp-gutter: clamp(20px, 4.5vw, 44px);
+  --lp-section-y: clamp(64px, 8vw, 116px);
+
+  --lp-display: clamp(38px, 6.6vw, 74px);
+  --lp-h2: clamp(27px, 3.4vw, 44px);
+  --lp-h3: clamp(17px, 1.5vw, 20px);
+  --lp-lead: clamp(16px, 1.55vw, 21px);
+  --lp-body: clamp(15px, 1.1vw, 17px);
+  --lp-fig: clamp(13px, 1vw, 15px);
+
+  /* `--color-graphite` is tuned for 11px meta labels in a dense 480px column; at ~2.9:1 on paper it
+     is below the text-contrast floor, and this page sets whole paragraphs in it. `--lp-muted` is
+     the same token pulled toward ink until it clears AA (~6.5:1) — one legibility adjustment, not a
+     second palette. Hairlines and decorative marks keep the original token. */
+  --lp-muted: color-mix(in oklab, var(--color-graphite) 58%, var(--color-cream));
+
+  width: 100%;
+  overflow-x: clip;
+  color: var(--color-cream);
+  font-size: var(--lp-body);
+  line-height: 1.62;
+}
+
+/* ── shell ──────────────────────────────────────────────────────────────────────────────────── */
+
+.shell {
+  width: 100%;
+  max-width: var(--lp-max);
+  margin: 0 auto;
+  padding-inline: var(--lp-gutter);
+}
+
+/* Floating pill nav. Structure lifted from the reference (sticky, inset from the top, blurred
+   translucent pill rather than a full-width bar); the fill, radius and shadow are ours. */
+.nav {
+  position: sticky;
+  top: 14px;
+  z-index: 40;
+  margin-top: 14px;
+}
+
+.navBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: 56px;
+  padding: 0 10px 0 20px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--color-paper) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow:
+    var(--shadow-sm),
+    inset 0 0 0 1px var(--color-rule-strong);
+}
+
+.navHome {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-cream);
+  text-decoration: none;
+}
+
+.navLinks {
+  display: none;
+  align-items: center;
+  gap: 26px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLink {
+  color: var(--lp-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: color 0.2s ease;
+}
+.navLink:hover {
+  color: var(--color-cream);
+}
+
+@media (min-width: 900px) {
+  .navLinks {
+    display: flex;
+  }
+}
+
+/* ── section rhythm ─────────────────────────────────────────────────────────────────────────── */
+
+.section {
+  padding-block: var(--lp-section-y);
+  /* clears the sticky pill, so an in-page anchor lands on the eyebrow and not behind the nav */
+  scroll-margin-top: 88px;
+}
+
+/* the dashed rule that opens every section — the same mark the depth diagram uses for a boundary */
+.sectionRule {
+  height: 0;
+  border: 0;
+  border-top: 1px dashed var(--color-rule-strong);
+  margin: 0 0 clamp(28px, 3.5vw, 44px);
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 14px;
+}
+
+.h2 {
+  font-family: var(--font-display);
+  font-size: var(--lp-h2);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.032em;
+  margin: 0;
+  max-width: 20ch;
+  text-wrap: balance;
+}
+
+.lead {
+  margin: 18px 0 0;
+  max-width: 62ch;
+  font-size: var(--lp-lead);
+  line-height: 1.55;
+  color: color-mix(in oklab, var(--color-cream) 74%, var(--color-graphite));
+}
+
+.prose {
+  margin: 16px 0 0;
+  max-width: 66ch;
+  color: color-mix(in oklab, var(--color-cream) 70%, var(--color-graphite));
+}
+
+.prose strong {
+  color: var(--color-cream);
+  font-weight: 700;
+}
+
+.figures {
+  margin-top: clamp(32px, 4vw, 56px);
+}
+
+/* ── hero ───────────────────────────────────────────────────────────────────────────────────── */
+
+.hero {
+  padding-block: clamp(48px, 7vw, 92px) clamp(56px, 7vw, 104px);
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(44px, 5vw, 72px);
+  align-items: center;
+}
+
+@media (min-width: 940px) {
+  .heroGrid {
+    grid-template-columns: minmax(0, 1.22fr) minmax(300px, 0.78fr);
+    gap: clamp(48px, 5vw, 88px);
+  }
+}
+
+.heroBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 13px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-dark);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.h1 {
+  margin: 20px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--lp-display);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+/* the second clause of the thesis, set apart in accent — the one place the headline changes voice */
+.h1 em {
+  font-style: normal;
+  color: var(--color-accent);
+}
+
+.heroLead {
+  margin: 24px 0 0;
+  max-width: 54ch;
+  font-size: var(--lp-lead);
+  line-height: 1.55;
+  color: color-mix(in oklab, var(--color-cream) 72%, var(--color-graphite));
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.heroFoot {
+  margin: 26px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--lp-muted);
+  max-width: 46ch;
+}
+
+/* ── hero signature: the scale rail ─────────────────────────────────────────────────────────── */
+
+.rail {
+  margin: 0;
+}
+
+/* the measured part of the figure. Its own box, so the caption can sit under it in normal flow
+   rather than on top of the absolutely-positioned marks. */
+.railBody {
+  position: relative;
+  height: clamp(330px, 40vw, 430px);
+  padding-left: 4px;
+}
+
+.railTrack {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  top: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to top,
+    var(--color-rule-strong) 0%,
+    var(--color-rule-strong) 13.3%,
+    var(--color-tier-0) 13.3%,
+    var(--color-tier-1) 36.7%,
+    var(--color-tier-2) 66.7%,
+    var(--color-tier-2) 93.3%,
+    var(--color-rule-strong) 93.3%
+  );
+}
+
+/* below the enrolment floor there is no score at all — a report can remove reputation but never the
+   credential. Hatched rather than empty, because it is a region that cannot be entered. */
+.railFloor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 13.3%;
+  border-radius: 0 var(--radius-sm) 0 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    color-mix(in oklab, var(--color-graphite) 16%, transparent) 5px 6px
+  );
+}
+
+.railMarks {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(50%);
+}
+
+.markTick {
+  width: 26px;
+  height: 1px;
+  flex: none;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.markNum {
+  /* the tier hue, darkened for text; the tick beside it keeps the pure token */
+  color: color-mix(in oklab, var(--tone, currentColor) 62%, var(--color-cream));
+  font-family: var(--font-mono);
+  font-size: clamp(20px, 2.2vw, 27px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  flex: none;
+  min-width: 3.2ch;
+}
+
+.markText {
+  display: block;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--lp-muted);
+}
+
+.markText b {
+  display: block;
+  color: var(--color-cream);
+  font-weight: 700;
+  font-size: var(--text-sm);
+}
+
+.railCaption {
+  margin: 18px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.7;
+  color: var(--lp-muted);
+}
+
+/* ── cards ──────────────────────────────────────────────────────────────────────────────────── */
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 780px) {
+  .cardGrid2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cardGrid3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.card {
+  padding: clamp(22px, 2.4vw, 30px);
+  border-radius: var(--radius-xl);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.28s ease;
+}
+
+@media (hover: hover) {
+  .card:hover,
+  .panel:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+.cardTinted {
+  background: linear-gradient(160deg, var(--color-accent-subtle), var(--color-paper) 74%);
+}
+
+.cardTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--lp-h3);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.cardBody {
+  margin: 10px 0 0;
+  font-size: var(--lp-fig);
+  line-height: 1.62;
+  color: color-mix(in oklab, var(--color-cream) 66%, var(--color-graphite));
+}
+
+.cardBody code {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
+  color: var(--color-cream);
+}
+
+.cardTag {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+
+/* the three rejected alternatives — plain rows, not cards; they are a dismissal, not a feature set */
+.rejects {
+  margin: clamp(28px, 3vw, 40px) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px dashed var(--color-rule-strong);
+}
+
+.reject {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px 24px;
+  padding: 16px 0;
+  border-bottom: 1px dashed var(--color-rule-strong);
+}
+
+@media (min-width: 700px) {
+  .reject {
+    grid-template-columns: 190px minmax(0, 1fr);
+    align-items: baseline;
+  }
+}
+
+.rejectKey {
+  font-family: var(--font-mono);
+  font-size: var(--lp-fig);
+  color: var(--color-cream);
+  font-weight: 500;
+}
+
+.rejectVal {
+  font-size: var(--lp-fig);
+  color: var(--lp-muted);
+}
+
+/* ── attenuation cascade ────────────────────────────────────────────────────────────────────── */
+
+.cascade {
+  padding: clamp(22px, 2.6vw, 34px);
+  border-radius: var(--radius-xl);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-sm);
+}
+
+.cascadeHead,
+.cascadeRow {
+  display: grid;
+  grid-template-columns: minmax(88px, 1.1fr) minmax(56px, 0.6fr) minmax(0, 2.4fr) minmax(64px, 0.7fr);
+  gap: 10px 14px;
+  align-items: center;
+}
+
+.cascadeHead {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-rule);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+
+.cascadeRow {
+  padding: 16px 0;
+  border-bottom: 1px dashed var(--color-rule-strong);
+}
+.cascadeRow:last-of-type {
+  border-bottom: 0;
+  padding-bottom: 4px;
+}
+
+.cascadeName {
+  font-family: var(--font-mono);
+  font-size: var(--lp-fig);
+  color: var(--color-cream);
+  overflow-wrap: anywhere;
+}
+
+.cascadeScore {
+  color: color-mix(in oklab, var(--tone, currentColor) 62%, var(--color-cream));
+  font-family: var(--font-mono);
+  font-size: var(--lp-fig);
+  font-weight: 500;
+}
+
+.cascadeBar {
+  position: relative;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--color-paper-2);
+  overflow: hidden;
+}
+
+.cascadeFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+
+.cascadeWorth {
+  font-family: var(--font-mono);
+  font-size: clamp(15px, 1.35vw, 19px);
+  font-weight: 500;
+  text-align: right;
+  letter-spacing: -0.01em;
+  color: var(--color-cream);
+}
+
+.capNote {
+  display: inline-block;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── the depth-rule diagram (the page's signature figure) ───────────────────────────────────── */
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 880px) {
+  .panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  /* the figure is the content here, so the padding gives way before the drawing does */
+  padding: clamp(12px, 3.4vw, 26px);
+  border-radius: var(--radius-xl);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.28s ease;
+}
+
+.panelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.panelTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--lp-h3);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.panelSum {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.panelSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.panelCaption {
+  margin: 16px 0 0;
+  font-size: var(--lp-fig);
+  line-height: 1.6;
+  color: color-mix(in oklab, var(--color-cream) 64%, var(--color-graphite));
+}
+
+/* SVG type — set here so the diagram inherits the page's faces rather than the UA default */
+.nodeName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+.nodeScore {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 500;
+}
+.axisLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--lp-muted);
+  letter-spacing: 0.04em;
+}
+.ruleLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.sumLabel {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 500;
+  fill: var(--lp-muted);
+}
+
+/* the pull-quote that closes the signature section */
+.pull {
+  margin: clamp(32px, 4vw, 52px) 0 0;
+  padding: clamp(24px, 3vw, 38px) clamp(22px, 3vw, 40px);
+  border-radius: var(--radius-2xl);
+  background: var(--color-cream);
+  color: var(--color-paper);
+}
+
+.pullText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.4vw, 32px);
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.028em;
+  max-width: 26ch;
+  text-wrap: balance;
+}
+
+.pullNote {
+  margin: 16px 0 0;
+  max-width: 60ch;
+  font-size: var(--lp-fig);
+  line-height: 1.62;
+  color: color-mix(in oklab, var(--color-paper) 66%, var(--color-graphite));
+}
+
+/* ── the state ledger ───────────────────────────────────────────────────────────────────────── */
+
+.ledger {
+  margin: 0;
+  padding: 0;
+  border-top: 1px dashed var(--color-rule-strong);
+}
+
+.ledgerRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px 28px;
+  padding: 20px 0;
+  border-bottom: 1px dashed var(--color-rule-strong);
+}
+
+@media (min-width: 760px) {
+  .ledgerRow {
+    grid-template-columns: 190px minmax(0, 1fr);
+    align-items: baseline;
+  }
+}
+
+.ledgerKey {
+  font-family: var(--font-mono);
+  font-size: clamp(17px, 1.7vw, 22px);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+}
+
+.ledgerVal {
+  font-size: var(--lp-fig);
+  line-height: 1.62;
+  color: color-mix(in oklab, var(--color-cream) 68%, var(--color-graphite));
+}
+.ledgerVal b {
+  color: var(--color-cream);
+  font-weight: 700;
+}
+.ledgerVal code {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
+  color: var(--color-cream);
+}
+
+/* ── worked example table ───────────────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  border-radius: var(--radius-xl);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-sm);
+  padding: clamp(6px, 1vw, 12px) 0;
+}
+
+.table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: var(--lp-fig);
+}
+
+.table caption {
+  caption-side: top;
+  padding: 14px clamp(18px, 2.2vw, 26px) 6px;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+
+.table th,
+.table td {
+  padding: 14px clamp(12px, 1.6vw, 20px);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.table thead th {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  border-bottom: 1px solid var(--color-rule);
+  white-space: nowrap;
+}
+
+.table tbody tr + tr td {
+  border-top: 1px dashed var(--color-rule-strong);
+}
+
+.table tbody th {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--lp-fig);
+  white-space: nowrap;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.numHero {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(15px, 1.4vw, 18px);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.why {
+  color: var(--lp-muted);
+  min-width: 22ch;
+}
+
+/* ── code block ─────────────────────────────────────────────────────────────────────────────── */
+
+.code {
+  margin: 0;
+  padding: clamp(18px, 2.2vw, 26px);
+  border-radius: var(--radius-xl);
+  background: var(--color-cream);
+  color: color-mix(in oklab, var(--color-paper) 88%, var(--color-graphite));
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 1.05vw, 14px);
+  line-height: 1.8;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.codeDim {
+  color: color-mix(in oklab, var(--color-paper) 40%, var(--color-graphite));
+}
+
+/* the accent at full saturation fails contrast on ink, so the code block uses the same hue lifted
+   in lightness. Still one hue, still the brand blue — not a second accent. */
+.codeKey {
+  color: #93a6ff;
+}
+
+/* skip link — hidden until focused, then a real, visible control at the top of the page */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 60;
+}
+.skip:focus {
+  left: 12px;
+  top: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-cream);
+  color: var(--color-paper);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.methods {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.method {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px 20px;
+  padding: 14px 0;
+  border-bottom: 1px dashed var(--color-rule-strong);
+}
+.method:first-child {
+  border-top: 1px dashed var(--color-rule-strong);
+}
+
+@media (min-width: 700px) {
+  .method {
+    grid-template-columns: 210px minmax(0, 1fr);
+    align-items: baseline;
+  }
+}
+
+.methodName {
+  font-family: var(--font-mono);
+  font-size: var(--lp-fig);
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+
+.methodDesc {
+  font-size: var(--lp-fig);
+  color: var(--lp-muted);
+}
+
+/* ── honest close ───────────────────────────────────────────────────────────────────────────── */
+
+.ledgerCols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 780px) {
+  .ledgerCols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.tally {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tally li {
+  position: relative;
+  padding: 9px 0 9px 26px;
+  font-size: var(--lp-fig);
+  line-height: 1.55;
+  border-bottom: 1px dashed var(--color-rule-strong);
+}
+.tally li:last-child {
+  border-bottom: 0;
+}
+
+.tally li::before {
+  position: absolute;
+  left: 0;
+  top: 9px;
+  font-family: var(--font-mono);
+  font-size: var(--lp-fig);
+}
+
+.tallyHas li::before {
+  content: "+";
+  color: var(--color-seal);
+}
+
+.tallyHasnt li::before {
+  content: "\2212"; /* minus sign */
+  color: var(--lp-muted);
+}
+
+.tallyHasnt li {
+  color: var(--lp-muted);
+}
+
+/* ── footer ─────────────────────────────────────────────────────────────────────────────────── */
+
+.footer {
+  padding-block: clamp(40px, 5vw, 64px) clamp(48px, 6vw, 76px);
+  border-top: 1px dashed var(--color-rule-strong);
+}
+
+.footerGrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px 32px;
+}
+
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.footerLink {
+  color: var(--lp-muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: color 0.2s ease;
+}
+.footerLink:hover {
+  color: var(--color-cream);
+}
+
+.footerNote {
+  margin: 26px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--lp-muted);
+  line-height: 1.7;
+}
+
+/* ── motion ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* There is deliberately no scroll-reveal here. A fade-up on every section is the reflex, and it
+   buys a small flourish at the cost of a real failure mode: any mechanism that starts content at
+   `opacity: 0` — IntersectionObserver, or a `view()` scroll timeline — leaves the whole page below
+   the fold invisible if it does not fire. Verified: with a scroll timeline in place, a static
+   full-page render of this route showed the hero and eight blank sections. The page is carried by
+   type, figures and rhythm; it does not need the fade, so it does not take the risk.
+   What remains is one orchestrated entrance in the hero, and hover lifts on surfaces that have
+   depth — transform only, never opacity, so nothing can strand content unreadable. */
+
+/* hero load sequence — reuses the app's own spring easing and rise gesture */
+.enter > * {
+  animation: lpRise 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 0.075s);
+}
+
+@keyframes lpRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter > * {
+    animation: none;
+  }
+}

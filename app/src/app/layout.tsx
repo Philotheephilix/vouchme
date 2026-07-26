@@ -1,27 +1,31 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Instrument_Serif, Public_Sans } from "next/font/google";
+import { Montserrat, Karla, IBM_Plex_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const instrumentSerif = Instrument_Serif({
+// Type pairing: Montserrat — geometric sans — for display headings, over Karla, a friendly grotesque
+// that holds the app's dense 13px body and labels. IBM Plex Mono stays for IDs & figures. Karla keeps
+// the --font-space variable name so the token layer in globals.css is untouched; Montserrat rides on
+// --font-display and is applied to headings.
+const spaceGrotesk = Karla({
   subsets: ["latin"],
-  weight: "400",
-  variable: "--font-instrument-serif",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-space",
   display: "swap",
 });
 
-const publicSans = Public_Sans({
+const montserrat = Montserrat({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-public-sans",
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-mont",
   display: "swap",
 });
 
 const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-plex-mono",
+  weight: ["400", "500"],
+  variable: "--font-plex",
   display: "swap",
 });
 
@@ -34,14 +38,16 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#14120F",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`dark ${instrumentSerif.variable} ${publicSans.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${spaceGrotesk.variable} ${montserrat.variable} ${plexMono.variable}`}>
       <body className="min-h-screen bg-void text-cream">
         <Providers>{children}</Providers>
+        {/* film-grain veil over the whole app — gives flat white surfaces tooth. Decorative only. */}
+        <div className="grain-overlay" aria-hidden />
       </body>
     </html>
   );

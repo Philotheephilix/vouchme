@@ -18,6 +18,16 @@ type GateStatus = "checking" | "not-enrolled" | "enrolled" | "error";
  *  answer with a false alarm. */
 const IDENTITY_CHECK_TIMEOUT_MS = 120_000;
 
+/** Routes that are public by nature and carry no account data at all.
+ *
+ *  The gate's rule is "nothing renders until someone is signed in", and that rule exists to protect
+ *  *somebody's* data. `/pitch` is a static, presenter-free explanation of the protocol and `/landing`
+ *  is the public marketing page — neither reads a session, chain state or an identity, so there is
+ *  nothing on either to protect, and putting a sign-in wall in front of an explanation of what the
+ *  app is defeats the only reason those pages exist. Both render their own full-width chrome, so
+ *  they take neither the `<main>` padding nor the bottom nav. */
+const PUBLIC_ROUTES = new Set(["/pitch", "/landing"]);
+
 /**
  * The whole app is gated on session + enrollment state:
  *
@@ -48,6 +58,7 @@ export function AppGate({ children }: { children: ReactNode }) {
   const { address } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+
   const [status, setStatus] = useState<GateStatus>("checking");
   const [attempt, setAttempt] = useState(0);
   const generationRef = useRef(0);
@@ -110,17 +121,54 @@ export function AppGate({ children }: { children: ReactNode }) {
     }
   }, [address, status, pathname, router]);
 
+  // Public routes render themselves, signed in or not. Placed after every hook so the hook order
+  // is identical on every route, and before the sign-in wall so `/pitch` is reachable by someone
+  // who has no wallet and no account — which is exactly who a pitch deck is for.
+  if (PUBLIC_ROUTES.has(pathname)) {
+    return <>{children}</>;
+  }
+
+  // Local browser-preview bypass: skip the sign-in + enrollment gate so the UI renders in a plain
+  // browser with no World App.
+  //
+  // Moved BELOW the hooks and below the public-route check, and guarded on NODE_ENV. All three
+  // matter:
+  //  - Above the hooks it was an early return before `useState`, so the moment anyone made the
+  //    condition non-constant the hook order would change between renders and React would throw.
+  //  - Above the public-route check it wrapped /landing and /pitch in the 480px mini-app shell
+  //    plus a bottom nav, which is the wrong chrome for a page meant to be shown to the public.
+  //  - Ungated it was a real hazard: the matching bypass in `readVerifiedAddress` compiles to a
+  //    live `process.env` read on the server, so a stray env var on a deploy served signed-in
+  //    pages to anonymous requests with no rebuild. `NODE_ENV` is set by `next build`/`next start`
+  //    and is the one condition a misconfigured environment cannot flip.
+  if (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_PREVIEW === "1") {
+    return (
+      <>
+        <main style={mainStyle}>{children}</main>
+        <BottomNav />
+      </>
+    );
+  }
+
   if (!address) {
     return <LoginScreen />;
   }
 
-  const mainStyle = { paddingBottom: "calc(56px + env(safe-area-inset-bottom))" };
+  const mainStyle = {
+    paddingBottom: "calc(104px + env(safe-area-inset-bottom))",
+    maxWidth: 480,
+    width: "100%",
+    margin: "0 auto",
+  } as const;
 
   if (status === "checking") {
     return (
       <main style={mainStyle}>
         <div className="flex min-h-screen items-center justify-center" data-testid="gate-checking">
-          <p className="font-mono text-2xs uppercase tracking-widest text-graphite">loading…</p>
+          <span className="eyebrow inline-flex items-center gap-2">
+            <span className="dot dot-pulse text-seal" />
+            Loading
+          </span>
         </div>
       </main>
     );
@@ -135,19 +183,13 @@ export function AppGate({ children }: { children: ReactNode }) {
           className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center"
           data-testid="gate-error"
         >
-          <p className="max-w-xs text-sm leading-relaxed text-cream">
+          <p className="max-w-xs text-base leading-relaxed text-cream">
             Can&apos;t reach World Chain right now — we couldn&apos;t confirm your account.
           </p>
-          <p className="max-w-xs font-mono text-2xs uppercase tracking-widest text-graphite">
+          <p className="max-w-xs text-2xs leading-relaxed text-graphite">
             Your identity is safe on chain. This is a network check that failed, not an answer.
           </p>
-          <button
-            type="button"
-            data-testid="gate-retry"
-            onClick={retry}
-            className="mt-2 min-h-[44px] border px-4 py-3 font-mono text-xs uppercase tracking-widest"
-            style={{ borderColor: "var(--color-seal)", color: "var(--color-seal)" }}
-          >
+          <button type="button" data-testid="gate-retry" onClick={retry} className="btn btn-secondary mt-2">
             Retry
           </button>
         </div>

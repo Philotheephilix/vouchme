@@ -1,0 +1,325 @@
+/*
+ * One restrained direction, executed: a statement of account.
+ *
+ * Hairline rules, a lot of quiet, tabular numerals so figures line up down the column, and exactly
+ * one accent colour that only ever means "this is yours to take". Nothing decorative competes with
+ * the two numbers that matter — the score and the amount.
+ */
+
+:root {
+  --bg: #f4f5f2;
+  --surface: #ffffff;
+  --ink: #14181a;
+  --muted: #6a736f;
+  --line: #e3e5e0;
+  --line-strong: #cdd0ca;
+  --accent: #0f6b4f;
+  --accent-ink: #ffffff;
+  --locked: #8c8f8a;
+  --danger: #a33326;
+  --radius: 14px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e100f;
+    --surface: #171a19;
+    --ink: #eaeeec;
+    --muted: #98a09c;
+    --line: #262a28;
+    --line-strong: #363b39;
+    --accent: #46c795;
+    --accent-ink: #08110d;
+    --locked: #767b78;
+    --danger: #e2837a;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────────── */
+
+.shell {
+  margin: 0 auto;
+  max-width: 26rem;
+  padding: 1.75rem 1.125rem calc(2.5rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.unit {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── score ─────────────────────────────────────────────────────────────────── */
+
+.score-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.125rem 1.25rem 1rem;
+}
+
+.score-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.score-figure {
+  display: block;
+  font-size: 3.25rem;
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+}
+
+.score-figure.is-empty {
+  color: var(--locked);
+}
+
+.tier-pill {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tier-pill.is-anchor {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.identity {
+  margin: 0.9rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* ── pools ─────────────────────────────────────────────────────────────────── */
+
+.pools {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pool {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  padding: 0.9rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.pool:first-child {
+  border-top: 0;
+}
+
+.pool.is-locked .pool-name,
+.pool.is-locked .pool-amount {
+  color: var(--locked);
+}
+
+.pool-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.pool-amount {
+  margin-top: 0.1rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.chip {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--locked);
+  white-space: nowrap;
+}
+
+/* ── actions ───────────────────────────────────────────────────────────────── */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.45rem 1.05rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-wide {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 0.9375rem;
+}
+
+.btn-quiet {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.3rem 0.7rem;
+}
+
+.sent {
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.error {
+  margin: 0.5rem 0 0;
+  color: var(--danger);
+  font-size: 0.8125rem;
+}
+
+.error-inline {
+  flex: 0 1 auto;
+  text-align: right;
+  max-width: 12rem;
+}
+
+/* ── preview strip (development only) ──────────────────────────────────────── */
+
+.preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.preview .label {
+  margin-right: 0.25rem;
+}
+
+.preview-chip {
+  appearance: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  padding: 0.22rem 0.6rem;
+  cursor: pointer;
+}
+
+.preview-chip[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* ── footer ────────────────────────────────────────────────────────────────── */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
