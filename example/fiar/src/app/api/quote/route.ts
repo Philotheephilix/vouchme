@@ -36,7 +36,7 @@ export async function GET(req: Request): Promise<Response> {
 
   const closeness = hops.get(item.id) ?? null;
   return Response.json({
-    item: { id: item.id, name: item.name, valueUsd: item.valueUsd, owner: item.owner },
+    item: { id: item.id, name: item.name, valueWld: item.valueWld, owner: item.owner },
     borrower: standing
       ? { ensName: standing.ensName, score: standing.score, tier: standing.tier, kind: standing.kind }
       : null,

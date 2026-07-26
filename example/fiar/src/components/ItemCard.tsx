@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { shortName, usd } from "@/lib/format";
+import { shortName, wld } from "@/lib/format";
 import type { Closeness } from "@/lib/vouchme";
 import type { Item, Quote } from "@/lib/policy";
 import { RateStamp } from "./RateStamp";
@@ -35,10 +35,10 @@ export function ItemCard({ item, quote, closeness }: { item: Item; quote: Quote;
 
       <div className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-1 border-t border-rule-card pt-2 font-typed text-xs">
         <span className="text-ink-soft">
-          Worth <span className="text-ink">{usd(item.valueUsd)}</span>
+          Worth <span className="text-ink">{wld(item.valueWld)} WLD</span>
         </span>
-        {quote.withinCeiling && quote.depositSavedUsd > 0 ? (
-          <span className="text-stamp">You keep {usd(quote.depositSavedUsd)}</span>
+        {quote.withinCeiling && quote.depositSavedWld > 0 ? (
+          <span className="text-stamp">You keep {wld(quote.depositSavedWld)} WLD</span>
         ) : null}
         {quote.neighbourDiscountApplied && closeness ? (
           <span className="text-stamp">{connectionLine(closeness, item.owner)}</span>

@@ -1,4 +1,4 @@
-import { points, usd } from "@/lib/format";
+import { points, wld } from "@/lib/format";
 import type { LadderRung } from "@/lib/policy";
 
 /**
@@ -27,10 +27,10 @@ export function Ladder({ rungs, you }: { rungs: LadderRung[]; you: LadderRung | 
             Score
           </th>
           <th scope="col" className="py-1 text-right font-normal">
-            Deposit
+            Deposit WLD
           </th>
           <th scope="col" className="py-1 text-right font-normal">
-            Per day
+            Per day WLD
           </th>
         </tr>
       </thead>
@@ -47,10 +47,10 @@ export function Ladder({ rungs, you }: { rungs: LadderRung[]; you: LadderRung | 
               </th>
               <td className="py-1.5 text-right">{points(row.score)}</td>
               <td className={`py-1.5 text-right ${isYou ? "font-bold" : ""}`}>
-                {row.withinCeiling ? usd(row.depositUsd) : "—"}
+                {row.withinCeiling ? wld(row.depositWld) : "—"}
               </td>
               <td className="py-1.5 text-right">
-                {row.withinCeiling ? usd(row.ratePerDayUsd) : <span className="text-ink-soft">over limit</span>}
+                {row.withinCeiling ? wld(row.ratePerDayWld) : <span className="text-ink-soft">over limit</span>}
               </td>
             </tr>
           );

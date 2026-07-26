@@ -81,10 +81,7 @@ export async function POST(req: Request): Promise<Response> {
     paid: true,
     subject: address,
     item: item ? { id: item.id, name: item.name, owner: item.owner } : { id: record.itemId },
-    depositUsd: record.depositCents / 100,
-    /** What actually moved. Reported alongside the deposit rather than instead of it, so nobody
-     *  reading this response can mistake the demo settlement for the quoted price. */
-    settlementWld: record.settlementWld,
+    depositWld: record.depositMicroWld / 1_000_000,
     token: "WLD",
     transactionHash: result.transaction.transactionHash ?? null,
     // The receipt is signed so the collection step can verify this deposit was taken by this server
@@ -94,7 +91,7 @@ export async function POST(req: Request): Promise<Response> {
       {
         subject: address,
         item: record.itemId,
-        depositCents: record.depositCents,
+        depositMicroWld: record.depositMicroWld,
         transactionHash: result.transaction.transactionHash ?? null,
       },
       60 * 60 * 24 * 30,

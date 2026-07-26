@@ -1,6 +1,8 @@
-/** Money always renders with both cents, so a column of typed figures aligns like a real ledger. */
-export function usd(value: number): string {
-  return `$${value.toFixed(2)}`;
+/** Every amount in Fiar is WLD, quoted to four decimals so a column of typed figures aligns like a
+ *  real ledger — and so the karma spread stays visible at a catalogue priced under 0.10 WLD, where
+ *  two decimals would round most of it away. */
+export function wld(value: number): string {
+  return value.toFixed(4);
 }
 
 export function points(value: number): string {

@@ -1,4 +1,4 @@
-import { percent, usd } from "@/lib/format";
+import { percent, wld } from "@/lib/format";
 import type { Quote } from "@/lib/policy";
 
 /**
@@ -13,14 +13,14 @@ import type { Quote } from "@/lib/policy";
  * reports that there isn't one.
  */
 export function RateStamp({ quote, animate = false }: { quote: Quote; animate?: boolean }) {
-  const discount = 1 - quote.depositUsd / quote.depositAtFloorUsd;
+  const discount = 1 - quote.depositWld / quote.depositAtFloorWld;
   const cls = `stamp inline-block whitespace-nowrap px-3 py-1.5 text-center ${animate ? "stamp-animate" : ""}`;
 
   if (!quote.withinCeiling) {
     return (
       <div className={`${cls} stamp-strike`} role="status">
         <div className="font-typed text-2xs font-bold uppercase tracking-[0.2em]">Over your limit</div>
-        <div className="font-typed text-xs">ceiling {usd(quote.ceilingUsd)}</div>
+        <div className="font-typed text-xs">ceiling {wld(quote.ceilingWld)} WLD</div>
       </div>
     );
   }
@@ -30,8 +30,8 @@ export function RateStamp({ quote, animate = false }: { quote: Quote; animate?: 
       <div className="font-typed text-2xs font-bold uppercase tracking-[0.2em]">
         {discount > 0 ? `Deposit ${percent(discount)} off` : "Full deposit"}
       </div>
-      <div className="font-typed text-lg font-bold leading-tight">{usd(quote.depositUsd)}</div>
-      <div className="font-typed text-2xs uppercase tracking-[0.16em]">{usd(quote.ratePerDayUsd)} a day</div>
+      <div className="font-typed text-lg font-bold leading-tight">{wld(quote.depositWld)} WLD</div>
+      <div className="font-typed text-2xs uppercase tracking-[0.16em]">{wld(quote.ratePerDayWld)} a day</div>
     </div>
   );
 }

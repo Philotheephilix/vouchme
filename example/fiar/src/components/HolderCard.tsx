@@ -1,5 +1,5 @@
 import type { Standing } from "@vouchme/minikit-sdk";
-import { points, tierLabel, usd } from "@/lib/format";
+import { points, tierLabel, wld } from "@/lib/format";
 import { POLICY } from "@/lib/policy";
 
 /**
@@ -51,7 +51,7 @@ export function HolderCard({
             </div>
             <div className="flex gap-1.5">
               <dt>Borrow up to</dt>
-              <dd className="text-ink">{usd(ceiling)}</dd>
+              <dd className="text-ink">{wld(ceiling)} WLD</dd>
             </div>
             {standing.credentialStatus !== "active" ? (
               <div className="flex gap-1.5">

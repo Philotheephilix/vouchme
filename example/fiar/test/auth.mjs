@@ -93,7 +93,7 @@ let usedToken = null;
   check(
     "signed-in borrow reprices server-side under the SESSION address",
     r.status === 403 && b.code === "over_ceiling",
-    `${r.status} ${b.code} — this EOA has no VouchMe standing, so ceiling $${b.quote?.ceilingUsd} < $120 camera`,
+    `${r.status} ${b.code} — this EOA has no VouchMe standing, so ceiling ${b.quote?.ceilingWld} WLD < 0.10 WLD camera`,
   );
 }
 
@@ -101,13 +101,13 @@ let usedToken = null;
 {
   const r = await borrow(cookie, { item: "table" });
   const b = await r.json();
-  const ok = r.status === 200 && typeof b.authorization === "string" && b.quote.depositUsd === 30;
-  check("an item within the ceiling authorizes and returns a sealed price", ok, `${r.status} deposit $${b.quote?.depositUsd} auth=${String(b.authorization).slice(0, 24)}…`);
+  const ok = r.status === 200 && typeof b.authorization === "string" && b.quote.depositWld === 0.02;
+  check("an item within the ceiling authorizes and returns a sealed price", ok, `${r.status} deposit ${b.quote?.depositWld} WLD auth=${String(b.authorization).slice(0, 24)}…`);
 }
 
 // ── 9. client-claimed price is not trusted ───────────────────────────────────
 {
-  const r = await borrow(cookie, { item: "table", expectedDepositCents: 100 });
+  const r = await borrow(cookie, { item: "table", expectedDepositMicroWld: 1 });
   const b = await r.json();
   check("a client-posted price that disagrees with the server is rejected", r.status === 409 && b.code === "price_moved", `${r.status} ${b.code}`);
 }
@@ -127,9 +127,9 @@ let openedReference = null;
   openedReference = b.payment?.reference ?? null;
   const p = b.payment ?? {};
   check(
-    "borrow opens a payment for a fixed WLD settlement, separate from the deposit",
-    r.status === 200 && p.amountWld === 0.01 && p.isDemoAmount === true && b.quote.depositUsd === 30,
-    `settle ${p.amountWld} WLD, quoted deposit $${b.quote?.depositUsd}, to ${p.to}`,
+    "the payment charges exactly the karma-derived deposit, in WLD",
+    r.status === 200 && p.amountWld === b.quote.depositWld && b.quote.depositWld === 0.02,
+    `charging ${p.amountWld} WLD = the quoted deposit, to ${p.to}`,
   );
   check("the payment reference is server-minted and alphanumeric", /^[a-z0-9]{32}$/.test(openedReference ?? ""), String(openedReference));
 }

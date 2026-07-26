@@ -50,10 +50,14 @@ Fiar treats karma as a **dial**, not a door. Nobody is refused; everybody is pri
 ```
 k = clamp((score − 20) / (140 − 20), 0, 1)     // 0 at the enrollment floor, 1 at Tier 2
 
-deposit = itemValue × max(0.15, 1 − 0.75k − connectionDiscount)
-rate    = listRate  × max(0.50, 1 − 0.40k)
-ceiling = $50 + $60 × tier
+deposit = itemValue × max(0.15, 1 − 0.75k − connectionDiscount)    // WLD
+rate    = listRate  × max(0.50, 1 − 0.40k)                          // WLD per day
+ceiling = 0.035 + 0.035 × tier                                      // WLD
 ```
+
+Everything is priced and settled in **WLD**. There is no second currency and no separate demo
+amount: what karma computes is exactly what the wallet pays. The whole catalogue is 0.02–0.10 WLD,
+so the most anyone can ever be charged is a few cents of real money.
 
 Four separate jobs for one number:
 
@@ -75,16 +79,16 @@ filed in among them, so climbing has a visible price attached before anyone clim
 
 Point Fiar at a VouchMe graph and switch card holders:
 
-The catalogue is everyday household things — $30 to $120 — so the bottom rung of the ladder still
+The catalogue is everyday household things at 0.02–0.10 WLD, so the bottom rung of the ladder still
 reaches something. A ladder whose first rung reaches nothing is a wall, and teaches a new user that
 their standing is worthless rather than merely small.
 
-| Holder | Score | Deposit on a $45 drill | Reaches | Why |
+| Holder | Score | Deposit on the 0.03 WLD drill | Reaches | Why |
 |---|---|---|---|---|
-| `ring1.eth` | 20.0 | **$45.00** — full price | 2 of 6 | Six accounts vouching for each other in a ring. Every edge contributes zero, so the ring pays exactly what a stranger pays. |
-| `carol` | 50.0 | $32.06 | 2 of 6 | Tier 0 still, but 30 points above the floor — and directly vouched by the drill's owner, which is the extra 10% off. |
-| `alice` | 60.0 | $29.25 | 5 of 6 | Tier 1, and both anchors vouch for her *and* for the owner. |
-| `anchor1` | 100.0 | **$6.75** | 6 of 6 | Orb-verified anchor. Hits the 15% floor, and still is not free. |
+| `ring1.eth` | 20.0 | **0.0300** — full price | 2 of 6 | Six accounts vouching for each other in a ring. Every edge contributes zero, so the ring pays exactly what a stranger pays. |
+| `carol` | 50.0 | 0.0214 | 2 of 6 | Tier 0 still, but 30 points above the floor — and directly vouched by the drill's owner, which is the extra 10% off. |
+| `alice` | 60.0 | 0.0195 | 5 of 6 | Tier 1, and both anchors vouch for her *and* for the owner. |
+| `anchor1` | 100.0 | **0.0045** | 6 of 6 | Orb-verified anchor. Hits the 15% floor, and still is not free. |
 
 Note the ring is not *blocked*. It is simply not *cheaper* — and no code in Fiar had to know what a
 collusion ring is.
@@ -139,10 +143,10 @@ POST /api/pay/confirm   → GET developer.worldcoin.org/api/v2/minikit/transacti
 The reference is what ties the halves together. Without checking it, any transaction id from any
 payment in this app would confirm any deposit.
 
-**Two numbers, both always shown.** The karma-derived deposit is a real dollar figure and it is the
-product. What actually settles on chain is a fixed `FIAR_SETTLEMENT_WLD` (default **0.01 WLD**), so
-the whole path runs with real money at a size nobody minds. They travel together in every API
-response and sit side by side on screen. Set `FIAR_SETTLEMENT_WLD=0` to charge the true deposit.
+**One number.** The karma-derived deposit is denominated in WLD and is exactly what gets
+transferred — there is no separate settlement figure to diverge from the quoted price. An earlier
+version quoted dollars and charged a fixed token amount beside it; carrying two numbers that could
+drift apart, with only one of them prominent, was the most dishonest thing in the app.
 
 **What this is not.** `pay()` is a one-way transfer, so the deposit sits in Fiar's payment wallet,
 not in escrow. Returning it is a manual send — there is no contract enforcing the refund. The API

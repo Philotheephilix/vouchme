@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { findItem } from "@/lib/catalog";
 import { quote } from "@/lib/policy";
-import { getRecipient, getSettlementWld, openPayment, PaymentConfigError } from "@/lib/payment";
+import { getRecipient, openPayment, PaymentConfigError } from "@/lib/payment";
 import { AuthConfigError, readVerifiedAddress, signBlob } from "@/lib/session";
 import { readProximity, readStanding } from "@/lib/vouchme";
 
@@ -13,8 +13,8 @@ const QUOTE_TTL_SECONDS = 5 * 60;
 
 interface BorrowBody {
   item?: string;
-  /** What the borrower saw on screen, in cents. Not trusted — compared. */
-  expectedDepositCents?: number;
+  /** What the borrower saw on screen, in micro-WLD. Not trusted — compared. */
+  expectedDepositMicroWld?: number;
 }
 
 /**
@@ -70,7 +70,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!q.withinCeiling) {
     return Response.json(
       {
-        error: `This is worth $${item.valueUsd.toFixed(2)} and your limit is $${q.ceilingUsd.toFixed(2)}.`,
+        error: `This is worth ${item.valueWld.toFixed(4)} WLD and your limit is ${q.ceilingWld.toFixed(4)} WLD.`,
         code: "over_ceiling",
         quote: q,
       },
@@ -81,13 +81,13 @@ export async function POST(req: Request): Promise<Response> {
   // Standing is a pure function of current graph state, so the price genuinely can differ from the
   // one rendered a minute ago — a voucher revoking, an edge expiring, a report landing. Say so
   // rather than silently charging the new number.
-  const serverCents = Math.round(q.depositUsd * 100);
-  if (typeof body.expectedDepositCents === "number" && body.expectedDepositCents !== serverCents) {
+  const serverMicroWld = Math.round(q.depositWld * 1_000_000);
+  if (typeof body.expectedDepositMicroWld === "number" && body.expectedDepositMicroWld !== serverMicroWld) {
     return Response.json(
       {
         error: "Your standing changed since this page loaded. Check the new deposit before continuing.",
         code: "price_moved",
-        shownDepositUsd: body.expectedDepositCents / 100,
+        shownDepositWld: body.expectedDepositMicroWld / 1_000_000,
         quote: q,
       },
       { status: 409 },
@@ -99,8 +99,8 @@ export async function POST(req: Request): Promise<Response> {
     {
       subject: address,
       item: item.id,
-      depositCents: serverCents,
-      rateCentsPerDay: Math.round(q.ratePerDayUsd * 100),
+      depositMicroWld: serverMicroWld,
+      rateMicroWldPerDay: Math.round(q.ratePerDayWld * 1_000_000),
       owner: item.owner,
       computedAtBlock: standing?.meta.computedAtBlock ?? null,
     },
@@ -110,18 +110,13 @@ export async function POST(req: Request): Promise<Response> {
   // Open the payment against the price this server just computed, not one the client will send.
   let payment;
   try {
-    const settlement = getSettlementWld(q.depositUsd);
-    const record = openPayment(address, item.id, serverCents, settlement.amount);
+    const record = openPayment(address, item.id, serverMicroWld);
     payment = {
       reference: record.reference,
       to: getRecipient(),
-      /** WLD actually transferred. See `getSettlementWld` — this is a demo-sized amount by
-       *  default, deliberately separate from the karma-derived deposit above it. */
-      amountWld: settlement.amount,
-      isDemoAmount: settlement.isDemoAmount,
-      description: settlement.isDemoAmount
-        ? `Fiar demo deposit — ${item.name}`
-        : `Fiar deposit — ${item.name}`,
+      /** The karma-derived deposit itself. One number, and it is the one that moves. */
+      amountWld: q.depositWld,
+      description: `Fiar deposit — ${item.name}`,
     };
   } catch (err) {
     if (err instanceof PaymentConfigError) {
@@ -136,7 +131,7 @@ export async function POST(req: Request): Promise<Response> {
     standing: standing
       ? { ensName: standing.ensName, score: standing.score, tier: standing.tier, kind: standing.kind }
       : null,
-    item: { id: item.id, name: item.name, owner: item.owner, valueUsd: item.valueUsd },
+    item: { id: item.id, name: item.name, owner: item.owner, valueWld: item.valueWld },
     quote: q,
     closeness,
     /** Present this to the payment step. It is what fixes the amount. */

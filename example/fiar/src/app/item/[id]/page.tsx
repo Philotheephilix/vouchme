@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { findItem } from "@/lib/catalog";
-import { percent, points, shortName, usd } from "@/lib/format";
+import { percent, points, shortName, wld } from "@/lib/format";
 import { ceilingFor, ladder, POLICY, quote, tierThatReaches, youRung } from "@/lib/policy";
 import { resolveHolder } from "@/lib/holder";
 import { readProximity, readStanding } from "@/lib/vouchme";
@@ -27,7 +27,7 @@ export default async function ItemPage({
   const closeness = hops.get(item.id) ?? null;
   const q = quote({ item, standing, hopsToOwner: closeness?.hops ?? null });
   const rungs = ladder(item);
-  const reachedAt = tierThatReaches(item.valueUsd);
+  const reachedAt = tierThatReaches(item.valueWld);
   const backHref = verified ? "/" : holder ? `/?as=${encodeURIComponent(holder)}` : "/?as=";
 
   return (
@@ -41,7 +41,7 @@ export default async function ItemPage({
           <div className="min-w-0">
             <h1 className="text-xl font-semibold leading-tight">{item.name}</h1>
             <p className="mt-1 font-typed text-2xs uppercase tracking-[0.16em] text-ink-soft">
-              {shortName(item.owner)} · {item.neighbourhood} · worth {usd(item.valueUsd)}
+              {shortName(item.owner)} · {item.neighbourhood} · worth {wld(item.valueWld)} WLD
             </p>
           </div>
           <RateStamp quote={q} animate />
@@ -59,14 +59,14 @@ export default async function ItemPage({
           <>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
               <div>
-                <dt className="font-typed text-2xs uppercase tracking-[0.16em] text-ink-soft">Deposit</dt>
-                <dd className="font-typed text-xl font-bold leading-tight">{usd(q.depositUsd)}</dd>
-                <dd className="font-typed text-2xs text-ink-soft line-through">{usd(q.depositAtFloorUsd)}</dd>
+                <dt className="font-typed text-2xs uppercase tracking-[0.16em] text-ink-soft">Deposit WLD</dt>
+                <dd className="font-typed text-xl font-bold leading-tight">{wld(q.depositWld)}</dd>
+                <dd className="font-typed text-2xs text-ink-soft line-through">{wld(q.depositAtFloorWld)}</dd>
               </div>
               <div>
-                <dt className="font-typed text-2xs uppercase tracking-[0.16em] text-ink-soft">Per day</dt>
-                <dd className="font-typed text-xl font-bold leading-tight">{usd(q.ratePerDayUsd)}</dd>
-                <dd className="font-typed text-2xs text-ink-soft line-through">{usd(q.ratePerDayAtFloorUsd)}</dd>
+                <dt className="font-typed text-2xs uppercase tracking-[0.16em] text-ink-soft">Per day WLD</dt>
+                <dd className="font-typed text-xl font-bold leading-tight">{wld(q.ratePerDayWld)}</dd>
+                <dd className="font-typed text-2xs text-ink-soft line-through">{wld(q.ratePerDayAtFloorWld)}</dd>
               </div>
             </dl>
 
@@ -106,21 +106,21 @@ export default async function ItemPage({
               ) : null}
               <li className="flex justify-between gap-4 border-t border-rule-card pt-2">
                 <span className="font-medium">You keep</span>
-                <span className="font-typed font-bold">{usd(q.depositSavedUsd)}</span>
+                <span className="font-typed font-bold">{wld(q.depositSavedWld)} WLD</span>
               </li>
             </ul>
 
-            <BorrowButton itemId={item.id} depositUsd={q.depositUsd} signedIn={verified} />
+            <BorrowButton itemId={item.id} depositWld={q.depositWld} signedIn={verified} />
           </>
         ) : (
           <div className="mt-3">
             <p className="max-w-prose text-sm leading-relaxed">
-              This is worth <span className="font-typed">{usd(item.valueUsd)}</span>. At{" "}
+              This is worth <span className="font-typed">{wld(item.valueWld)} WLD</span>. At{" "}
               {standing ? `Tier ${standing.tier}` : "no standing"} Fiar lends up to{" "}
-              <span className="font-typed">{usd(q.ceilingUsd)}</span>.
+              <span className="font-typed">{wld(q.ceilingWld)} WLD</span>.
               {reachedAt === null
                 ? " Nothing Fiar lends reaches it."
-                : ` Tier ${reachedAt} lends up to ${usd(ceilingFor(reachedAt))}, which reaches it.`}
+                : ` Tier ${reachedAt} lends up to ${wld(ceilingFor(reachedAt))} WLD, which reaches it.`}
             </p>
             <p className="mt-2 max-w-prose text-sm text-ink-soft">
               Climbing is not something Fiar can sell you. People who know you have to vouch, in VouchMe.

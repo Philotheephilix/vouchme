@@ -7,8 +7,8 @@ import type { Address } from "./session";
 /**
  * Taking the deposit.
  *
- * `MiniKit.pay()` moves USDC on World Chain from the user's World App wallet to an address this app
- * nominated. The client gets a `transaction_id` back — but the client is exactly who a fraudulent
+ * `MiniKit.pay()` moves WLD on World Chain from the user's World App wallet to an address this app
+ * nominated. The client gets a `transactionId` back — but the client is exactly who a fraudulent
  * client would be, so that payload proves nothing on its own. The transfer is only real once THIS
  * server asks the Developer Portal what happened, under its own API key.
  *
@@ -33,31 +33,6 @@ export function getAppId(): string {
     throw new PaymentConfigError("NEXT_PUBLIC_APP_ID is not set to a World Developer Portal app id.");
   }
   return appId;
-}
-
-/**
- * What actually moves on chain, in WLD.
- *
- * The deposit Fiar computes is a real dollar figure derived from karma, and it is the product. This
- * is not that. It is a fixed token amount used to settle the demo with real money at a size nobody
- * minds losing, so the whole path — World App, the transfer, the Developer Portal confirmation —
- * is exercised for real rather than mocked.
- *
- * Both numbers travel together in every response and both are shown on screen. A settlement that
- * quietly diverged from the quoted deposit, with only one of them visible, would be the single most
- * dishonest thing this app could do.
- *
- * Set `FIAR_SETTLEMENT_WLD=0` to charge the true deposit instead — at which point the token amount
- * is the dollar figure and the two stop being separate ideas.
- */
-export function getSettlementWld(depositUsd: number): { amount: number; isDemoAmount: boolean } {
-  const raw = process.env.FIAR_SETTLEMENT_WLD;
-  const fixed = raw === undefined ? 0.01 : Number(raw);
-  if (!Number.isFinite(fixed) || fixed < 0) {
-    throw new PaymentConfigError(`FIAR_SETTLEMENT_WLD must be a non-negative number, got "${raw}".`);
-  }
-  if (fixed === 0) return { amount: depositUsd, isDemoAmount: false };
-  return { amount: fixed, isDemoAmount: true };
 }
 
 export function getRecipient(): Address {
@@ -88,11 +63,13 @@ export interface PendingPayment {
   reference: string;
   subject: Address;
   itemId: string;
-  /** The karma-derived deposit, in cents. What the product says you owe. */
-  depositCents: number;
-  /** What is actually being transferred, in WLD. Recorded here so confirmation can check the
-   *  chain paid at least this much — otherwise a wallet could settle a cent and be marked paid. */
-  settlementWld: number;
+  /** The karma-derived deposit, in micro-WLD (1e-6 WLD) so it stays an integer.
+   *
+   *  This IS the amount transferred. There is no separate settlement figure: the catalogue is
+   *  priced in WLD, so what karma computes is what the wallet pays. An earlier version charged a
+   *  fixed token amount alongside a dollar quote, and carrying two numbers that could diverge was
+   *  the most dishonest thing in the app. */
+  depositMicroWld: number;
   createdAt: number;
 }
 
@@ -113,12 +90,7 @@ const globalStore = globalThis as typeof globalThis & { __fiarPendingPayments?: 
 const pending: Map<string, PendingPayment> = (globalStore.__fiarPendingPayments ??= new Map());
 const PENDING_TTL_MS = 15 * 60 * 1000;
 
-export function openPayment(
-  subject: Address,
-  itemId: string,
-  depositCents: number,
-  settlementWld: number,
-): PendingPayment {
+export function openPayment(subject: Address, itemId: string, depositMicroWld: number): PendingPayment {
   const now = Date.now();
   for (const [ref, p] of pending) if (now - p.createdAt > PENDING_TTL_MS) pending.delete(ref);
   // World App requires the reference to be alphanumeric, so the UUID's dashes come out.
@@ -126,8 +98,7 @@ export function openPayment(
     reference: randomUUID().replace(/-/g, ""),
     subject,
     itemId,
-    depositCents,
-    settlementWld,
+    depositMicroWld,
     createdAt: now,
   };
   pending.set(record.reference, record);
@@ -212,8 +183,9 @@ export async function confirmPayment(transactionId: string, expected: PendingPay
   // paid, because every other check would still pass.
   if (tx.tokenAmount !== undefined) {
     const paidAtomic = BigInt(tx.tokenAmount);
-    // Round up: floating-point cents must never make the required amount smaller than intended.
-    const requiredAtomic = BigInt(Math.ceil(expected.settlementWld * 1e18));
+    // micro-WLD -> wei, exactly: 1e-6 WLD is 1e12 wei at 18 decimals. Integer maths throughout, so
+    // no float can make the required amount come out smaller than what was quoted.
+    const requiredAtomic = BigInt(expected.depositMicroWld) * 1_000_000_000_000n;
     if (paidAtomic < requiredAtomic) {
       return {
         ok: false,

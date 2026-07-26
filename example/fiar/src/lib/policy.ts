@@ -32,14 +32,14 @@ export const POLICY = {
    *  borrow for free, and Fiar would be running an unsecured loan book by accident. */
   depositFloor: 0.15,
   rateFloor: 0.5,
-  /** Value ceiling by tier, in USD: `base + step × tier`. Reputation does not only make borrowing
+  /** Value ceiling by tier, in WLD: `base + step × tier`. Reputation does not only make borrowing
    *  cheaper, it makes more of the catalogue reachable — which is the part people act on.
    *
-   *  Sized against a catalogue of everyday household things ($30–$120) so an account at the
-   *  enrollment floor can still borrow something. A ladder whose bottom rung reaches nothing is a
-   *  wall, and it teaches a new user their standing is worthless rather than merely small. */
-  ceilingBase: 50,
-  ceilingPerTier: 60,
+   *  Sized so an account at the enrollment floor can still borrow something. A ladder whose bottom
+   *  rung reaches nothing is a wall, and teaches a new user their standing is worthless rather than
+   *  merely small. */
+  ceilingBase: 0.035,
+  ceilingPerTier: 0.035,
   /** A lapsed credential is not a report — it means nobody has checked recently. Fiar prices the
    *  uncertainty instead of refusing, by ignoring karma entirely for the duration. */
   gracePeriodKarmaMultiplier: 0.5,
@@ -48,10 +48,10 @@ export const POLICY = {
 export interface Item {
   id: string;
   name: string;
-  /** What Fiar would have to pay to replace it. The deposit is a fraction of this. */
-  valueUsd: number;
-  /** The undiscounted daily rate — what someone with no standing at all pays. */
-  listRatePerDayUsd: number;
+  /** Replacement cost in WLD. The deposit is a fraction of this. */
+  valueWld: number;
+  /** The undiscounted daily rate in WLD — what someone with no standing at all pays. */
+  listRatePerDayWld: number;
   owner: string;
   neighbourhood: string;
   /** Owner's own words. Shown verbatim; Fiar does not rewrite what people say about their things. */
@@ -61,18 +61,18 @@ export interface Item {
 export interface Quote {
   /** 0 at the enrollment floor, 1 at the Tier 2 threshold. Every discount is a function of this. */
   karmaFactor: number;
-  depositUsd: number;
-  ratePerDayUsd: number;
+  depositWld: number;
+  ratePerDayWld: number;
   /** What the same item costs somebody with no VouchMe standing at all. */
-  depositAtFloorUsd: number;
-  ratePerDayAtFloorUsd: number;
-  depositSavedUsd: number;
-  rateSavedPerDayUsd: number;
+  depositAtFloorWld: number;
+  ratePerDayAtFloorWld: number;
+  depositSavedWld: number;
+  rateSavedPerDayWld: number;
   /** Applied, and why. Present so the card can name the discount instead of just showing a number. */
   neighbourDiscountApplied: boolean;
   hopsToOwner: number | null;
-  /** Highest item value this standing may borrow. */
-  ceilingUsd: number;
+  /** Highest item value, in WLD, this standing may borrow. */
+  ceilingWld: number;
   withinCeiling: boolean;
   /** True when the credential is in its 14-day grace window and karma was halved for it. */
   credentialDiscounted: boolean;
@@ -81,13 +81,13 @@ export interface Quote {
 /**
  * The lowest tier whose ceiling reaches this item, or null if none does.
  *
- * Needed because "one more rung" is often a lie: a $520 camera is out of reach at Tier 0 AND at
- * Tier 1, so telling a Tier 0 borrower that the next rung raises their limit to $400 sends them to
- * earn a promotion that still would not get them the camera.
+ * Needed because "one more rung" is often a lie: the camera is out of reach at Tier 0 AND at Tier 1,
+ * so telling a Tier 0 borrower that the next rung raises their limit sends them to earn a promotion
+ * that still would not get them the camera.
  */
-export function tierThatReaches(valueUsd: number): 0 | 1 | 2 | null {
+export function tierThatReaches(valueWld: number): 0 | 1 | 2 | null {
   for (const tier of [0, 1, 2] as const) {
-    if (valueUsd <= POLICY.ceilingBase + POLICY.ceilingPerTier * tier) return tier;
+    if (valueWld <= POLICY.ceilingBase + POLICY.ceilingPerTier * tier) return tier;
   }
   return null;
 }
@@ -100,8 +100,10 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
-function roundCents(value: number): number {
-  return Math.round(value * 100) / 100;
+/** WLD is quoted to four decimals throughout. Amounts here are small — a whole catalogue under
+ *  0.10 WLD — so rounding to cents would collapse most of the karma spread into the same number. */
+function roundWld(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
 }
 
 /**
@@ -155,22 +157,22 @@ export function quote({ item, standing, hopsToOwner }: QuoteInput): Quote {
   );
   const rateRate = Math.max(POLICY.rateFloor, 1 - POLICY.rateMaxDiscount * k);
 
-  const depositUsd = roundCents(item.valueUsd * depositRate);
-  const ratePerDayUsd = roundCents(item.listRatePerDayUsd * rateRate);
-  const ceilingUsd = POLICY.ceilingBase + POLICY.ceilingPerTier * tier;
+  const depositWld = roundWld(item.valueWld * depositRate);
+  const ratePerDayWld = roundWld(item.listRatePerDayWld * rateRate);
+  const ceilingWld = POLICY.ceilingBase + POLICY.ceilingPerTier * tier;
 
   return {
     karmaFactor: k,
-    depositUsd,
-    ratePerDayUsd,
-    depositAtFloorUsd: roundCents(item.valueUsd),
-    ratePerDayAtFloorUsd: roundCents(item.listRatePerDayUsd),
-    depositSavedUsd: roundCents(item.valueUsd - depositUsd),
-    rateSavedPerDayUsd: roundCents(item.listRatePerDayUsd - ratePerDayUsd),
+    depositWld,
+    ratePerDayWld,
+    depositAtFloorWld: roundWld(item.valueWld),
+    ratePerDayAtFloorWld: roundWld(item.listRatePerDayWld),
+    depositSavedWld: roundWld(item.valueWld - depositWld),
+    rateSavedPerDayWld: roundWld(item.listRatePerDayWld - ratePerDayWld),
     neighbourDiscountApplied,
     hopsToOwner,
-    ceilingUsd,
-    withinCeiling: item.valueUsd <= ceilingUsd,
+    ceilingWld,
+    withinCeiling: item.valueWld <= ceilingWld,
     credentialDiscounted: inGrace,
   };
 }
@@ -183,9 +185,9 @@ export interface LadderRung {
    *  "Enrolled" row quotes. Marking a threshold row "you" instead of adding this one would print a
    *  score the viewer does not have. */
   score: number;
-  depositUsd: number;
-  ratePerDayUsd: number;
-  ceilingUsd: number;
+  depositWld: number;
+  ratePerDayWld: number;
+  ceilingWld: number;
   withinCeiling: boolean;
 }
 
@@ -230,9 +232,9 @@ function rung(
     tier,
     label,
     score,
-    depositUsd: q.depositUsd,
-    ratePerDayUsd: q.ratePerDayUsd,
-    ceilingUsd: q.ceilingUsd,
+    depositWld: q.depositWld,
+    ratePerDayWld: q.ratePerDayWld,
+    ceilingWld: q.ceilingWld,
     withinCeiling: q.withinCeiling,
   };
 }

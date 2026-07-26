@@ -19,19 +19,18 @@ import { useState } from "react";
  */
 
 interface Paid {
-  depositUsd: number;
-  settlementWld: number;
+  depositWld: number;
   transactionHash: string | null;
   itemName: string;
 }
 
 export function BorrowButton({
   itemId,
-  depositUsd,
+  depositWld,
   signedIn,
 }: {
   itemId: string;
-  depositUsd: number;
+  depositWld: number;
   signedIn: boolean;
 }) {
   const router = useRouter();
@@ -116,7 +115,7 @@ export function BorrowButton({
       const res = await fetch("/api/borrow", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ item: itemId, expectedDepositCents: Math.round(depositUsd * 100) }),
+        body: JSON.stringify({ item: itemId, expectedDepositMicroWld: Math.round(depositWld * 1_000_000) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -162,8 +161,7 @@ export function BorrowButton({
         return;
       }
       setPaid({
-        depositUsd: confirmed.depositUsd,
-        settlementWld: confirmed.settlementWld,
+        depositWld: confirmed.depositWld,
         transactionHash: confirmed.transactionHash,
         itemName: confirmed.item?.name ?? "your item",
       });
@@ -179,10 +177,7 @@ export function BorrowButton({
     return (
       <div className="mt-4 border-2 border-stamp px-4 py-3">
         <p className="font-typed text-2xs uppercase tracking-[0.2em] text-stamp">Deposit taken</p>
-        <p className="mt-1 font-typed text-lg font-bold">
-          {paid.settlementWld} WLD
-          <span className="ml-2 font-sans text-sm font-normal text-ink-soft">for ${paid.depositUsd.toFixed(2)}</span>
-        </p>
+        <p className="mt-1 font-typed text-lg font-bold">{paid.depositWld.toFixed(4)} WLD</p>
         <p className="mt-1 text-sm leading-relaxed text-ink-soft">
           {paid.itemName} is yours to collect. Confirmed on World Chain by Fiar&apos;s server, not by this page.
         </p>
@@ -207,7 +202,7 @@ export function BorrowButton({
   return (
     <>
       <button type="button" onClick={signedIn ? borrow : connect} disabled={busy} className={button}>
-        {busy ? (step ?? "Working…") : signedIn ? `Borrow · $${depositUsd.toFixed(2)} held` : "Connect wallet to borrow"}
+        {busy ? (step ?? "Working…") : signedIn ? `Borrow · ${depositWld.toFixed(4)} WLD held` : "Connect wallet to borrow"}
       </button>
       {error ? (
         <p className="mt-2 border-l-2 border-limit pl-3 text-sm leading-relaxed text-limit" role="alert">
